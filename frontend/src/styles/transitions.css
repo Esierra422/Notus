@@ -1,0 +1,75 @@
+/* Page transitions - smooth fade and subtle slide on navigation */
+.page-transition {
+  animation: pageEnter 0.3s ease-out;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition {
+    animation: none;
+  }
+}
+
+/* Smooth link/button transitions across the app */
+.app-nav-link,
+.app-logo,
+.app-avatar-link,
+.app-settings-btn,
+.app-avatar {
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+.app-nav-link:active,
+.app-logo:active {
+  opacity: 0.85;
+}
+
+/* Card and list item hover feedback */
+.meeting-item,
+.org-team-item,
+.member-card,
+.feature-card,
+.org-admin-block,
+.org-admin-list-item,
+.meeting-item a,
+.org-team-item a {
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.org-admin-btn {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+/* Button press feedback */
+button:not(:disabled),
+[role="button"] {
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.15s ease, opacity 0.2s ease;
+}
+
+button:not(:disabled):active,
+[role="button"]:active {
+  transform: scale(0.98);
+}
+
+/* Form inputs */
+input,
+textarea,
+select {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Dropdowns and modals */
+.app-dropdown,
+.notifications-dropdown {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}

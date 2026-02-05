@@ -1,0 +1,7 @@
+export { LandingPage } from './LandingPage'
+export { SignUpPage } from './SignUpPage'
+export { LoginPage } from './LoginPage'
+export { AppPage } from './AppPage'
+export { ProfilePage } from './ProfilePage'
+export { SettingsPage } from './SettingsPage'
+export { TeamPage } from './TeamPage'

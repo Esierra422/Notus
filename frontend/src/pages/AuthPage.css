@@ -1,0 +1,133 @@
+/* Auth page — same background, gold accents, typography as landing */
+.auth-page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  position: relative;
+}
+
+.auth-back {
+  position: absolute;
+  top: 1.5rem;
+  left: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.auth-back:hover {
+  color: var(--accent);
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-logo {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-decoration: none;
+  display: inline-block;
+  margin-bottom: 2.5rem;
+}
+
+.auth-logo:hover {
+  color: var(--accent);
+}
+
+.auth-progress {
+  margin-bottom: 1.5rem;
+}
+
+.auth-progress-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.auth-carousel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  min-height: 280px;
+  overflow: hidden;
+}
+
+.auth-step-wrap {
+  animation: authSlideIn 0.3s ease-out;
+}
+
+.auth-step-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.5rem;
+  color: var(--text);
+}
+
+.auth-step-subtitle {
+  font-size: 1rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.auth-carousel--back .auth-step-wrap {
+  animation: authSlideInBack 0.3s ease-out;
+}
+
+@keyframes authSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes authSlideInBack {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-page {
+    padding: 1.5rem 1rem;
+  }
+
+  .auth-back {
+    top: 1rem;
+    left: 1rem;
+  }
+
+  .auth-carousel {
+    padding: 1.5rem;
+    min-height: 260px;
+  }
+
+  .auth-logo {
+    margin-bottom: 2rem;
+  }
+}

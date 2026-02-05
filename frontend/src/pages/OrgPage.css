@@ -1,0 +1,57 @@
+.org-page-main h2 {
+  margin-bottom: 1rem;
+}
+
+.org-teams-actions {
+  margin-bottom: 1.5rem;
+}
+
+.org-create-team-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 320px;
+}
+
+.org-create-team-btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.org-teams-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.org-team-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.org-team-link {
+  font-size: 1rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.org-team-link:hover {
+  color: var(--accent);
+}
+
+.org-team-pending {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.org-teams-empty {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  padding: 1rem 0;
+}

@@ -1,0 +1,100 @@
+.org-admin-main h2 {
+  margin-bottom: 1.5rem;
+}
+
+.org-admin-section {
+  margin-bottom: 2rem;
+}
+
+.org-admin-section h3 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem;
+}
+
+.org-admin-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.org-admin-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.org-admin-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.org-admin-btn {
+  padding: 0.4rem 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.org-admin-btn-approve {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.org-admin-btn-approve:hover:not(:disabled) {
+  background: var(--accent-dim);
+}
+
+.org-admin-btn-reject {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.org-admin-btn-reject:hover:not(:disabled) {
+  color: #e57373;
+  border-color: #e57373;
+}
+
+.org-admin-invite-form {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.org-admin-invite-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.org-admin-invite-input:focus {
+  border-color: var(--accent);
+}
+
+.org-admin-error {
+  color: #e57373;
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}
+
+.org-admin-success {
+  color: var(--accent);
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}

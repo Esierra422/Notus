@@ -1,0 +1,129 @@
+.settings-main {
+  max-width: 640px;
+}
+
+.settings-header {
+  margin-bottom: 2rem;
+}
+
+.settings-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.settings-subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.settings-section {
+  margin-bottom: 2rem;
+}
+
+.settings-section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+}
+
+.settings-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.settings-card-link {
+  cursor: pointer;
+}
+
+.settings-card-link:hover {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+.settings-card-link:hover .settings-card-arrow {
+  color: var(--accent);
+}
+
+.settings-card-disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.settings-card-button {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.settings-card-button:hover {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+.settings-card-icon {
+  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+}
+
+.settings-card-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.settings-card-title {
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.settings-card-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.settings-card-arrow {
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  transition: color 0.2s;
+}
+
+.settings-footer {
+  margin-top: 2rem;
+}
+
+.settings-back-link {
+  font-size: 0.95rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.settings-back-link:hover {
+  text-decoration: underline;
+}

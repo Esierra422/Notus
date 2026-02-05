@@ -1,0 +1,147 @@
+.dashboard-main {
+  max-width: 900px;
+}
+
+.dashboard-org-badge {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.dashboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.dashboard-section {
+  padding: 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.dashboard-section-title {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.dashboard-section-desc {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+}
+
+.dashboard-subtitle {
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin: 0 0 0.5rem;
+}
+
+.dashboard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 320px;
+}
+
+.dashboard-form-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dashboard-pending {
+  max-width: 480px;
+}
+
+.dashboard-section-admin .org-admin-invite-block,
+.dashboard-section-admin .org-admin-block {
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-section-admin .org-admin-block:last-child {
+  margin-bottom: 0;
+}
+
+.dashboard-section-admin .org-admin-list-item {
+  background: var(--bg-elevated);
+}
+
+/* Member cards: avatar left, name top, email below */
+.member-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.member-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 0.5rem;
+}
+
+.member-card-pending {
+  flex-wrap: wrap;
+}
+
+.member-card-pending .org-admin-actions {
+  margin-left: auto;
+}
+
+.member-card-avatar {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.member-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.member-card-initials {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.member-card-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.member-card-name {
+  font-weight: 500;
+  font-size: 1rem;
+}
+
+.member-card-email {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.member-card-role {
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 500;
+  margin-top: 0.15rem;
+}
+
+/* Reuse meeting-list, meeting-item, org-teams-list, org-team-item, org-admin-* from other CSS */

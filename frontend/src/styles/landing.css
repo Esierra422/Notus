@@ -1,0 +1,7 @@
+/* Landing page layout - applies theme to .landing */
+.landing {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+}

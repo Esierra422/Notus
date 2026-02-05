@@ -1,0 +1,135 @@
+.notifications-dropdown {
+  position: relative;
+}
+
+.notifications-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 0.25rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.notifications-trigger:hover {
+  color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+.notifications-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 8px;
+}
+
+.notifications-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: 320px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.notifications-title {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.notifications-empty {
+  padding: 1.5rem 1.25rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.notifications-list {
+  list-style: none;
+  padding: 0.5rem 0;
+  margin: 0;
+}
+
+.notifications-item {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.notifications-item:last-child {
+  border-bottom: none;
+}
+
+.notifications-item-text {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.notifications-item-text strong {
+  font-weight: 600;
+}
+
+.notifications-item-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.notifications-btn {
+  padding: 0.35rem 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.2s;
+}
+
+.notifications-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.notifications-btn-accept {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.notifications-btn-accept:hover:not(:disabled) {
+  background: var(--accent-dim);
+}
+
+.notifications-btn-decline {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.notifications-btn-decline:hover:not(:disabled) {
+  color: #e57373;
+  border-color: #e57373;
+}

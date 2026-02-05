@@ -1,0 +1,25 @@
+.meeting-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+
+.meeting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.meeting-title {
+  font-weight: 500;
+}
+
+.meeting-meta {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
