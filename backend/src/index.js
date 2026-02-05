@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import { config } from './config/index.js'
+import './lib/firebaseAdmin.js'
 import routes from './routes/index.js'
 
 const app = express()
