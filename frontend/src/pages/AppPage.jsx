@@ -1,37 +1,26 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from '../lib/firebase'
+import { useNavigate, Link, useOutletContext } from 'react-router-dom'
 import {
   getActiveMembership,
   getPendingMembership,
+  getPendingRequests,
   createOrg,
   searchOrgsByName,
   requestToJoinOrg,
   getOrg,
   getMembership,
-  getOrgMembers,
-  getPendingRequests,
-  updateMembershipState,
   canManageOrg,
   MEMBERSHIP_STATES,
 } from '../lib/orgService'
-import { createOrgInvitation } from '../lib/invitationService'
 import {
   getOrgTeams,
-  createTeam,
   getTeamMembership,
   requestToJoinTeam,
 } from '../lib/teamService'
-import {
-  createMeeting,
-  getOrgMeetings,
-  getMeetingsForUser,
-  MEETING_SCOPES,
-} from '../lib/meetingService'
-import { getUserDoc, getDisplayName, getMemberDisplayLine, getProfilePictureUrl } from '../lib/userService'
-import { AppHeader, AppFooter } from '../components/app'
+import { getMeetingsForUser } from '../lib/meetingService'
+import { getTodos, addTodo, toggleTodo, deleteTodo } from '../lib/todoService'
 import { Button } from '../components/ui/Button'
+import { MiniCalendarWidget } from '../components/dashboard/MiniCalendarWidget'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './Dashboard.css'
@@ -45,7 +34,7 @@ import './OrgAdminPage.css'
  */
 export function AppPage() {
   const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const { user, setNavExtra } = useOutletContext() || {}
   const [activeOrgId, setActiveOrgId] = useState(null)
   const [org, setOrg] = useState(null)
   const [membership, setMembership] = useState(null)
@@ -61,51 +50,40 @@ export function AppPage() {
 
   // Meetings
   const [upcomingMeetings, setUpcomingMeetings] = useState([])
-  const [orgMeetings, setOrgMeetings] = useState([])
-  const [showCreateMeeting, setShowCreateMeeting] = useState(false)
-  const [newMeetingTitle, setNewMeetingTitle] = useState('')
-  const [creatingMeeting, setCreatingMeeting] = useState(false)
 
   // Teams
   const [teams, setTeams] = useState([])
   const [teamMemberships, setTeamMemberships] = useState({})
-  const [showCreateTeam, setShowCreateTeam] = useState(false)
-  const [newTeamName, setNewTeamName] = useState('')
   const [requesting, setRequesting] = useState({})
+  const [pendingCount, setPendingCount] = useState(0)
 
-  // Admin
-  const [members, setMembers] = useState([])
-  const [pending, setPending] = useState([])
-  const [userProfiles, setUserProfiles] = useState({})
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteLoading, setInviteLoading] = useState(false)
-  const [inviteError, setInviteError] = useState('')
-  const [inviteSuccess, setInviteSuccess] = useState('')
-  const [adminLoading, setAdminLoading] = useState({})
+  // To-dos
+  const [todos, setTodos] = useState([])
+  const [newTodoText, setNewTodoText] = useState('')
+  const [newTodoDueDate, setNewTodoDueDate] = useState('')
+  const [todoLoading, setTodoLoading] = useState(false)
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        navigate('/login')
-        return
-      }
-      setUser(u)
+    if (!user) return
+    const load = async () => {
       const [active, pendingMem] = await Promise.all([
-        getActiveMembership(u.uid),
-        getPendingMembership(u.uid),
+        getActiveMembership(user.uid),
+        getPendingMembership(user.uid),
       ])
-      if (active) {
-        setActiveOrgId(active.orgId)
-      }
+      if (active) setActiveOrgId(active.orgId)
       if (pendingMem) {
         const orgData = await getOrg(pendingMem.orgId)
         setPendingOrg(orgData || { id: pendingMem.orgId, name: 'Organization' })
         setView('pending')
       }
       setLoading(false)
-    })
-    return unsub
-  }, [navigate])
+    }
+    load()
+  }, [user])
+
+  useEffect(() => {
+    if (setNavExtra) setNavExtra(undefined)
+  }, [setNavExtra])
 
   useEffect(() => {
     if (!user || !activeOrgId) return
@@ -122,16 +100,13 @@ export function AppPage() {
 
   useEffect(() => {
     if (!user || !activeOrgId) return
-    const load = async () => {
-      const [upcoming, orgList] = await Promise.all([
-        getMeetingsForUser(user.uid),
-        getOrgMeetings(activeOrgId),
-      ])
-      setUpcomingMeetings(upcoming)
-      setOrgMeetings(orgList)
-    }
-    load()
+    getMeetingsForUser(user.uid).then(setUpcomingMeetings)
   }, [user, activeOrgId])
+
+  useEffect(() => {
+    if (!activeOrgId || !membership || !canManageOrg(membership)) return
+    getPendingRequests(activeOrgId).then((p) => setPendingCount(p.length))
+  }, [activeOrgId, membership])
 
   useEffect(() => {
     if (!activeOrgId || !user) return
@@ -146,33 +121,49 @@ export function AppPage() {
       setTeamMemberships(mems)
     }
     load()
-  }, [activeOrgId, user, showCreateTeam])
+  }, [activeOrgId, user])
 
   useEffect(() => {
-    if (!activeOrgId) return
-    const load = async () => {
-      const [membersData, pendingData] = await Promise.all([
-        getOrgMembers(activeOrgId),
-        getPendingRequests(activeOrgId),
-      ])
-      setMembers(membersData.filter((m) => m.state === MEMBERSHIP_STATES.active))
-      setPending(pendingData)
-      const userIds = [...new Set([
-        ...membersData.map((m) => m.userId),
-        ...pendingData.map((p) => p.userId),
-      ])]
-      const profiles = {}
-      await Promise.all(userIds.map(async (uid) => {
-        try {
-          profiles[uid] = await getUserDoc(uid)
-        } catch {
-          profiles[uid] = null
-        }
-      }))
-      setUserProfiles(profiles)
+    if (!user?.uid) return
+    getTodos(user.uid).then(setTodos)
+  }, [user?.uid])
+
+  const handleAddTodo = async (e) => {
+    e.preventDefault()
+    if (!newTodoText.trim() || !user?.uid) return
+    setTodoLoading(true)
+    try {
+      const dueDate = newTodoDueDate ? new Date(newTodoDueDate + 'T00:00:00') : null
+      const t = await addTodo(user.uid, newTodoText.trim(), dueDate)
+      setTodos((prev) => [...prev, t])
+      setNewTodoText('')
+      setNewTodoDueDate('')
+    } catch {
+      // ignore
+    } finally {
+      setTodoLoading(false)
     }
-    load()
-  }, [activeOrgId])
+  }
+
+  const handleToggleTodo = async (todoId, done) => {
+    if (!user?.uid) return
+    try {
+      await toggleTodo(user.uid, todoId, done)
+      setTodos((prev) => prev.map((t) => (t.id === todoId ? { ...t, done } : t)))
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleDeleteTodo = async (todoId) => {
+    if (!user?.uid) return
+    try {
+      await deleteTodo(user.uid, todoId)
+      setTodos((prev) => prev.filter((t) => t.id !== todoId))
+    } catch {
+      // ignore
+    }
+  }
 
   const handleCreateOrg = async (e) => {
     e.preventDefault()
@@ -227,48 +218,6 @@ export function AppPage() {
     }
   }
 
-  const handleCreateMeeting = async (e) => {
-    e.preventDefault()
-    setError('')
-    if (!newMeetingTitle.trim()) return
-    setCreatingMeeting(true)
-    try {
-      await createMeeting(activeOrgId, {
-        title: newMeetingTitle.trim(),
-        scope: MEETING_SCOPES.org,
-      }, user.uid)
-      setShowCreateMeeting(false)
-      setNewMeetingTitle('')
-      const [upcoming, orgList] = await Promise.all([
-        getMeetingsForUser(user.uid),
-        getOrgMeetings(activeOrgId),
-      ])
-      setUpcomingMeetings(upcoming)
-      setOrgMeetings(orgList)
-    } catch (err) {
-      setError(err.message || 'Failed to create meeting.')
-    } finally {
-      setCreatingMeeting(false)
-    }
-  }
-
-  const handleCreateTeam = async (e) => {
-    e.preventDefault()
-    setError('')
-    if (!newTeamName.trim()) return
-    setCreateLoading(true)
-    try {
-      const team = await createTeam(activeOrgId, newTeamName, user.uid)
-      setShowCreateTeam(false)
-      setNewTeamName('')
-      setTeams((t) => [...t, team])
-    } catch (err) {
-      setError(err.message || 'Failed to create team.')
-    } finally {
-      setCreateLoading(false)
-    }
-  }
-
   const handleRequestJoinTeam = async (teamId) => {
     setError('')
     setRequesting((r) => ({ ...r, [teamId]: true }))
@@ -283,71 +232,13 @@ export function AppPage() {
     }
   }
 
-  const handleApprove = async (userId) => {
-    setAdminLoading((l) => ({ ...l, [userId]: true }))
-    try {
-      await updateMembershipState(activeOrgId, userId, MEMBERSHIP_STATES.active)
-      setPending((p) => p.filter((m) => m.userId !== userId))
-      setMembers((m) => [...m, { userId, role: 'member', state: MEMBERSHIP_STATES.active }])
-      const profile = await getUserDoc(userId)
-      setUserProfiles((p) => ({ ...p, [userId]: profile }))
-    } finally {
-      setAdminLoading((l) => ({ ...l, [userId]: false }))
-    }
-  }
-
-  const handleReject = async (userId) => {
-    setAdminLoading((l) => ({ ...l, [userId]: true }))
-    try {
-      await updateMembershipState(activeOrgId, userId, MEMBERSHIP_STATES.rejected)
-      setPending((p) => p.filter((m) => m.userId !== userId))
-    } finally {
-      setAdminLoading((l) => ({ ...l, [userId]: false }))
-    }
-  }
-
-  const handleInvite = async (e) => {
-    e.preventDefault()
-    setInviteError('')
-    setInviteSuccess('')
-    const email = inviteEmail.trim()
-    if (!email) {
-      setInviteError('Enter an email address.')
-      return
-    }
-    setInviteLoading(true)
-    try {
-      const inviterProfile = userProfiles[user.uid] || null
-      const inviterLabel = getMemberDisplayLine(inviterProfile, user.uid, user, null)
-      await createOrgInvitation(
-        activeOrgId,
-        email,
-        user.uid,
-        inviterLabel || getDisplayName(inviterProfile, user.uid),
-        inviterProfile?.email || user.email || '',
-        org?.name
-      )
-      setInviteSuccess(`Invitation sent to ${email}.`)
-      setInviteEmail('')
-    } catch (err) {
-      setInviteError(err.message || 'Failed to send invitation.')
-    } finally {
-      setInviteLoading(false)
-    }
-  }
-
   if (!user) return null
 
   const needsOrg = !activeOrgId && !pendingOrg
   const isAdmin = membership && canManageOrg(membership)
 
   return (
-    <div className="app-layout">
-      <AppHeader
-        user={user}
-        navExtra={org ? <span className="dashboard-org-badge">{org.name}</span> : null}
-      />
-      <main className="app-main dashboard-main">
+    <main className="app-main dashboard-main">
         {loading ? (
           <p className="app-muted">Loading…</p>
         ) : needsOrg ? (
@@ -431,238 +322,131 @@ export function AppPage() {
             </p>
           </div>
         ) : (
-          <div className="dashboard-grid">
-            {/* Upcoming meetings */}
-            <section className="dashboard-section">
-              <h3 className="dashboard-section-title">Upcoming meetings</h3>
-              <p className="dashboard-section-desc">Meetings you can access across all organizations.</p>
-              {upcomingMeetings.length === 0 ? (
-                <p className="app-muted">No meetings yet.</p>
-              ) : (
-                <ul className="meeting-list">
-                  {upcomingMeetings.map((m) => (
-                    <li key={m.id} className="meeting-item">
-                      <span className="meeting-title">{m.title}</span>
-                      <span className="meeting-meta">
-                        {m._orgName || m.orgId} · {m.scope}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+          <div className="dashboard-overview">
+            {/* Stats row */}
+            <div className="dashboard-stats">
+              <div className="dashboard-stat-card">
+                <span className="dashboard-stat-value">{todos.filter((t) => !t.done).length}</span>
+                <span className="dashboard-stat-label">Tasks</span>
+              </div>
+              <div className="dashboard-stat-card">
+                <span className="dashboard-stat-value">{upcomingMeetings.length}</span>
+                <span className="dashboard-stat-label">Upcoming</span>
+              </div>
+              <div className="dashboard-stat-card">
+                <span className="dashboard-stat-value">{teams.length}</span>
+                <span className="dashboard-stat-label">Teams</span>
+              </div>
+              {isAdmin && pendingCount > 0 && (
+                <Link to={`/app/org/${activeOrgId}/admin`} className="dashboard-stat-card dashboard-stat-card-action">
+                  <span className="dashboard-stat-value">{pendingCount}</span>
+                  <span className="dashboard-stat-label">Pending</span>
+                </Link>
               )}
-            </section>
+            </div>
 
-            {/* Org meetings */}
-            <section className="dashboard-section">
-              <h3 className="dashboard-section-title">Org meetings</h3>
-              <p className="dashboard-section-desc">Org-scoped meetings visible to all members.</p>
-              {!showCreateMeeting ? (
-                <Button variant="outline" size="md" onClick={() => setShowCreateMeeting(true)} style={{ marginBottom: '1rem' }}>
-                  Create meeting
-                </Button>
-              ) : (
-                <form onSubmit={handleCreateMeeting} className="dashboard-form" style={{ marginBottom: '1rem' }}>
+            {/* Shortcuts */}
+            <div className="dashboard-shortcuts">
+              <Link to="/app/calendar" className="dashboard-shortcut">
+                <span className="dashboard-shortcut-icon">📅</span>
+                <span className="dashboard-shortcut-label">Calendar</span>
+                <span className="dashboard-shortcut-hint">Schedule & view meetings</span>
+              </Link>
+              <Link to={activeOrgId ? `/app/org/${activeOrgId}/chats` : '/app/chats'} className="dashboard-shortcut">
+                <span className="dashboard-shortcut-icon">💬</span>
+                <span className="dashboard-shortcut-label">Chats</span>
+                <span className="dashboard-shortcut-hint">Messages & conversations</span>
+              </Link>
+              {isAdmin && activeOrgId && (
+                <Link to={`/app/org/${activeOrgId}/admin`} className="dashboard-shortcut">
+                  <span className="dashboard-shortcut-icon">⚙</span>
+                  <span className="dashboard-shortcut-label">Admin</span>
+                  <span className="dashboard-shortcut-hint">Members, teams & invites</span>
+                </Link>
+              )}
+            </div>
+
+            {/* Compact widgets */}
+            <div className="dashboard-widgets">
+              <section className="dashboard-widget dashboard-widget-tasks">
+                <div className="dashboard-widget-header">
+                  <h3 className="dashboard-widget-title">Tasks</h3>
+                  <Link to="/app/calendar" className="dashboard-widget-link">View in calendar →</Link>
+                </div>
+                <form onSubmit={handleAddTodo} className="dashboard-todo-add-form">
                   <input
                     type="text"
-                    placeholder="Meeting title"
-                    value={newMeetingTitle}
-                    onChange={(e) => setNewMeetingTitle(e.target.value)}
-                    className="auth-input"
-                    disabled={creatingMeeting}
+                    placeholder="Add task…"
+                    value={newTodoText}
+                    onChange={(e) => setNewTodoText(e.target.value)}
+                    className="auth-input dashboard-todo-input"
+                    disabled={todoLoading}
                   />
-                  {error && <p className="auth-error">{error}</p>}
-                  <div className="dashboard-form-actions">
-                    <Button type="submit" variant="primary" size="md" disabled={creatingMeeting}>
-                      {creatingMeeting ? 'Creating...' : 'Create'}
-                    </Button>
-                    <Button type="button" variant="ghost" onClick={() => { setShowCreateMeeting(false); setError(''); setNewMeetingTitle(''); }}>
-                      Cancel
-                    </Button>
-                  </div>
+                  <input
+                    type="date"
+                    value={newTodoDueDate}
+                    onChange={(e) => setNewTodoDueDate(e.target.value)}
+                    className="auth-input dashboard-todo-due"
+                    disabled={todoLoading}
+                    title="Due date (optional)"
+                  />
+                  <Button type="submit" variant="outline" size="sm" disabled={todoLoading || !newTodoText.trim()}>
+                    Add
+                  </Button>
                 </form>
-              )}
-              {orgMeetings.length === 0 ? (
-                <p className="app-muted">No org meetings yet.</p>
-              ) : (
-                <ul className="meeting-list">
-                  {orgMeetings.map((m) => (
-                    <li key={m.id} className="meeting-item">
-                      <span className="meeting-title">{m.title}</span>
-                      <span className="meeting-meta">{m.scope}</span>
+                <ul className="dashboard-todo-list dashboard-todo-list-compact">
+                  {todos.slice(0, 5).map((t) => (
+                    <li key={t.id} className={`dashboard-todo-item ${t.done ? 'dashboard-todo-done' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={!!t.done}
+                        onChange={(e) => handleToggleTodo(t.id, e.target.checked)}
+                        className="dashboard-todo-check"
+                      />
+                      <span className="dashboard-todo-text">{t.text}</span>
+                      <button type="button" className="dashboard-todo-delete" onClick={() => handleDeleteTodo(t.id)} aria-label="Delete">×</button>
                     </li>
                   ))}
+                  {todos.length === 0 && <li className="dashboard-todo-empty">No tasks yet</li>}
+                  {todos.length > 5 && <li className="dashboard-todo-more">+{todos.length - 5} more</li>}
                 </ul>
-              )}
-            </section>
-
-            {/* Teams */}
-            <section className="dashboard-section">
-              <h3 className="dashboard-section-title">Teams</h3>
-              {isAdmin && (
-                <>
-                  {!showCreateTeam ? (
-                    <Button variant="primary" size="md" onClick={() => setShowCreateTeam(true)} style={{ marginBottom: '1rem' }}>
-                      Create team
-                    </Button>
-                  ) : (
-                    <form onSubmit={handleCreateTeam} className="dashboard-form" style={{ marginBottom: '1rem' }}>
-                      <input
-                        type="text"
-                        placeholder="Team name"
-                        value={newTeamName}
-                        onChange={(e) => setNewTeamName(e.target.value)}
-                        className="auth-input"
-                        disabled={createLoading}
-                      />
-                      {error && <p className="auth-error">{error}</p>}
-                      <div className="dashboard-form-actions">
-                        <Button type="submit" variant="primary" size="md" disabled={createLoading}>
-                          {createLoading ? 'Creating...' : 'Create'}
-                        </Button>
-                        <Button type="button" variant="ghost" onClick={() => { setShowCreateTeam(false); setError(''); setNewTeamName(''); }}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
-                  )}
-                </>
-              )}
-              <ul className="org-teams-list">
-                {teams.map((team) => (
-                  <li key={team.id} className="org-team-item">
-                    <Link to={`/app/org/${activeOrgId}/teams/${team.id}`} className="org-team-link">
-                      {team.name}
-                    </Link>
-                    {!teamMemberships[team.id]?.state && (
-                      <Button variant="outline" size="md" onClick={() => handleRequestJoinTeam(team.id)} disabled={requesting[team.id]}>
-                        {requesting[team.id] ? '...' : 'Request to join'}
-                      </Button>
-                    )}
-                    {teamMemberships[team.id]?.state === 'pending' && (
-                      <span className="org-team-pending">Pending</span>
-                    )}
-                  </li>
-                ))}
-                {teams.length === 0 && (
-                  <li className="org-teams-empty">No teams yet. {isAdmin && 'Create one above.'}</li>
-                )}
-              </ul>
-            </section>
-
-            {/* Organization admin */}
-            {isAdmin && (
-              <section className="dashboard-section dashboard-section-admin">
-                <h3 className="dashboard-section-title">Organization</h3>
-                <p className="dashboard-section-desc">Invite members and manage requests.</p>
-
-                <div className="org-admin-invite-block">
-                  <h4 className="dashboard-subtitle">Invite by email</h4>
-                  <form onSubmit={handleInvite} className="org-admin-invite-form">
-                    <input
-                      type="email"
-                      placeholder="colleague@example.com"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      className="org-admin-invite-input"
-                      disabled={inviteLoading}
-                    />
-                    <button type="submit" className="org-admin-btn org-admin-btn-approve" disabled={inviteLoading}>
-                      {inviteLoading ? 'Sending…' : 'Send invitation'}
-                    </button>
-                  </form>
-                  {inviteError && <p className="org-admin-error">{inviteError}</p>}
-                  {inviteSuccess && <p className="org-admin-success">{inviteSuccess}</p>}
-                </div>
-
-                <div className="org-admin-block">
-                  <h4 className="dashboard-subtitle">Pending join requests</h4>
-                  {pending.length === 0 ? (
-                    <p className="app-muted">No pending requests.</p>
-                  ) : (
-                    <ul className="member-list">
-                      {pending.map((req) => {
-                        const profile = userProfiles[req.userId]
-                        const authUserForDisplay = req.userId === user?.uid ? user : null
-                        const first = (profile?.firstName || '').trim()
-                        const last = (profile?.lastName || '').trim()
-                        const fullName = `${first} ${last}`.trim() || authUserForDisplay?.displayName || getDisplayName(profile, req.userId) || `User ${req.userId.slice(0, 8)}…`
-                        const email = (profile?.email || authUserForDisplay?.email || '').trim()
-                        const showEmail = email && fullName !== email
-                        const photoUrl = getProfilePictureUrl(profile, authUserForDisplay)
-                        const initials = fullName ? fullName.split(/\s+/).map((n) => n[0]).join('').toUpperCase().slice(0, 2) : email?.[0]?.toUpperCase() || '?'
-                        return (
-                        <li key={req.userId} className="member-card member-card-pending">
-                          <div className="member-card-avatar">
-                            {photoUrl ? (
-                              <img src={photoUrl} alt="" referrerPolicy="no-referrer" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
-                            ) : null}
-                            <span className="member-card-initials" style={{ display: photoUrl ? 'none' : 'flex' }}>{initials}</span>
-                          </div>
-                          <div className="member-card-info">
-                            <span className="member-card-name">{fullName || email}</span>
-                            {showEmail && <span className="member-card-email">{email}</span>}
-                            <span className="member-card-role">pending</span>
-                          </div>
-                          <div className="org-admin-actions">
-                            <button
-                              className="org-admin-btn org-admin-btn-approve"
-                              onClick={() => handleApprove(req.userId)}
-                              disabled={adminLoading[req.userId]}
-                            >
-                              {adminLoading[req.userId] ? '…' : 'Approve'}
-                            </button>
-                            <button
-                              className="org-admin-btn org-admin-btn-reject"
-                              onClick={() => handleReject(req.userId)}
-                              disabled={adminLoading[req.userId]}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="org-admin-block">
-                  <h4 className="dashboard-subtitle">Members</h4>
-                  <ul className="member-list">
-                    {members.map((m) => {
-                      const profile = userProfiles[m.userId]
-                      const authUserForDisplay = m.userId === user?.uid ? user : null
-                      const first = (profile?.firstName || '').trim()
-                      const last = (profile?.lastName || '').trim()
-                      const fullName = `${first} ${last}`.trim() || authUserForDisplay?.displayName || getDisplayName(profile, m.userId) || `User ${m.userId.slice(0, 8)}…`
-                      const email = (profile?.email || authUserForDisplay?.email || '').trim()
-                      const showEmail = email && fullName !== email
-                      const photoUrl = getProfilePictureUrl(profile, authUserForDisplay)
-                      const initials = fullName ? fullName.split(/\s+/).map((n) => n[0]).join('').toUpperCase().slice(0, 2) : email?.[0]?.toUpperCase() || '?'
-                      return (
-                        <li key={m.userId} className="member-card">
-                          <div className="member-card-avatar">
-                            {photoUrl ? (
-                              <img src={photoUrl} alt="" referrerPolicy="no-referrer" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
-                            ) : null}
-                            <span className="member-card-initials" style={{ display: photoUrl ? 'none' : 'flex' }}>{initials}</span>
-                          </div>
-                          <div className="member-card-info">
-                            <span className="member-card-name">{fullName || email}</span>
-                            {showEmail && <span className="member-card-email">{email}</span>}
-                            <span className="member-card-role">{m.role}</span>
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
               </section>
-            )}
+
+              <section className="dashboard-widget dashboard-widget-calendar">
+                <MiniCalendarWidget userId={user?.uid} />
+              </section>
+
+              <section className="dashboard-widget dashboard-widget-wide">
+                <div className="dashboard-widget-header">
+                  <h3 className="dashboard-widget-title">Teams</h3>
+                  {isAdmin && activeOrgId && (
+                    <Link to={`/app/org/${activeOrgId}/admin`} className="dashboard-widget-link">Manage in Admin →</Link>
+                  )}
+                </div>
+                <ul className="org-teams-list">
+                  {teams.map((team) => (
+                    <li key={team.id} className="org-team-item">
+                      <Link to={`/app/org/${activeOrgId}/teams/${team.id}`} className="org-team-link">
+                        {team.name}
+                      </Link>
+                      {!teamMemberships[team.id]?.state && (
+                        <Button variant="outline" size="sm" onClick={() => handleRequestJoinTeam(team.id)} disabled={requesting[team.id]}>
+                          {requesting[team.id] ? '...' : 'Join'}
+                        </Button>
+                      )}
+                      {teamMemberships[team.id]?.state === 'pending' && (
+                        <span className="org-team-pending">Pending</span>
+                      )}
+                    </li>
+                  ))}
+                  {teams.length === 0 && (
+                    <li className="org-teams-empty">No teams yet{isAdmin && ' — create one in Admin'}</li>
+                  )}
+                </ul>
+              </section>
+            </div>
           </div>
         )}
-      </main>
-      <AppFooter />
-    </div>
+    </main>
   )
 }

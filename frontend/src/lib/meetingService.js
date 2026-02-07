@@ -10,6 +10,7 @@ import {
   where,
   getDocs,
   serverTimestamp,
+  Timestamp,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { getMembership, getUserMemberships, getOrg, MEMBERSHIP_STATES } from './orgService'
@@ -137,4 +138,74 @@ export async function getMeetingsForUser(userId) {
     return bTime - aTime
   })
   return allMeetings.slice(0, 20)
+}
+
+/**
+ * Get meetings in a date range for calendar view.
+ * @param {string} orgId
+ * @param {number} year
+ * @param {number} month - 0-indexed
+ * @param {string} [scope] - 'org' | 'team' | undefined (all)
+ * @param {string} [scopeTeamId] - required if scope === 'team'
+ */
+export async function getMeetingsInRange(orgId, year, month, scope, scopeTeamId) {
+  const start = Timestamp.fromDate(new Date(year, month, 1, 0, 0, 0))
+  const end = Timestamp.fromDate(new Date(year, month + 1, 0, 23, 59, 59, 999))
+  const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+  let q
+  if (scope === MEETING_SCOPES.team && scopeTeamId) {
+    q = query(
+      meetingsRef,
+      where('scope', '==', MEETING_SCOPES.team),
+      where('scopeTeamId', '==', scopeTeamId),
+      where('startAt', '>=', start),
+      where('startAt', '<=', end)
+    )
+  } else if (scope === MEETING_SCOPES.org) {
+    q = query(
+      meetingsRef,
+      where('scope', '==', MEETING_SCOPES.org),
+      where('startAt', '>=', start),
+      where('startAt', '<=', end)
+    )
+  } else {
+    q = query(
+      meetingsRef,
+      where('startAt', '>=', start),
+      where('startAt', '<=', end)
+    )
+  }
+  const snapshot = await getDocs(q)
+  const meetings = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+  meetings.sort((a, b) => {
+    const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
+    const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
+    return aT - bT
+  })
+  return meetings
+}
+
+/**
+ * Get all meetings in range for a user (personal calendar - all orgs they can access).
+ */
+export async function getMeetingsInRangeForUser(userId, year, month) {
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  const allMeetings = []
+  for (const mem of activeOrgs) {
+    const meetings = await getMeetingsInRange(mem.orgId, year, month, null, null)
+    for (const m of meetings) {
+      const canAccess = await canAccessMeeting(m, userId, mem.orgId)
+      if (canAccess) {
+        const org = await getOrg(mem.orgId)
+        allMeetings.push({ ...m, _orgName: org?.name })
+      }
+    }
+  }
+  allMeetings.sort((a, b) => {
+    const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
+    const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
+    return aT - bT
+  })
+  return allMeetings
 }

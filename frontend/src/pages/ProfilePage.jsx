@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from '../lib/firebase'
+import { Link, useOutletContext } from 'react-router-dom'
 import { getUserDoc, updateProfileField, PROFILE_FIELDS, getProfilePictureUrl } from '../lib/userService'
 import { compressImageToDataUrl } from '../lib/imageUtils'
-import { AppHeader, AppFooter, triggerProfileRefresh } from '../components/app'
+import { triggerProfileRefresh } from '../components/app'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './ProfilePage.css'
@@ -14,8 +12,7 @@ import './ProfilePage.css'
  * Single source of truth: users/{uid} in Firestore.
  */
 export function ProfilePage() {
-  const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const { user, setNavExtra } = useOutletContext() || {}
   const [userDoc, setUserDoc] = useState(null)
   const [file, setFile] = useState(null)
   const [localPreview, setLocalPreview] = useState('')
@@ -27,18 +24,16 @@ export function ProfilePage() {
   const inputRef = useRef(null)
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        navigate('/login')
-        return
-      }
-      setUser(u)
-      const doc = await getUserDoc(u.uid)
+    if (setNavExtra) setNavExtra(null)
+  }, [setNavExtra])
+
+  useEffect(() => {
+    if (!user) return
+    getUserDoc(user.uid).then((doc) => {
       setUserDoc(doc)
       setImgLoadError(false)
     })
-    return unsub
-  }, [navigate])
+  }, [user])
 
   const profilePicUrl = getProfilePictureUrl(userDoc, user)
   const showProfileImg = profilePicUrl && !imgLoadError
@@ -112,9 +107,7 @@ export function ProfilePage() {
   const editableFields = PROFILE_FIELDS.filter((f) => f.key !== 'profilePicture')
 
   return (
-    <div className="app-layout">
-      <AppHeader user={user} />
-      <main className="app-main profile-main">
+    <main className="app-main profile-main">
         <div className="profile-header">
           <h2>Your profile</h2>
           <p className="profile-subtitle">Your name and photo will appear on your account and where you collaborate.</p>
@@ -213,9 +206,7 @@ export function ProfilePage() {
         <div className="profile-footer">
           <Link to="/app" className="profile-back-link">← Back to dashboard</Link>
         </div>
-      </main>
-      <AppFooter />
-    </div>
+    </main>
   )
 }
 

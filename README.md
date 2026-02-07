@@ -91,9 +91,12 @@ npm run dev:backend    # Backend only
 
 The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/api/...` in the frontend for backend calls.
 
+- **Calendar ICS import from URL** – The backend provides `/api/calendar/fetch-ics?url=...` to proxy external ICS URLs and avoid CORS. Ensure the backend is running when importing calendars from URLs (e.g. Canvas, Google Calendar).
+
 ## Troubleshooting
 
-- **"Missing or insufficient permissions"** – Deploy Firestore rules: `firebase deploy --only firestore:rules`
+- **"Permission denied" when starting a chat** – Queries must match security rules. Deploy both rules and indexes: `firebase deploy --only firestore`
+- **"The query requires an index"** – Deploy indexes: `firebase deploy --only firestore:indexes`
 - **Profile picture not saving** – Profile pics are stored in Firestore (base64). Ensure Firestore rules allow users to write their own `profilePicture` field.
 - **404 for deleted files / SettingsPage export error** – Stop the dev server, delete `frontend/node_modules/.vite`, then run `npm run dev` again
 

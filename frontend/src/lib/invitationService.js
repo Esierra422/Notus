@@ -108,6 +108,20 @@ export async function acceptInvitation(invitationId, userId, userEmail) {
 }
 
 /**
+ * Get rejected invitations for an org (invitations sent by this org that were declined).
+ * Requires Firestore rule: org admins can read invitations for their org.
+ */
+export async function getRejectedInvitationsForOrg(orgId) {
+  const q = query(
+    collection(db, INVITATIONS_COLLECTION),
+    where('orgId', '==', orgId),
+    where('status', '==', INVITATION_STATUS.rejected)
+  )
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+/**
  * Reject an invitation.
  */
 export async function rejectInvitation(invitationId, userId, userEmail) {

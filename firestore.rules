@@ -7,6 +7,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
+      match /todos/{todoId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /importedCalendarEvents/{eventId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
 
     // Organizations: authenticated users can create (new org) and read (search, get)
@@ -34,6 +40,51 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
       }
+
+      // Conversations (WhatsApp-style: DM, group, team chats)
+      match /conversations/{convId} {
+        allow read: if request.auth != null
+          && request.auth.uid in resource.data.members
+          && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+        allow create: if request.auth != null
+          && request.auth.uid in request.resource.data.members
+          && request.resource.data.members is list
+          && request.resource.data.type is string
+          && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+        allow update: if request.auth != null && request.auth.uid in resource.data.members;
+        allow delete: if false;
+        match /messages/{messageId} {
+          allow read, create: if request.auth != null
+            && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+            && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active'
+            && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members;
+          allow update: if request.auth != null
+            && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members
+            && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attachment']));
+          allow delete: if false;
+        }
+        match /typing/{typerId} {
+          allow read, write: if request.auth != null
+            && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members;
+        }
+      }
+
+      // Channels: active org members (legacy)
+      match /channels/{channelId} {
+        allow read, create: if request.auth != null
+          && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+        allow update, delete: if false;
+        match /messages/{messageId} {
+          allow read, create: if request.auth != null
+            && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+            && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+          allow update, delete: if false;
+        }
+      }
     }
 
     // Memberships: create (new org owner or join request), read, update (approve/reject)
@@ -43,11 +94,16 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Organization invitations: create by org admin; read/update by invitee
-    // Email matching is enforced client-side (inviteeEmail stored lowercase)
+    // Organization invitations: create by org admin; read/update by invitee (pending);
+    // Org admins can read their org's invitations (incl. rejected) to see who declined.
     match /organizationInvitations/{invitationId} {
       allow create: if request.auth != null;
-      allow read, update: if request.auth != null && resource.data.status == 'pending';
+      allow read, update: if request.auth != null
+        && (resource.data.status == 'pending'
+          || (resource.data.orgId != null
+            && exists(/databases/$(database)/documents/memberships/$(resource.data.orgId + '_' + request.auth.uid))
+            && get(/databases/$(database)/documents/memberships/$(resource.data.orgId + '_' + request.auth.uid)).data.state == 'active'
+            && get(/databases/$(database)/documents/memberships/$(resource.data.orgId + '_' + request.auth.uid)).data.role in ['owner', 'admin']));
       allow delete: if false;
     }
   }

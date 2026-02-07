@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, useOutletContext } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
-import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
-import { AppHeader, AppFooter } from '../components/app'
 import { UserIcon, LockIcon, BellIcon, PaletteIcon, ClipboardIcon, LogOutIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AppLayout.css'
@@ -13,26 +11,16 @@ import './SettingsPage.css'
  * Settings page — enterprise-level app preferences and account management.
  */
 export function SettingsPage() {
-  const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const { user, setNavExtra } = useOutletContext() || {}
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        navigate('/login')
-        return
-      }
-      setUser(u)
-    })
-    return unsub
-  }, [navigate])
+    if (setNavExtra) setNavExtra(null)
+  }, [setNavExtra])
 
   if (!user) return null
 
   return (
-    <div className="app-layout">
-      <AppHeader user={user} />
-      <main className="app-main settings-main">
+    <main className="app-main settings-main">
         <div className="settings-header">
           <h2>Settings</h2>
           <p className="settings-subtitle">Manage your account and preferences.</p>
@@ -133,8 +121,6 @@ export function SettingsPage() {
         <div className="settings-footer">
           <Link to="/app" className="settings-back-link">← Back to dashboard</Link>
         </div>
-      </main>
-      <AppFooter />
-    </div>
+    </main>
   )
 }

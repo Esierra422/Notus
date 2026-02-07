@@ -165,6 +165,19 @@ export async function getPendingRequests(orgId) {
 }
 
 /**
+ * Get rejected join requests for an org (for admin visibility).
+ */
+export async function getRejectedRequests(orgId) {
+  const q = query(
+    collection(db, MEMBERSHIPS_COLLECTION),
+    where('orgId', '==', orgId),
+    where('state', '==', MEMBERSHIP_STATES.rejected)
+  )
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+/**
  * Approve or reject a membership request. Requires owner/admin.
  */
 export async function updateMembershipState(orgId, userId, newState) {

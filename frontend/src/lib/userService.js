@@ -61,15 +61,17 @@ export function getProfilePictureUrl(userDoc, authUser = null) {
 }
 
 /**
- * Format display label from user doc: first name + last name, or email, never userId.
+ * Format display label from user doc: first name + last name preferred, then email, never userId.
+ * authUser: optional Firebase Auth user; when profile has no name and userId matches authUser.uid, use displayName.
  */
-export function getDisplayName(userDoc, fallbackUserId = '') {
-  if (!userDoc) return fallbackUserId ? `User ${fallbackUserId.slice(0, 8)}…` : ''
-  const first = (userDoc.firstName || '').trim()
-  const last = (userDoc.lastName || '').trim()
+export function getDisplayName(userDoc, fallbackUserId = '', authUser = null) {
+  if (!userDoc && !authUser) return fallbackUserId ? `User ${fallbackUserId.slice(0, 8)}…` : ''
+  const first = (userDoc?.firstName || '').trim()
+  const last = (userDoc?.lastName || '').trim()
   const name = `${first} ${last}`.trim()
   if (name) return name
-  const email = (userDoc.email || '').trim()
+  if (authUser?.uid === fallbackUserId && authUser?.displayName) return (authUser.displayName || '').trim()
+  const email = (userDoc?.email || '').trim()
   if (email) return email
   return fallbackUserId ? `User ${fallbackUserId.slice(0, 8)}…` : ''
 }

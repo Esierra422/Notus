@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
-import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from '../lib/firebase'
+import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { getOrg, getMembership } from '../lib/orgService'
 import {
   getTeam,
@@ -14,7 +12,6 @@ import {
   TEAM_STATES,
 } from '../lib/teamService'
 import { getUserDoc, getDisplayName, getMemberDisplayLine } from '../lib/userService'
-import { AppHeader, AppFooter } from '../components/app'
 import { createMeeting, getTeamMeetings, MEETING_SCOPES } from '../lib/meetingService'
 import '../styles/variables.css'
 import './AppLayout.css'
@@ -25,7 +22,7 @@ import './OrgAdminPage.css'
 export function TeamPage() {
   const { orgId, teamId } = useParams()
   const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const { user, setNavExtra } = useOutletContext() || {}
   const [org, setOrg] = useState(null)
   const [orgMembership, setOrgMembership] = useState(null)
   const [team, setTeam] = useState(null)
@@ -40,16 +37,6 @@ export function TeamPage() {
   const [meetingError, setMeetingError] = useState('')
   const [loading, setLoading] = useState({})
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        navigate('/login')
-        return
-      }
-      setUser(u)
-    })
-    return unsub
-  }, [navigate])
 
   useEffect(() => {
     if (!user || !orgId || !teamId) return
@@ -156,18 +143,18 @@ export function TeamPage() {
     }
   }
 
+  useEffect(() => {
+    if (org && team && setNavExtra) {
+      setNavExtra(<Link to="/app" className="app-nav-link">← Dashboard</Link>)
+    }
+  }, [org, team, setNavExtra])
+
   if (!org || !team) return null
 
   const isAdmin = canManageTeam(teamMembership, orgMembership)
 
-  const navExtra = (
-    <Link to="/app" className="app-nav-link">← Dashboard</Link>
-  )
-
   return (
-    <div className="app-layout">
-      <AppHeader user={user} navExtra={navExtra} />
-      <main className="app-main org-admin-main">
+    <main className="app-main org-admin-main">
         <h2>{team.name}</h2>
         <p className="app-muted">Team-scoped meetings (visible to team members).</p>
         {teamMembership?.state === TEAM_STATES.active && (
@@ -263,8 +250,6 @@ export function TeamPage() {
             ))}
           </ul>
         </section>
-      </main>
-      <AppFooter />
-    </div>
+    </main>
   )
 }

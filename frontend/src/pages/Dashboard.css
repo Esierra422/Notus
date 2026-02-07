@@ -1,5 +1,217 @@
 .dashboard-main {
-  max-width: 900px;
+  max-width: 100%;
+}
+
+/* Overview layout: stats + shortcuts + widgets */
+.dashboard-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.dashboard-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.dashboard-stat-card {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 90px;
+}
+
+.dashboard-stat-card:hover {
+  border-color: rgba(212, 168, 83, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.dashboard-stat-card-action:hover {
+  border-color: var(--accent);
+}
+
+.dashboard-stat-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.dashboard-stat-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.dashboard-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.dashboard-shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.dashboard-shortcut:hover {
+  border-color: var(--accent);
+  background: rgba(212, 168, 83, 0.06);
+}
+
+.dashboard-shortcut-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.dashboard-shortcut-label {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.dashboard-shortcut-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.dashboard-widgets {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .dashboard-widgets {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dashboard-widget-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.dashboard-widget-tasks {
+  min-width: 0;
+}
+
+.dashboard-widget {
+  padding: 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.dashboard-widget-calendar {
+  padding: 0;
+  background: transparent;
+  border: none;
+  overflow: visible;
+}
+
+.dashboard-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.dashboard-widget-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dashboard-widget-link {
+  font-size: 0.9rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.dashboard-widget-link:hover {
+  text-decoration: underline;
+}
+
+.dashboard-widget-add {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-widget-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.dashboard-widget-tasks .dashboard-widget-header {
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-todo-add-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.dashboard-todo-add-form .dashboard-todo-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.dashboard-todo-add-form .dashboard-todo-due {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  min-width: 115px;
+}
+
+.dashboard-todo-add-form .btn {
+  flex-shrink: 0;
+}
+
+.dashboard-widget-empty {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.dashboard-todo-list-compact .dashboard-todo-item {
+  padding: 0.5rem 0.6rem;
+}
+
+.meeting-list-compact .meeting-item {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.dashboard-todo-more {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
 }
 
 .dashboard-org-badge {
@@ -9,16 +221,31 @@
 }
 
 .dashboard-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 2.5rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 800px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem 2rem;
+  }
+  .dashboard-section-wide {
+    grid-column: 1 / -1;
+  }
 }
 
 .dashboard-section {
-  padding: 1.5rem;
+  padding: 1.25rem 1.5rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.dashboard-section:hover {
+  border-color: rgba(212, 168, 83, 0.2);
 }
 
 .dashboard-section-title {
@@ -45,6 +272,15 @@
   flex-direction: column;
   gap: 0.75rem;
   max-width: 320px;
+}
+
+.dashboard-form-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dashboard-form-row .auth-input {
+  flex: 1;
 }
 
 .dashboard-form-actions {
@@ -95,6 +331,15 @@
   margin-left: auto;
 }
 
+.member-card-rejected {
+  opacity: 0.9;
+}
+
+.member-card-role-rejected {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .member-card-avatar {
   flex-shrink: 0;
   width: 44px;
@@ -142,6 +387,86 @@
   color: var(--accent);
   font-weight: 500;
   margin-top: 0.15rem;
+}
+
+/* To-do list */
+.dashboard-section-todo {
+  grid-row: span 1;
+}
+
+.dashboard-todo-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-todo-form .auth-input {
+  flex: 1;
+}
+
+.dashboard-todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.dashboard-todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  margin-bottom: 0.4rem;
+  transition: opacity 0.25s ease;
+}
+
+.dashboard-todo-item:hover {
+  background: rgba(212, 168, 83, 0.06);
+}
+
+.dashboard-todo-check {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.dashboard-todo-text {
+  flex: 1;
+  font-size: 0.95rem;
+}
+
+.dashboard-todo-done .dashboard-todo-text {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.dashboard-todo-delete {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.dashboard-todo-delete:hover {
+  color: #e57373;
+  background: rgba(229, 115, 115, 0.1);
+}
+
+.dashboard-todo-empty {
+  padding: 1rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
 }
 
 /* Reuse meeting-list, meeting-item, org-teams-list, org-team-item, org-admin-* from other CSS */

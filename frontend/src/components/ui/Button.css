@@ -6,10 +6,10 @@
   font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: 10px;
   text-decoration: none;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   border: 1px solid transparent;
 }
 
@@ -29,7 +29,8 @@
 
 .btn-primary:hover {
   background: var(--accent-dim);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(212, 168, 83, 0.25);
 }
 
 .btn-outline {
@@ -40,7 +41,12 @@
 
 .btn-outline:hover {
   border-color: var(--accent);
-  background: rgba(212, 168, 83, 0.08);
+  background: rgba(212, 168, 83, 0.1);
+}
+
+.btn-sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
 }
 
 .btn-lg {

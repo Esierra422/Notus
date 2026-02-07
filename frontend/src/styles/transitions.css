@@ -1,16 +1,20 @@
-/* Page transitions - smooth fade and subtle slide on navigation */
+/* Page transitions - subtle fade, minimal duration to reduce flashing */
+/* Flex: 1 and min-height: 0 so child routes (e.g. Chats) can fill available space */
 .page-transition {
-  animation: pageEnter 0.3s ease-out;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  animation: pageEnter 0.15s ease-out;
 }
 
 @keyframes pageEnter {
   from {
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -20,21 +24,26 @@
   }
 }
 
-/* Smooth link/button transitions across the app */
+/* Smooth link/button transitions - softer feedback */
 .app-nav-link,
 .app-logo,
 .app-avatar-link,
 .app-settings-btn,
 .app-avatar {
-  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+  transition: color 0.25s ease, background-color 0.25s ease, transform 0.25s ease, opacity 0.25s ease;
+}
+
+.app-nav-link:hover,
+.app-logo:hover {
+  opacity: 0.9;
 }
 
 .app-nav-link:active,
 .app-logo:active {
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
-/* Card and list item hover feedback */
+/* Card and list item hover - gentler */
 .meeting-item,
 .org-team-item,
 .member-card,
@@ -43,33 +52,40 @@
 .org-admin-list-item,
 .meeting-item a,
 .org-team-item a {
-  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: border-color 0.25s ease, background-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease, color 0.25s ease;
+}
+
+.org-team-item:hover,
+.meeting-item:hover {
+  border-color: rgba(212, 168, 83, 0.25);
 }
 
 .org-admin-btn {
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, opacity 0.25s ease;
 }
 
-/* Button press feedback */
+/* Button press - softer scale */
 button:not(:disabled),
-[role="button"] {
-  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.15s ease, opacity 0.2s ease;
+[role="button"],
+.btn {
+  transition: background-color 0.25s ease, border-color 0.25s ease, transform 0.2s ease, opacity 0.25s ease, box-shadow 0.25s ease;
 }
 
 button:not(:disabled):active,
-[role="button"]:active {
-  transform: scale(0.98);
+[role="button"]:active,
+.btn:active {
+  transform: scale(0.97);
 }
 
-/* Form inputs */
+/* Form inputs - smooth focus */
 input,
 textarea,
 select {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease;
 }
 
 /* Dropdowns and modals */
 .app-dropdown,
 .notifications-dropdown {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
