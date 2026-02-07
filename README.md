@@ -91,16 +91,6 @@ npm run dev:backend    # Backend only
 
 The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/api/...` in the frontend for backend calls.
 
-## Firebase Setup
-
-1. Create a project at [Firebase Console](https://console.firebase.google.com)
-2. Enable **Authentication** → Sign-in method → Google (and Email/Password)
-3. Create a **Firestore Database**
-4. Copy config values into `frontend/.env` and `backend/.env`
-5. **Firestore rules & indexes:** Deploy with `firebase deploy` (from project root). Or manually:
-   - **Rules:** Firebase Console → Firestore Database → Rules → paste contents of `firestore.rules`
-   - **Indexes:** Deploy `firestore.indexes.json` or create indexes when prompted by errors
-6. **Profile pictures** are stored as base64 in Firestore (no Firebase Storage required)
 ## Troubleshooting
 
 - **"Missing or insufficient permissions"** – Deploy Firestore rules: `firebase deploy --only firestore:rules`
