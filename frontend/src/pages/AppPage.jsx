@@ -352,6 +352,11 @@ export function AppPage() {
                 <span className="dashboard-shortcut-label">Calendar</span>
                 <span className="dashboard-shortcut-hint">Schedule & view meetings</span>
               </Link>
+              <Link to="/app/video" className="dashboard-shortcut">
+                <span className="dashboard-shortcut-icon">📹</span>
+                <span className="dashboard-shortcut-label">Video Call</span>
+                <span className="dashboard-shortcut-hint">Join or start a call</span>
+              </Link>
               <Link to={activeOrgId ? `/app/org/${activeOrgId}/chats` : '/app/chats'} className="dashboard-shortcut">
                 <span className="dashboard-shortcut-icon">💬</span>
                 <span className="dashboard-shortcut-label">Chats</span>

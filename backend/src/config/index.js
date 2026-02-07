@@ -11,4 +11,8 @@ export const config = {
     privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     privateKeyId: process.env.FIREBASE_PRIVATE_KEY_ID,
   },
+  agora: {
+    appId: process.env.AGORA_APP_ID,
+    appCertificate: process.env.AGORA_APP_CERTIFICATE,
+  },
 }

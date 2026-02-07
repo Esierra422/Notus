@@ -13,6 +13,7 @@ import {
   ChatsRedirect,
   ChatsPage,
   AdminPage,
+  VideoCallPage,
 } from './pages'
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
         <Route path="/app" element={<AppShell />}>
           <Route index element={<AppPage />} />
           <Route path="calendar" element={<CalendarPage />} />
+          <Route path="video" element={<VideoCallPage />} />
           <Route path="chats" element={<ChatsRedirect />} />
           <Route path="org/:orgId/chats" element={<ChatsPage />} />
           <Route path="org/:orgId/chats/:chatId" element={<ChatsPage />} />

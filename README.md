@@ -92,6 +92,7 @@ npm run dev:backend    # Backend only
 The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/api/...` in the frontend for backend calls.
 
 - **Calendar ICS import from URL** – The backend provides `/api/calendar/fetch-ics?url=...` to proxy external ICS URLs and avoid CORS. Ensure the backend is running when importing calendars from URLs (e.g. Canvas, Google Calendar).
+- **Video Call** – Uses [Agora](https://console.agora.io). Add `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` to `backend/.env`.
 
 ## Troubleshooting
 

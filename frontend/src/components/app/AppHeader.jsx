@@ -3,7 +3,7 @@ import { getUserDoc, getProfilePictureUrl } from '../../lib/userService'
 import { getActiveMembership } from '../../lib/orgService'
 import { subscribeConversations } from '../../lib/conversationService'
 import { useState, useEffect } from 'react'
-import { SettingsIcon, LayoutDashboardIcon, CalendarIcon, MessageSquareIcon, UserIcon } from '../ui/Icons'
+import { SettingsIcon, LayoutDashboardIcon, CalendarIcon, MessageSquareIcon, UserIcon, VideoIcon } from '../ui/Icons'
 import { NotificationsDropdown } from './NotificationsDropdown'
 import './AppHeader.css'
 
@@ -105,6 +105,9 @@ export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverrid
             </Link>
             <Link to="/app/calendar" className="app-nav-icon-btn" title="Calendar" aria-label="Calendar">
               <CalendarIcon size={20} />
+            </Link>
+            <Link to="/app/video" className="app-nav-icon-btn" title="Video Call" aria-label="Video Call">
+              <VideoIcon size={20} />
             </Link>
             <ChatsNavLink user={user} activeOrgId={activeOrgId} />
             {isAdmin && activeOrgId && (
