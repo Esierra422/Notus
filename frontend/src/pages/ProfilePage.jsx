@@ -3,6 +3,7 @@ import { Link, useOutletContext } from 'react-router-dom'
 import { getUserDoc, updateProfileField, PROFILE_FIELDS, getProfilePictureUrl } from '../lib/userService'
 import { compressImageToDataUrl } from '../lib/imageUtils'
 import { triggerProfileRefresh } from '../components/app'
+import { formatPhoneNumber, extractPhoneNumber, validateBirthdate, formatBirthdateForDisplay } from '../lib/inputFormatting'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './ProfilePage.css'
@@ -211,22 +212,61 @@ export function ProfilePage() {
 }
 
 function ProfileFieldRow({ field, value, onSave, saving }) {
-  const [editValue, setEditValue] = useState(value)
+  const isPhoneNumber = field.key === 'phoneNumber'
+  const isBirthdate = field.key === 'birthdate'
+  
+  const displayValue = isBirthdate && value ? formatBirthdateForDisplay(value) : isPhoneNumber && value ? formatPhoneNumber(value) : value
+  const [editValue, setEditValue] = useState(displayValue)
   const [dirty, setDirty] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    setEditValue(value ?? '')
-  }, [value])
+    const formatted = isBirthdate && value ? formatBirthdateForDisplay(value) : isPhoneNumber && value ? formatPhoneNumber(value) : value
+    setEditValue(formatted ?? '')
+    setError('')
+  }, [value, isBirthdate, isPhoneNumber])
 
   const handleChange = (e) => {
-    setEditValue(e.target.value)
+    setError('')
+    let newValue = e.target.value
+    
+    // Real-time formatting for phone
+    if (isPhoneNumber) {
+      newValue = formatPhoneNumber(newValue)
+    }
+    
+    setEditValue(newValue)
     setDirty(true)
   }
 
   const handleSave = (e) => {
     e.preventDefault()
     if (!dirty) return
-    onSave(editValue.trim())
+    
+    setError('')
+    let valueToSave = editValue.trim()
+    
+    // Validate phone
+    if (isPhoneNumber) {
+      const extracted = extractPhoneNumber(valueToSave)
+      if (valueToSave && !extracted) {
+        setError('Phone number must be 10 digits.')
+        return
+      }
+      valueToSave = extracted
+    }
+    
+    // Validate birthdate
+    if (isBirthdate) {
+      const validated = validateBirthdate(valueToSave)
+      if (valueToSave && !validated) {
+        setError('Birthdate must be valid and not in the future.')
+        return
+      }
+      valueToSave = validated
+    }
+    
+    onSave(valueToSave)
     setDirty(false)
   }
 
@@ -256,14 +296,16 @@ function ProfileFieldRow({ field, value, onSave, saving }) {
         ) : (
           <input
             id={`field-${field.key}`}
-            type={field.type === 'date' ? 'date' : field.type === 'tel' ? 'tel' : 'text'}
+            type={field.type === 'date' ? 'tel' : field.type === 'tel' ? 'tel' : 'text'}
             value={editValue}
             onChange={handleChange}
-            placeholder={label}
+            placeholder={isBirthdate ? 'MM/DD/YYYY' : isPhoneNumber ? '(XXX) XXX-XXXX' : label}
+            maxLength={isPhoneNumber ? 14 : undefined}
             className="profile-input"
             disabled={saving}
           />
         )}
+        {error && <p className="profile-field-error">{error}</p>}
         {dirty && (
           <button type="submit" className="profile-btn profile-btn-secondary" disabled={saving}>
             {saving ? 'Saving...' : 'Save'}

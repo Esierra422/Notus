@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button } from '../ui/Button'
+import { formatPhoneNumber, extractPhoneNumber, validateBirthdate, formatBirthdateForDisplay } from '../../lib/inputFormatting'
 import './AuthStepEmail.css'
 
 export function AuthStepProfile({ field, label, onSave, onBack, onSkip }) {
@@ -9,18 +10,55 @@ export function AuthStepProfile({ field, label, onSave, onBack, onSkip }) {
 
   const isProfilePicture = field === 'profilePicture'
   const isBirthdate = field === 'birthdate'
+  const isPhoneNumber = field === 'phoneNumber'
   const isGender = field === 'gender'
+
+  const handleChange = (e) => {
+    const newValue = e.target.value
+    
+    // Real-time formatting for phone
+    if (isPhoneNumber) {
+      setValue(formatPhoneNumber(newValue))
+    } else {
+      setValue(newValue)
+    }
+    setError('')
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    
     if (!isProfilePicture && !value.trim()) {
       setError('Please enter a value.')
       return
     }
+    
+    let valueToSave = value.trim() || ''
+    
+    // Validate phone
+    if (isPhoneNumber && valueToSave) {
+      const extracted = extractPhoneNumber(valueToSave)
+      if (!extracted) {
+        setError('Phone number must be 10 digits.')
+        return
+      }
+      valueToSave = extracted
+    }
+    
+    // Validate birthdate
+    if (isBirthdate && valueToSave) {
+      const validated = validateBirthdate(valueToSave)
+      if (!validated) {
+        setError('Birthdate must be valid and not in the future.')
+        return
+      }
+      valueToSave = validated
+    }
+    
     setLoading(true)
     try {
-      await onSave(value.trim() || '')
+      await onSave(valueToSave)
     } catch (err) {
       setError(err.message || 'Something went wrong.')
     } finally {
@@ -28,12 +66,16 @@ export function AuthStepProfile({ field, label, onSave, onBack, onSkip }) {
     }
   }
 
-  const inputType = isBirthdate ? 'date' : isProfilePicture ? 'url' : 'text'
+  const inputType = isBirthdate ? 'tel' : isProfilePicture ? 'url' : 'text'
   const inputPlaceholder = isProfilePicture
     ? 'Profile image URL (or skip)'
     : isGender
       ? 'e.g. male, female, non-binary, prefer not to say'
-      : `Enter ${label.toLowerCase()}`
+      : isBirthdate
+        ? 'MM/DD/YYYY'
+        : isPhoneNumber
+          ? '(XXX) XXX-XXXX'
+          : `Enter ${label.toLowerCase()}`
 
   return (
     <div className="auth-step-email">
@@ -58,7 +100,8 @@ export function AuthStepProfile({ field, label, onSave, onBack, onSkip }) {
             type={inputType}
             placeholder={inputPlaceholder}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={handleChange}
+            maxLength={isPhoneNumber ? 14 : undefined}
             className="auth-input"
             disabled={loading}
           />
