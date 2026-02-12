@@ -79,6 +79,22 @@ export function AppShell() {
   const displayedOrg = activeOrg ?? (lastOrgRef.current ? { name: lastOrgRef.current } : null)
   const activeOrgId = activeOrg?.id ?? null
 
+  const currentPageTitle = (() => {
+    const p = location.pathname
+    if (p === '/app' || p === '/app/') return 'Dashboard'
+    if (p === '/app/calendar') return 'Calendar'
+    if (p === '/app/video') return 'Video Call'
+    if (/^\/app\/org\/[^/]+\/chats/.test(p)) return 'Chats'
+    if (p === '/app/profile') return 'Profile'
+    if (p === '/app/settings') return 'Settings'
+    if (/^\/app\/org\/[^/]+\/profile$/.test(p)) return 'Org Profile'
+    if (/^\/app\/org\/[^/]+\/admin$/.test(p)) return 'Admin'
+    if (/^\/app\/org\/[^/]+\/teams\/[^/]+$/.test(p)) return 'Team'
+    if (p === '/app/features') return 'Features'
+    if (p === '/app/how-it-works') return 'How it works'
+    return 'Dashboard'
+  })()
+
   useEffect(() => {
     if (authReady && user) return
     const t = setTimeout(() => setSlowLoad(true), 8000)
@@ -97,7 +113,7 @@ export function AppShell() {
           <div className="app-auth-loading-spinner" style={{ borderColor: 'rgba(212,168,83,0.3)', borderTopColor: '#d4a853' }} />
           <p style={{ color: '#9a9489' }}>{authReady ? 'Redirecting to login…' : 'Loading…'}</p>
           {slowLoad && (
-            <p style={{ color: '#9a9489', fontSize: '0.9rem', marginTop: '1rem' }}>
+            <p style={{ color: '#9a9489', fontSize: '0.9rem', marginTop: '0.5rem' }}>
               Taking longer than usual.{' '}
               <button
                 type="button"
@@ -116,7 +132,7 @@ export function AppShell() {
   return (
     <NavExtraContext.Provider value={setNavExtraOverride}>
       <div className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''}`}>
-        <AppHeader user={user} orgName={displayedOrg?.name} activeOrgId={activeOrgId} isAdmin={isAdmin} navExtraOverride={navExtraOverride} />
+        <AppHeader user={user} orgName={displayedOrg?.name} activeOrgId={activeOrgId} isAdmin={isAdmin} navExtraOverride={navExtraOverride} currentPageTitle={currentPageTitle} />
         <PageTransition>
           <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride }} />
         </PageTransition>

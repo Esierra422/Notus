@@ -54,13 +54,21 @@ function ChatsNavLink({ user, activeOrgId }) {
   )
 }
 
-export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverride }) {
-  const leftExtra = navExtraOverride !== undefined ? navExtraOverride : (orgName ? <span className="app-org-name">{orgName}</span> : null)
+export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverride, currentPageTitle }) {
+  const leftExtra = navExtraOverride !== undefined ? navExtraOverride : (orgName || currentPageTitle ? (
+    <span className="app-header-breadcrumb">
+      {orgName && <span className="app-org-name">{orgName}</span>}
+      {orgName && currentPageTitle && <span className="app-header-sep"> · </span>}
+      {currentPageTitle && <span className="app-page-title">{currentPageTitle}</span>}
+    </span>
+  ) : null)
 
   return (
     <header className="app-header">
       <div className="app-header-left">
-        <Link to="/app" className="app-logo">Notus</Link>
+        <Link to="/app" className="app-logo">
+          <span className="app-logo-icon" aria-hidden>N</span>
+        </Link>
         {leftExtra && <span className="app-header-org">{leftExtra}</span>}
       </div>
       <nav className="app-nav">

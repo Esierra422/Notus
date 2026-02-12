@@ -2,26 +2,19 @@
   padding: 8rem 2rem;
   text-align: center;
   margin: 0 2rem 4rem;
-  background: linear-gradient(165deg, rgba(212, 168, 83, 0.07) 0%, rgba(212, 168, 83, 0.02) 50%, rgba(212, 168, 83, 0.05) 100%);
-  background-size: 200% 200%;
+  background: linear-gradient(180deg, rgba(22, 21, 19, 0.85) 0%, rgba(18, 17, 15, 0.9) 100%);
   border: 1px solid rgba(212, 168, 83, 0.12);
   border-radius: 24px;
   max-width: 640px;
   margin-left: auto;
   margin-right: auto;
   margin-bottom: 4rem;
-  animation: cta-bg-shift 20s ease-in-out infinite;
-  box-shadow: 0 0 0 0 rgba(212, 168, 83, 0);
+  box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
   transition: box-shadow 0.5s ease;
 }
 
 .cta:hover {
-  box-shadow: 0 0 40px -10px rgba(212, 168, 83, 0.2);
-}
-
-@keyframes cta-bg-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  box-shadow: 0 0 40px -10px rgba(0, 0, 0, 0.3);
 }
 
 .cta-title {

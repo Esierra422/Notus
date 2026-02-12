@@ -1,8 +1,9 @@
 .app-layout {
   min-height: 100vh;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: linear-gradient(180deg, rgba(12, 11, 10, 1) 0%, #0a0908 50%, rgba(11, 10, 9, 1) 100%);
   color: var(--text);
   font-family: var(--font-body);
 }
@@ -17,8 +18,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   color: var(--text-muted);
+}
+
+.app-auth-loading p {
+  margin: 0;
 }
 
 .app-auth-loading-spinner {
@@ -49,6 +54,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 2rem;
+  background: transparent;
   border-bottom: 1px solid var(--border);
 }
 
@@ -65,17 +71,7 @@
   }
 }
 
-.app-logo {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.25rem;
-  color: var(--text);
-  text-decoration: none;
-}
-
-.app-logo:hover {
-  color: var(--accent);
-}
+/* .app-logo styled in AppHeader.css */
 
 .app-nav {
   display: flex;

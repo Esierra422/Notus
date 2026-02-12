@@ -1,9 +1,9 @@
-/* Floating ambient shapes - modern, chic */
+/* Floating ambient shapes - extend beyond hero bounds so blur edges don't clip */
 .ambient-graphics {
   position: absolute;
-  inset: 0;
+  inset: -150px;
   pointer-events: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .ambient-blob {
@@ -16,7 +16,7 @@
 .ambient-blob--1 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(212, 168, 83, 0.2) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(212, 168, 83, 0.18) 0%, rgba(212, 168, 83, 0.04) 45%, transparent 75%);
   top: -10%;
   right: -5%;
   animation: ambient-float-1 35s ease-in-out infinite;
@@ -25,7 +25,7 @@
 .ambient-blob--2 {
   width: 300px;
   height: 300px;
-  background: radial-gradient(circle, rgba(212, 168, 83, 0.12) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(212, 168, 83, 0.12) 0%, rgba(212, 168, 83, 0.03) 50%, transparent 80%);
   bottom: 20%;
   left: -8%;
   animation: ambient-float-2 32s ease-in-out infinite 3s;
@@ -34,7 +34,7 @@
 .ambient-blob--3 {
   width: 200px;
   height: 200px;
-  background: radial-gradient(circle, rgba(212, 168, 83, 0.08) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(212, 168, 83, 0.08) 0%, rgba(212, 168, 83, 0.02) 50%, transparent 80%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);

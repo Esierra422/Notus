@@ -1,8 +1,6 @@
 .nav {
   width: 100%;
-  background: rgba(10, 9, 8, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: transparent;
   border-bottom: 1px solid rgba(212, 168, 83, 0.06);
 }
 
@@ -13,8 +11,8 @@
   padding: 1.25rem 2rem;
   max-width: 1280px;
   margin: 0 auto;
-  background: linear-gradient(135deg, rgba(212, 168, 83, 0.08) 0%, rgba(184, 146, 63, 0.03) 50%, transparent 100%);
-  border-radius: 0 0 12px 12px;
+  background: none;
+  border-radius: 0;
 }
 
 .nav-logo {
