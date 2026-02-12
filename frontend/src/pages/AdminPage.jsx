@@ -48,7 +48,9 @@ export function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [memberSearch, setMemberSearch] = useState('')
   const [teamSearch, setTeamSearch] = useState('')
+  const [teamMenuOpen, setTeamMenuOpen] = useState(null)
   const [memberMenuOpen, setMemberMenuOpen] = useState(null)
+  const [memberManageOpen, setMemberManageOpen] = useState(null)
   const [profileModalMember, setProfileModalMember] = useState(null)
 
   useEffect(() => {
@@ -194,10 +196,15 @@ export function AdminPage() {
 
 
   const memberMenuRef = useRef(null)
+  const teamMenuRef = useRef(null)
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (memberMenuRef.current && !memberMenuRef.current.contains(e.target)) {
         setMemberMenuOpen(null)
+        setMemberManageOpen(null)
+      }
+      if (teamMenuRef.current && !teamMenuRef.current.contains(e.target)) {
+        setTeamMenuOpen(null)
       }
     }
     document.addEventListener('click', handleClickOutside)
@@ -253,8 +260,8 @@ export function AdminPage() {
 
   return (
     <main className="app-main org-admin-main">
-      <Link to={`/app/org/${orgId}/profile`} className="page-back-btn">
-        <ArrowLeftIcon size={18} /> Back to {org.name}
+      <Link to="/app" className="page-back-btn">
+        <ArrowLeftIcon size={18} /> Back to main dashboard
       </Link>
       <div className="org-admin-header">
         <div>
@@ -464,36 +471,58 @@ export function AdminPage() {
                       <button
                         type="button"
                         className="member-card-menu-item"
-                        onClick={() => { setMemberMenuOpen(null); setProfileModalMember(m) }}
+                        onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); setProfileModalMember(m) }}
                       >
                         Profile
                       </button>
-                      {canMakeAdmin && (
-                        <button
-                          type="button"
-                          className="member-card-menu-item"
-                          onClick={() => handleChangeRole(m.userId, MEMBERSHIP_ROLES.admin)}
-                        >
-                          Make admin
-                        </button>
-                      )}
-                      {canMakeMember && (
-                        <button
-                          type="button"
-                          className="member-card-menu-item"
-                          onClick={() => handleChangeRole(m.userId, MEMBERSHIP_ROLES.member)}
-                        >
-                          Make member
-                        </button>
-                      )}
-                      {canRemove && !isSelf && (
-                        <button
-                          type="button"
-                          className="member-card-menu-item member-card-menu-item-danger"
-                          onClick={() => handleRemoveMember(m.userId)}
-                        >
-                          Remove from org
-                        </button>
+                      {canManageOrg(membership) && (
+                        <>
+                          <button
+                            type="button"
+                            className="member-card-menu-item member-card-menu-item-submenu-trigger"
+                            onClick={() => setMemberManageOpen(memberManageOpen === m.userId ? null : m.userId)}
+                          >
+                            Manage
+                          </button>
+                          {memberManageOpen === m.userId && (
+                            <div className="member-card-menu-subpanel">
+                              {canMakeAdmin && (
+                                <button
+                                  type="button"
+                                  className="member-card-menu-item"
+                                  onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleChangeRole(m.userId, MEMBERSHIP_ROLES.admin) }}
+                                >
+                                  Make admin
+                                </button>
+                              )}
+                              {canMakeMember && (
+                                <button
+                                  type="button"
+                                  className="member-card-menu-item"
+                                  onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleChangeRole(m.userId, MEMBERSHIP_ROLES.member) }}
+                                >
+                                  Make member
+                                </button>
+                              )}
+                              <Link
+                                to={`/app/org/${orgId}/admin`}
+                                className="member-card-menu-item"
+                                onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null) }}
+                              >
+                                Add to team
+                              </Link>
+                              {canRemove && !isSelf && (
+                                <button
+                                  type="button"
+                                  className="member-card-menu-item member-card-menu-item-danger"
+                                  onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleRemoveMember(m.userId) }}
+                                >
+                                  Remove from org
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -563,6 +592,40 @@ export function AdminPage() {
               {teamMemberships[t.id] && (
                 <span className="org-team-badge">Your team</span>
               )}
+              <div
+                className="member-card-menu-wrapper org-team-menu-wrapper"
+                ref={teamMenuOpen === t.id ? teamMenuRef : undefined}
+              >
+                <button
+                  type="button"
+                  className="member-card-menu-trigger"
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTeamMenuOpen(teamMenuOpen === t.id ? null : t.id) }}
+                  title="Options"
+                  aria-label="Team options"
+                >
+                  <MoreVerticalIcon size={18} />
+                </button>
+                {teamMenuOpen === t.id && (
+                  <div className="member-card-menu-panel">
+                    <Link
+                      to={`/app/org/${orgId}/teams/${t.id}`}
+                      className="member-card-menu-item"
+                      onClick={() => setTeamMenuOpen(null)}
+                    >
+                      Profile
+                    </Link>
+                    {canManageOrg(membership) && (
+                      <Link
+                        to={`/app/org/${orgId}/teams/${t.id}`}
+                        className="member-card-menu-item"
+                        onClick={() => setTeamMenuOpen(null)}
+                      >
+                        Manage
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
             </li>
           ))}
           {filteredTeams.length === 0 && (

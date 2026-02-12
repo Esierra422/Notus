@@ -45,6 +45,7 @@ export function TeamPage() {
   const [rejectedInvitations, setRejectedInvitations] = useState([])
   const [memberSearch, setMemberSearch] = useState('')
   const [memberMenuOpen, setMemberMenuOpen] = useState(null)
+  const [memberManageOpen, setMemberManageOpen] = useState(null)
   const [profileModalMember, setProfileModalMember] = useState(null)
   const [meetings, setMeetings] = useState([])
   const [userProfiles, setUserProfiles] = useState({})
@@ -331,6 +332,7 @@ export function TeamPage() {
     const handleClickOutside = (e) => {
       if (memberMenuRef.current && !memberMenuRef.current.contains(e.target)) {
         setMemberMenuOpen(null)
+        setMemberManageOpen(null)
       }
     }
     document.addEventListener('click', handleClickOutside)
@@ -723,7 +725,7 @@ export function TeamPage() {
                     {showEmail && <span className="member-card-email">{email}</span>}
                     <span className="member-card-role">{m.role}</span>
                   </div>
-                  {!isSelf && (canMakeAdmin || canMakeMember || canRemove) && (
+                  {(canMakeAdmin || canMakeMember || canRemove || !isSelf) && (
                     <div
                       className="member-card-menu-wrapper"
                       ref={memberMenuOpen === m.userId ? memberMenuRef : undefined}
@@ -743,36 +745,51 @@ export function TeamPage() {
                           <button
                             type="button"
                             className="member-card-menu-item"
-                            onClick={() => { setMemberMenuOpen(null); setProfileModalMember(m) }}
+                            onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); setProfileModalMember(m) }}
                           >
                             Profile
                           </button>
-                          {canMakeAdmin && (
-                            <button
-                              type="button"
-                              className="member-card-menu-item"
-                              onClick={() => handleChangeRole(m.userId, TEAM_ROLES.admin)}
-                            >
-                              Make admin
-                            </button>
-                          )}
-                          {canMakeMember && (
-                            <button
-                              type="button"
-                              className="member-card-menu-item"
-                              onClick={() => handleChangeRole(m.userId, TEAM_ROLES.member)}
-                            >
-                              Make member
-                            </button>
-                          )}
-                          {canRemove && (
-                            <button
-                              type="button"
-                              className="member-card-menu-item member-card-menu-item-danger"
-                              onClick={() => handleRemoveMember(m.userId)}
-                            >
-                              Remove from team
-                            </button>
+                          {(canMakeAdmin || canMakeMember || canRemove) && (
+                            <>
+                              <button
+                                type="button"
+                                className="member-card-menu-item member-card-menu-item-submenu-trigger"
+                                onClick={() => setMemberManageOpen(memberManageOpen === m.userId ? null : m.userId)}
+                              >
+                                Manage
+                              </button>
+                              {memberManageOpen === m.userId && (
+                                <div className="member-card-menu-subpanel">
+                                  {canMakeAdmin && (
+                                    <button
+                                      type="button"
+                                      className="member-card-menu-item"
+                                      onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleChangeRole(m.userId, TEAM_ROLES.admin) }}
+                                    >
+                                      Make admin
+                                    </button>
+                                  )}
+                                  {canMakeMember && (
+                                    <button
+                                      type="button"
+                                      className="member-card-menu-item"
+                                      onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleChangeRole(m.userId, TEAM_ROLES.member) }}
+                                    >
+                                      Make member
+                                    </button>
+                                  )}
+                                  {canRemove && (
+                                    <button
+                                      type="button"
+                                      className="member-card-menu-item member-card-menu-item-danger"
+                                      onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleRemoveMember(m.userId) }}
+                                    >
+                                      Remove from team
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
@@ -797,6 +814,16 @@ export function TeamPage() {
             userDoc={userProfiles[profileModalMember.userId]}
             memberData={{ role: profileModalMember.role }}
             onClose={() => setProfileModalMember(null)}
+            showManage={canManageTeam(teamMembership, orgMembership)}
+            onRoleChange={async (uid, newRole) => {
+              await handleChangeRole(uid, newRole)
+              setProfileModalMember((prev) => (prev && prev.userId === uid ? { ...prev, role: newRole } : prev))
+            }}
+            onRemoveMember={(uid) => {
+              handleRemoveMember(uid)
+              setProfileModalMember(null)
+            }}
+            removeLabel="Remove from team"
           />
         )}
     </main>

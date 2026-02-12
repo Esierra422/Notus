@@ -148,11 +148,20 @@ export async function requestToJoinOrg(orgId, userId) {
 }
 
 /**
- * Get user's active org membership (if any).
+ * Get user's active org membership (if any). Returns first active.
+ * @deprecated Prefer getActiveMemberships for multi-org support.
  */
 export async function getActiveMembership(userId) {
   const memberships = await getUserMemberships(userId)
   return memberships.find((m) => m.state === MEMBERSHIP_STATES.active) || null
+}
+
+/**
+ * Get all active org memberships for a user (for multi-org support).
+ */
+export async function getActiveMemberships(userId) {
+  const memberships = await getUserMemberships(userId)
+  return memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
 }
 
 /**

@@ -28,6 +28,7 @@ export function MemberProfileModal({
   showManage = false,
   onRoleChange,
   onRemoveMember,
+  removeLabel = 'Remove from org',
 }) {
   const navigate = useNavigate()
   const [userDoc, setUserDoc] = useState(initialUserDoc ?? null)
@@ -218,7 +219,7 @@ export function MemberProfileModal({
               <CalendarIcon size={18} />
               <span>Schedule</span>
             </Link>
-            {showManage && canManageOrg(myMembership) && (
+            {showManage && (
               <div className="member-profile-modal-manage-wrapper" ref={manageRef}>
                 <button
                   type="button"
@@ -271,7 +272,7 @@ export function MemberProfileModal({
                           onClose?.()
                         }}
                       >
-                        Remove from org
+                        {removeLabel}
                       </button>
                     )}
                   </div>

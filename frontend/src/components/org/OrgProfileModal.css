@@ -1,0 +1,211 @@
+/* Org profile modal — pop-up from org cards */
+.org-profile-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  animation: org-profile-modal-fade 0.2s ease-out;
+}
+
+@keyframes org-profile-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.org-profile-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-width: 360px;
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+  animation: org-profile-modal-scale 0.2s ease-out;
+}
+
+@keyframes org-profile-modal-scale {
+  from { opacity: 0; transform: scale(0.98) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.org-profile-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.org-profile-modal-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.org-profile-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.org-profile-modal-close:hover {
+  color: var(--text);
+  background: var(--bg-card);
+}
+
+.org-profile-modal-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.org-profile-modal-loading,
+.org-profile-modal-error {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.org-profile-modal-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.org-profile-modal-avatar-wrap {
+  margin-bottom: 0.75rem;
+}
+
+.org-profile-modal-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--border);
+}
+
+.org-profile-modal-avatar-placeholder {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, rgba(212, 168, 83, 0.15) 0%, rgba(184, 146, 63, 0.06) 100%);
+  color: var(--accent);
+}
+
+.org-profile-modal-name {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.org-profile-modal-badges {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.org-profile-modal-badge {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.org-profile-modal-about {
+  margin-bottom: 1.25rem;
+}
+
+.org-profile-modal-section-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.org-profile-modal-desc {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.org-profile-modal-teams {
+  margin-bottom: 1.25rem;
+}
+
+.org-profile-modal-teams-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0;
+}
+
+.org-profile-modal-teams-list li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.org-profile-modal-teams-list li:last-child {
+  border-bottom: none;
+}
+
+.org-profile-modal-team-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.org-profile-modal-team-link:hover {
+  text-decoration: underline;
+}
+
+.org-profile-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.org-profile-modal-full-link,
+.org-profile-modal-admin-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.org-profile-modal-full-link:hover,
+.org-profile-modal-admin-link:hover {
+  text-decoration: underline;
+}

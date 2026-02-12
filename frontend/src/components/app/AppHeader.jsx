@@ -1,5 +1,4 @@
 import { Link, useParams } from 'react-router-dom'
-import { getActiveMembership } from '../../lib/orgService'
 import { subscribeConversations } from '../../lib/conversationService'
 import { useState, useEffect } from 'react'
 import { SettingsIcon, LayoutDashboardIcon, CalendarIcon, MessageSquareIcon, UserIcon, VideoIcon } from '../ui/Icons'
@@ -15,17 +14,8 @@ export function triggerProfileRefresh() {
 
 function ChatsNavLink({ user, activeOrgId }) {
   const { orgId: routeOrgId, chatId: routeChatId } = useParams()
-  const [navOrgId, setNavOrgId] = useState(null)
   const [unreadTotal, setUnreadTotal] = useState(0)
-
   const orgIdForSubscription = routeOrgId || activeOrgId
-
-  useEffect(() => {
-    if (!user?.uid) return
-    getActiveMembership(user.uid).then((active) => {
-      if (active?.orgId) setNavOrgId(active.orgId)
-    })
-  }, [user?.uid])
 
   useEffect(() => {
     if (!orgIdForSubscription || !user?.uid) {
@@ -43,7 +33,7 @@ function ChatsNavLink({ user, activeOrgId }) {
   }, [orgIdForSubscription, user?.uid, routeChatId])
 
   return (
-    <Link to={navOrgId ? `/app/org/${navOrgId}/chats` : '/app/chats'} className="app-nav-icon-btn" title="Chats" aria-label="Chats">
+    <Link to="/app/chats" className="app-nav-icon-btn" title="Chats" aria-label="Chats">
       <span className="app-nav-icon-wrap">
         <MessageSquareIcon size={20} />
         {unreadTotal > 0 && (
@@ -54,21 +44,25 @@ function ChatsNavLink({ user, activeOrgId }) {
   )
 }
 
+function AdminNavLink({ isAdmin }) {
+  if (!isAdmin) return null
+  return (
+    <Link to="/app/admin" className="app-nav-icon-btn" title="Admin" aria-label="Admin">
+      <UserIcon size={20} />
+    </Link>
+  )
+}
+
 export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverride, currentPageTitle }) {
-  const leftExtra = navExtraOverride !== undefined ? navExtraOverride : (orgName || currentPageTitle ? (
-    <span className="app-header-breadcrumb">
-      {orgName && <span className="app-org-name">{orgName}</span>}
-      {orgName && currentPageTitle && <span className="app-header-sep"> · </span>}
-      {currentPageTitle && <span className="app-page-title">{currentPageTitle}</span>}
-    </span>
-  ) : null)
+  const pageLabel = currentPageTitle || 'Notus'
+  const leftExtra = navExtraOverride !== undefined ? navExtraOverride : (
+    <span className="app-page-title">{pageLabel}</span>
+  )
 
   return (
     <header className="app-header">
       <div className="app-header-left">
-        <Link to="/app" className="app-logo">
-          <span className="app-logo-icon" aria-hidden>N</span>
-        </Link>
+        <Link to="/app" className="app-logo">Notus</Link>
         {leftExtra && <span className="app-header-org">{leftExtra}</span>}
       </div>
       <nav className="app-nav">
@@ -84,11 +78,7 @@ export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverrid
               <VideoIcon size={20} />
             </Link>
             <ChatsNavLink user={user} activeOrgId={activeOrgId} />
-            {isAdmin && activeOrgId && (
-              <Link to={`/app/org/${activeOrgId}/admin`} className="app-nav-icon-btn" title="Admin" aria-label="Admin">
-                <UserIcon size={20} />
-              </Link>
-            )}
+            <AdminNavLink isAdmin={isAdmin} />
           </>
         )}
         {user && (

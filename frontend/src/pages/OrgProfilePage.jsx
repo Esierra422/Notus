@@ -3,12 +3,13 @@ import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom
 import { getOrg, getMembership, getOrgMembers, updateOrg, canManageOrg, MEMBERSHIP_STATES } from '../lib/orgService'
 import { getOrgTeams } from '../lib/teamService'
 import { compressImageToDataUrl } from '../lib/imageUtils'
-import { BuildingIcon, PencilIcon, UsersIcon, ArrowLeftIcon } from '../components/ui/Icons'
+import { BuildingIcon, PencilIcon, UsersIcon, ArrowLeftIcon, MoreVerticalIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './ProfilePage.css'
 import './OrgPage.css'
 import './OrgProfilePage.css'
+import './OrgAdminPage.css'
 
 export function OrgProfilePage() {
   const { orgId } = useParams()
@@ -18,6 +19,8 @@ export function OrgProfilePage() {
   const [membership, setMembership] = useState(null)
   const [members, setMembers] = useState([])
   const [teams, setTeams] = useState([])
+  const [teamMenuOpen, setTeamMenuOpen] = useState(null)
+  const teamMenuRef = useRef(null)
   const [isEditingDesc, setIsEditingDesc] = useState(false)
   const [editDesc, setEditDesc] = useState('')
   const [savingDesc, setSavingDesc] = useState(false)
@@ -62,6 +65,16 @@ export function OrgProfilePage() {
   useEffect(() => {
     if (setNavExtra) setNavExtra(undefined)
   }, [setNavExtra])
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (teamMenuRef.current && !teamMenuRef.current.contains(e.target)) {
+        setTeamMenuOpen(null)
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
 
   const startEditDesc = () => {
     setEditDesc(org?.description || '')
@@ -120,8 +133,8 @@ export function OrgProfilePage() {
 
   return (
     <main className="app-main profile-main org-profile-main">
-      <Link to="/app" className="page-back-btn">
-        <ArrowLeftIcon size={18} /> Back
+      <Link to={`/app/org/${orgId}`} className="page-back-btn">
+        <ArrowLeftIcon size={18} /> Back to {org.name}
       </Link>
       <div className="profile-header org-profile-header">
         <div className="profile-cover org-profile-cover" aria-hidden />
@@ -213,14 +226,69 @@ export function OrgProfilePage() {
       <section className="profile-card org-profile-card">
         <h3 className="profile-card-title">
           <UsersIcon size={20} />
-          Quick links
+          Teams
         </h3>
-        <div className="profile-fields profile-fields-view">
-          <Link to={`/app/org/${orgId}/admin`} className="profile-action profile-action-link org-profile-action">
-            Manage organization
-          </Link>
-        </div>
+        <ul className="org-teams-list">
+          {teams.map((team) => (
+            <li key={team.id} className="org-team-item">
+              <Link to={`/app/org/${orgId}/teams/${team.id}`} className="org-team-link">
+                {team.name}
+              </Link>
+              <div
+                className="member-card-menu-wrapper org-team-menu-wrapper"
+                ref={teamMenuOpen === team.id ? teamMenuRef : undefined}
+              >
+                <button
+                  type="button"
+                  className="member-card-menu-trigger"
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTeamMenuOpen(teamMenuOpen === team.id ? null : team.id) }}
+                  title="Options"
+                  aria-label="Team options"
+                >
+                  <MoreVerticalIcon size={18} />
+                </button>
+                {teamMenuOpen === team.id && (
+                  <div className="member-card-menu-panel">
+                    <Link
+                      to={`/app/org/${orgId}/teams/${team.id}`}
+                      className="member-card-menu-item"
+                      onClick={() => setTeamMenuOpen(null)}
+                    >
+                      Profile
+                    </Link>
+                    {isAdmin && (
+                      <Link
+                        to={`/app/org/${orgId}/teams/${team.id}`}
+                        className="member-card-menu-item"
+                        onClick={() => setTeamMenuOpen(null)}
+                      >
+                        Manage
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+          {teams.length === 0 && (
+            <li className="org-teams-empty">No teams yet</li>
+          )}
+        </ul>
       </section>
+
+      {isAdmin && (
+        <section className="profile-card org-profile-card">
+          <h3 className="profile-card-title">
+            <UsersIcon size={20} />
+            Quick links
+          </h3>
+          <div className="profile-fields profile-fields-view">
+            <Link to={`/app/org/${orgId}/admin`} className="profile-action profile-action-link org-profile-action">
+              Manage organization
+            </Link>
+          </div>
+        </section>
+      )}
     </main>
   )
 }

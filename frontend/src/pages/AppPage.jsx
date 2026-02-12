@@ -1,25 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link, useOutletContext } from 'react-router-dom'
 import {
-  getActiveMembership,
+  getActiveMemberships,
   getPendingMembership,
   getPendingRequests,
   createOrg,
   searchOrgsByName,
   requestToJoinOrg,
   getOrg,
-  getMembership,
   canManageOrg,
   MEMBERSHIP_STATES,
 } from '../lib/orgService'
-import {
-  getOrgTeams,
-  getTeamMembership,
-  requestToJoinTeam,
-} from '../lib/teamService'
 import { getMeetingsForUser } from '../lib/meetingService'
 import { getTodos, addTodo, toggleTodo, deleteTodo } from '../lib/todoService'
 import { Button } from '../components/ui/Button'
+import { CalendarIcon, VideoIcon, MessageSquareIcon, SettingsIcon, BuildingIcon } from '../components/ui/Icons'
 import { MiniCalendarWidget } from '../components/dashboard/MiniCalendarWidget'
 import '../styles/variables.css'
 import './AppLayout.css'
@@ -30,14 +25,13 @@ import './OrgPage.css'
 import './OrgAdminPage.css'
 
 /**
- * Unified dashboard — meetings, teams, and organization admin in one place.
+ * Main dashboard — user-specific, combines data from ALL organizations.
+ * Shows Organizations selector, Calendar, Video, Chats (all orgs).
  */
 export function AppPage() {
   const navigate = useNavigate()
   const { user, setNavExtra } = useOutletContext() || {}
-  const [activeOrgId, setActiveOrgId] = useState(null)
-  const [org, setOrg] = useState(null)
-  const [membership, setMembership] = useState(null)
+  const [activeOrgs, setActiveOrgs] = useState([])
   const [pendingOrg, setPendingOrg] = useState(null)
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('choose')
@@ -48,14 +42,8 @@ export function AppPage() {
   const [createLoading, setCreateLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Meetings
   const [upcomingMeetings, setUpcomingMeetings] = useState([])
-
-  // Teams
-  const [teams, setTeams] = useState([])
-  const [teamMemberships, setTeamMemberships] = useState({})
-  const [requesting, setRequesting] = useState({})
-  const [pendingCount, setPendingCount] = useState(0)
+  const [totalPendingCount, setTotalPendingCount] = useState(0)
 
   // To-dos
   const [todos, setTodos] = useState([])
@@ -66,11 +54,17 @@ export function AppPage() {
   useEffect(() => {
     if (!user) return
     const load = async () => {
-      const [active, pendingMem] = await Promise.all([
-        getActiveMembership(user.uid),
+      const [memberships, pendingMem] = await Promise.all([
+        getActiveMemberships(user.uid),
         getPendingMembership(user.uid),
       ])
-      if (active) setActiveOrgId(active.orgId)
+      const orgs = await Promise.all(
+        memberships.map(async (m) => {
+          const orgData = await getOrg(m.orgId)
+          return { orgId: m.orgId, org: orgData, membership: m }
+        })
+      )
+      setActiveOrgs(orgs.filter((o) => o.org))
       if (pendingMem) {
         const orgData = await getOrg(pendingMem.orgId)
         setPendingOrg(orgData || { id: pendingMem.orgId, name: 'Organization' })
@@ -86,42 +80,17 @@ export function AppPage() {
   }, [setNavExtra])
 
   useEffect(() => {
-    if (!user || !activeOrgId) return
-    const load = async () => {
-      const [orgData, memData] = await Promise.all([
-        getOrg(activeOrgId),
-        getMembership(activeOrgId, user.uid),
-      ])
-      setOrg(orgData)
-      setMembership(memData)
-    }
-    load()
-  }, [user, activeOrgId])
-
-  useEffect(() => {
-    if (!user || !activeOrgId) return
+    if (!user?.uid) return
     getMeetingsForUser(user.uid).then(setUpcomingMeetings)
-  }, [user, activeOrgId])
+  }, [user?.uid])
 
   useEffect(() => {
-    if (!activeOrgId || !membership || !canManageOrg(membership)) return
-    getPendingRequests(activeOrgId).then((p) => setPendingCount(p.length))
-  }, [activeOrgId, membership])
-
-  useEffect(() => {
-    if (!activeOrgId || !user) return
-    const load = async () => {
-      const teamsData = await getOrgTeams(activeOrgId)
-      setTeams(teamsData)
-      const mems = {}
-      for (const team of teamsData) {
-        const m = await getTeamMembership(activeOrgId, team.id, user.uid)
-        if (m) mems[team.id] = m
-      }
-      setTeamMemberships(mems)
-    }
-    load()
-  }, [activeOrgId, user])
+    if (!user?.uid || activeOrgs.length === 0) return
+    const adminOrgs = activeOrgs.filter((o) => canManageOrg(o.membership))
+    Promise.all(adminOrgs.map((o) => getPendingRequests(o.orgId)))
+      .then((results) => results.reduce((sum, p) => sum + p.length, 0))
+      .then(setTotalPendingCount)
+  }, [user?.uid, activeOrgs])
 
   useEffect(() => {
     if (!user?.uid) return
@@ -175,9 +144,7 @@ export function AppPage() {
     setCreateLoading(true)
     try {
       const newOrg = await createOrg(orgName, user.uid)
-      setActiveOrgId(newOrg.id)
-      setOrg(newOrg)
-      setMembership({ state: MEMBERSHIP_STATES.active, role: 'owner' })
+      setActiveOrgs((prev) => [...prev, { orgId: newOrg.id, org: newOrg, membership: { state: MEMBERSHIP_STATES.active, role: 'owner' } }])
       setView('choose')
       setOrgName('')
       setPendingOrg(null)
@@ -218,24 +185,11 @@ export function AppPage() {
     }
   }
 
-  const handleRequestJoinTeam = async (teamId) => {
-    setError('')
-    setRequesting((r) => ({ ...r, [teamId]: true }))
-    try {
-      await requestToJoinTeam(activeOrgId, teamId, user.uid)
-      const mem = await getTeamMembership(activeOrgId, teamId, user.uid)
-      setTeamMemberships((m) => ({ ...m, [teamId]: mem }))
-    } catch (err) {
-      setError(err.message || 'Failed to send request.')
-    } finally {
-      setRequesting((r) => ({ ...r, [teamId]: false }))
-    }
-  }
-
   if (!user) return null
 
-  const needsOrg = !activeOrgId && !pendingOrg
-  const isAdmin = membership && canManageOrg(membership)
+  const needsOrg = activeOrgs.length === 0 && !pendingOrg
+  const adminOrgs = activeOrgs.filter((o) => canManageOrg(o.membership))
+  const isAdmin = adminOrgs.length > 0
 
   return (
     <main className="app-main dashboard-main">
@@ -334,12 +288,12 @@ export function AppPage() {
                 <span className="dashboard-stat-label">Upcoming</span>
               </div>
               <div className="dashboard-stat-card">
-                <span className="dashboard-stat-value">{teams.length}</span>
-                <span className="dashboard-stat-label">Teams</span>
+                <span className="dashboard-stat-value">{activeOrgs.length}</span>
+                <span className="dashboard-stat-label">Organizations</span>
               </div>
-              {isAdmin && pendingCount > 0 && (
-                <Link to={`/app/org/${activeOrgId}/admin`} className="dashboard-stat-card dashboard-stat-card-action">
-                  <span className="dashboard-stat-value">{pendingCount}</span>
+              {isAdmin && totalPendingCount > 0 && (
+                <Link to={adminOrgs[0] ? `/app/org/${adminOrgs[0].orgId}/admin` : '/app'} className="dashboard-stat-card dashboard-stat-card-action">
+                  <span className="dashboard-stat-value">{totalPendingCount}</span>
                   <span className="dashboard-stat-label">Pending</span>
                 </Link>
               )}
@@ -347,26 +301,31 @@ export function AppPage() {
 
             {/* Shortcuts */}
             <div className="dashboard-shortcuts">
+              <Link to="/app/organizations" className="dashboard-shortcut">
+                <span className="dashboard-shortcut-icon"><BuildingIcon size={24} /></span>
+                <span className="dashboard-shortcut-label">Organizations</span>
+                <span className="dashboard-shortcut-hint">{activeOrgs.length} orgs · Select to view</span>
+              </Link>
               <Link to="/app/calendar" className="dashboard-shortcut">
-                <span className="dashboard-shortcut-icon">📅</span>
+                <span className="dashboard-shortcut-icon"><CalendarIcon size={24} /></span>
                 <span className="dashboard-shortcut-label">Calendar</span>
-                <span className="dashboard-shortcut-hint">Schedule & view meetings</span>
+                <span className="dashboard-shortcut-hint">All meetings across orgs</span>
               </Link>
               <Link to="/app/video" className="dashboard-shortcut">
-                <span className="dashboard-shortcut-icon">📹</span>
+                <span className="dashboard-shortcut-icon"><VideoIcon size={24} /></span>
                 <span className="dashboard-shortcut-label">Video Call</span>
                 <span className="dashboard-shortcut-hint">Join or start a call</span>
               </Link>
-              <Link to={activeOrgId ? `/app/org/${activeOrgId}/chats` : '/app/chats'} className="dashboard-shortcut">
-                <span className="dashboard-shortcut-icon">💬</span>
+              <Link to="/app/chats" className="dashboard-shortcut">
+                <span className="dashboard-shortcut-icon"><MessageSquareIcon size={24} /></span>
                 <span className="dashboard-shortcut-label">Chats</span>
                 <span className="dashboard-shortcut-hint">Messages & conversations</span>
               </Link>
-              {isAdmin && activeOrgId && (
-                <Link to={`/app/org/${activeOrgId}/admin`} className="dashboard-shortcut">
-                  <span className="dashboard-shortcut-icon">⚙</span>
+              {isAdmin && (
+                <Link to="/app/admin" className="dashboard-shortcut">
+                  <span className="dashboard-shortcut-icon"><SettingsIcon size={24} /></span>
                   <span className="dashboard-shortcut-label">Admin</span>
-                  <span className="dashboard-shortcut-hint">Members, teams & invites</span>
+                  <span className="dashboard-shortcut-hint">{adminOrgs.length} org{adminOrgs.length !== 1 ? 's' : ''} to manage</span>
                 </Link>
               )}
             </div>
@@ -423,29 +382,22 @@ export function AppPage() {
 
               <section className="dashboard-widget dashboard-widget-wide">
                 <div className="dashboard-widget-header">
-                  <h3 className="dashboard-widget-title">Teams</h3>
-                  {isAdmin && activeOrgId && (
-                    <Link to={`/app/org/${activeOrgId}/admin`} className="dashboard-widget-link">Manage in Admin →</Link>
-                  )}
+                  <h3 className="dashboard-widget-title">
+                    <BuildingIcon size={20} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
+                    Organizations
+                  </h3>
+                  <Link to="/app/organizations" className="dashboard-widget-link">View all & add new →</Link>
                 </div>
                 <ul className="org-teams-list">
-                  {teams.map((team) => (
-                    <li key={team.id} className="org-team-item">
-                      <Link to={`/app/org/${activeOrgId}/teams/${team.id}`} className="org-team-link">
-                        {team.name}
+                  {activeOrgs.map(({ orgId, org }) => (
+                    <li key={orgId} className="org-team-item">
+                      <Link to={`/app/org/${orgId}`} className="org-team-link">
+                        {org?.name || 'Organization'}
                       </Link>
-                      {team.allowOpenJoin && !teamMemberships[team.id]?.state && (
-                        <Button variant="outline" size="sm" onClick={() => handleRequestJoinTeam(team.id)} disabled={requesting[team.id]}>
-                          {requesting[team.id] ? '...' : 'Join'}
-                        </Button>
-                      )}
-                      {teamMemberships[team.id]?.state === 'pending' && (
-                        <span className="org-team-pending">Pending</span>
-                      )}
                     </li>
                   ))}
-                  {teams.length === 0 && (
-                    <li className="org-teams-empty">No teams yet{isAdmin && ' — create one in Admin'}</li>
+                  {activeOrgs.length === 0 && (
+                    <li className="org-teams-empty">No organizations yet — create or join one above</li>
                   )}
                 </ul>
               </section>

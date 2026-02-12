@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
+  onAuthStateChanged,
 } from 'firebase/auth'
 import { auth, googleProvider, isSafari } from '../lib/firebase'
 import {
@@ -37,6 +38,17 @@ export function SignUpPage() {
   const [error, setError] = useState('')
 
   const isProcessingRedirect = location.state?.fromRedirect && location.state?.provider === 'google' && auth.currentUser && !userDoc
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u && !location.state?.fromRedirect) {
+        getUserDoc(u.uid).then((doc) => {
+          if (doc?.onboardingComplete) navigate('/app', { replace: true })
+        })
+      }
+    })
+    return () => unsub()
+  }, [navigate, location.state?.fromRedirect])
 
   useEffect(() => {
     const state = location.state

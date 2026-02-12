@@ -112,6 +112,29 @@ export async function getTeamMeetings(orgId, teamId) {
 }
 
 /**
+ * Get meetings user can access within a specific org.
+ */
+export async function getMeetingsForUserInOrg(userId, orgId) {
+  const orgMem = await getMembership(orgId, userId)
+  if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
+
+  const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+  const snapshot = await getDocs(meetingsRef)
+  const meetings = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+  const accessible = []
+  for (const m of meetings) {
+    const canAccess = await canAccessMeeting(m, userId, orgId)
+    if (canAccess) accessible.push(m)
+  }
+  accessible.sort((a, b) => {
+    const aTime = a.startAt?.toMillis?.() ?? a.startAt ?? 0
+    const bTime = b.startAt?.toMillis?.() ?? b.startAt ?? 0
+    return bTime - aTime
+  })
+  return accessible.slice(0, 20)
+}
+
+/**
  * Get all meetings user can access (for personal dashboard).
  * Fetches from all orgs user is active in, filters by access.
  */
@@ -183,6 +206,29 @@ export async function getMeetingsInRange(orgId, year, month, scope, scopeTeamId)
     return aT - bT
   })
   return meetings
+}
+
+/**
+ * Get meetings in range for a user within a specific org.
+ */
+export async function getMeetingsInRangeForUserInOrg(userId, orgId, year, month) {
+  const orgMem = await getMembership(orgId, userId)
+  if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
+  const meetings = await getMeetingsInRange(orgId, year, month, null, null)
+  const accessible = []
+  for (const m of meetings) {
+    const canAccess = await canAccessMeeting(m, userId, orgId)
+    if (canAccess) {
+      const org = await getOrg(orgId)
+      accessible.push({ ...m, _orgName: org?.name })
+    }
+  }
+  accessible.sort((a, b) => {
+    const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
+    const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
+    return aT - bT
+  })
+  return accessible
 }
 
 /**

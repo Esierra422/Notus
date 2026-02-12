@@ -15,6 +15,9 @@ import {
   SettingsPage,
   ProfilePage,
   OrgProfilePage,
+  OrgDashboardPage,
+  OrganizationsPage,
+  AdminSelectorPage,
   CalendarPage,
   ChatsRedirect,
   ChatsPage,
@@ -41,11 +44,14 @@ function App() {
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="video" element={<VideoCallPage />} />
           <Route path="chats" element={<ChatsRedirect />} />
+          <Route path="org/:orgId/calendar" element={<CalendarPage />} />
           <Route path="org/:orgId/chats" element={<ChatsPage />} />
           <Route path="org/:orgId/chats/:chatId" element={<ChatsPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
-          <Route path="org/:orgId" element={<Navigate to="/app" replace />} />
+          <Route path="organizations" element={<OrganizationsPage />} />
+          <Route path="admin" element={<AdminSelectorPage />} />
+          <Route path="org/:orgId" element={<OrgDashboardPage />} />
           <Route path="org/:orgId/profile" element={<OrgProfilePage />} />
           <Route path="org/:orgId/admin" element={<AdminPage />} />
           <Route path="org/:orgId/teams/:teamId" element={<TeamPage />} />

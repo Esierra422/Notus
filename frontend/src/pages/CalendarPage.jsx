@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { useOutletContext, useSearchParams } from 'react-router-dom'
-import { getActiveMembership, getOrg } from '../lib/orgService'
+import { useOutletContext, useSearchParams, useParams } from 'react-router-dom'
+import { getActiveMemberships, getOrg } from '../lib/orgService'
 import { getOrgTeams, getTeamMembership } from '../lib/teamService'
 import {
   getMeetingsInRange,
   getMeetingsInRangeForUser,
+  getMeetingsInRangeForUserInOrg,
   createMeeting,
   MEETING_SCOPES,
 } from '../lib/meetingService'
@@ -36,15 +37,16 @@ function formatDateKey(d) {
 
 export function CalendarPage() {
   const { user, userDoc, setNavExtra } = useOutletContext() || {}
+  const { orgId: routeOrgId } = useParams()
   const [searchParams] = useSearchParams()
-  const [activeOrgId, setActiveOrgId] = useState(null)
+  const [activeOrgId, setActiveOrgId] = useState(routeOrgId || null)
   const [org, setOrg] = useState(null)
   const [teams, setTeams] = useState([])
   const [teamMemberships, setTeamMemberships] = useState({})
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth())
   const [meetings, setMeetings] = useState([])
-  const [filter, setFilter] = useState('personal')
+  const [filter, setFilter] = useState(routeOrgId ? 'org' : 'personal')
   const [scopeTeamId, setScopeTeamId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
@@ -80,12 +82,18 @@ export function CalendarPage() {
   }, [searchParams])
 
   useEffect(() => {
-    if (!user) return
-    getActiveMembership(user.uid).then((active) => {
-      if (active) setActiveOrgId(active.orgId)
+    if (routeOrgId) {
+      setActiveOrgId(routeOrgId)
+      setFilter('org')
       setLoading(false)
-    })
-  }, [user])
+    } else if (!user) return
+    else {
+      getActiveMemberships(user.uid).then((memberships) => {
+        if (memberships[0]) setActiveOrgId(memberships[0].orgId)
+        setLoading(false)
+      })
+    }
+  }, [user, routeOrgId])
 
   useEffect(() => {
     if (!activeOrgId || !user) return
@@ -147,9 +155,13 @@ export function CalendarPage() {
             }))
             part = [...meetingsList, ...importedList, ...todosAsEvents]
           } else if (filter === 'org' && activeOrgId) {
-            const orgList = await getMeetingsInRange(activeOrgId, y, m, MEETING_SCOPES.org)
-            const orgData = await getOrg(activeOrgId)
-            part = orgList.map((ev) => ({ ...ev, _orgName: orgData?.name }))
+            if (routeOrgId) {
+              part = await getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m)
+            } else {
+              const orgList = await getMeetingsInRange(activeOrgId, y, m, MEETING_SCOPES.org)
+              const orgData = await getOrg(activeOrgId)
+              part = orgList.map((ev) => ({ ...ev, _orgName: orgData?.name }))
+            }
           } else if (filter === 'team' && activeOrgId && scopeTeamId) {
             const teamList = await getMeetingsInRange(activeOrgId, y, m, MEETING_SCOPES.team, scopeTeamId)
             const orgData = await getOrg(activeOrgId)

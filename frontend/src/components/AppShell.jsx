@@ -9,7 +9,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { getUserDoc } from '../lib/userService'
-import { getActiveMembership, getOrg, getMembership, canManageOrg } from '../lib/orgService'
+import { getActiveMemberships, getOrg, getMembership, canManageOrg } from '../lib/orgService'
 import { AppHeader, AppFooter, PROFILE_UPDATED_EVENT } from './app'
 import { PageTransition } from './PageTransition'
 import '../styles/variables.css'
@@ -59,22 +59,22 @@ export function AppShell() {
 
   useEffect(() => {
     if (!user?.uid) return
-    getActiveMembership(user.uid).then(async (active) => {
-      if (!active?.orgId) {
+    getActiveMemberships(user.uid).then(async (memberships) => {
+      const admins = memberships.filter((m) => canManageOrg(m))
+      setIsAdmin(admins.length > 0)
+      if (memberships.length === 0) {
         setActiveOrg(null)
-        setIsAdmin(false)
         lastOrgRef.current = null
         return
       }
-      const [org, membership] = await Promise.all([
-        getOrg(active.orgId),
-        getMembership(active.orgId, user.uid),
-      ])
-      setActiveOrg(org)
-      setIsAdmin(!!canManageOrg(membership))
-      if (org?.name) lastOrgRef.current = org.name
+      const match = location.pathname.match(/\/org\/([^/]+)/)
+      const routeOrgId = match?.[1]
+      const orgIdToLoad = routeOrgId || memberships[0].orgId
+      const orgData = await getOrg(orgIdToLoad)
+      setActiveOrg(orgData)
+      if (orgData?.name) lastOrgRef.current = orgData.name
     })
-  }, [user?.uid])
+  }, [user?.uid, location.pathname])
 
   const displayedOrg = activeOrg ?? (lastOrgRef.current ? { name: lastOrgRef.current } : null)
   const activeOrgId = activeOrg?.id ?? null
@@ -87,12 +87,16 @@ export function AppShell() {
     if (/^\/app\/org\/[^/]+\/chats/.test(p)) return 'Chats'
     if (p === '/app/profile') return 'Profile'
     if (p === '/app/settings') return 'Settings'
+    if (p === '/app/organizations') return 'Organizations'
+    if (p === '/app/admin') return 'Admin'
+    if (/^\/app\/org\/[^/]+$/.test(p)) return 'Organization'
     if (/^\/app\/org\/[^/]+\/profile$/.test(p)) return 'Org Profile'
     if (/^\/app\/org\/[^/]+\/admin$/.test(p)) return 'Admin'
+    if (/^\/app\/org\/[^/]+\/calendar$/.test(p)) return 'Calendar'
     if (/^\/app\/org\/[^/]+\/teams\/[^/]+$/.test(p)) return 'Team'
     if (p === '/app/features') return 'Features'
     if (p === '/app/how-it-works') return 'How it works'
-    return 'Dashboard'
+    return 'Notus'
   })()
 
   useEffect(() => {

@@ -223,6 +223,10 @@
   font-weight: 500;
 }
 
+.org-team-menu-wrapper {
+  margin-left: auto;
+}
+
 .org-teams-empty {
   color: var(--text-muted);
   font-size: 0.95rem;
@@ -304,6 +308,21 @@
 .member-card-menu-item-danger:hover {
   color: #e57373;
   background: rgba(229, 115, 115, 0.1);
+}
+
+.member-card-menu-item-submenu-trigger {
+  font-weight: 500;
+}
+
+.member-card-menu-subpanel {
+  padding: 0.25rem 0 0 0.5rem;
+  margin-top: 0.25rem;
+  border-left: 1px solid var(--border);
+}
+
+.member-card-menu-subpanel .member-card-menu-item {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
 }
 
 /* Member profile modal — enterprise style */

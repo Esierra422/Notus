@@ -71,7 +71,17 @@
   }
 }
 
-/* .app-logo styled in AppHeader.css */
+.app-logo {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.app-logo:hover {
+  color: var(--accent);
+}
 
 .app-nav {
   display: flex;
