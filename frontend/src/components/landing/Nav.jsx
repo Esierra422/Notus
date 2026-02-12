@@ -11,10 +11,6 @@ export function Nav() {
     <nav className="nav">
       <div className="nav-inner">
         <Link to="/" className="nav-logo" onClick={() => setMobileOpen(false)}>Notus</Link>
-        <div className="nav-links nav-links--desktop">
-          <Link to="/features">Features</Link>
-          <Link to="/how-it-works">How it works</Link>
-        </div>
         <div className="nav-actions nav-actions--desktop">
           <Button to="/login" variant="ghost">Log in</Button>
           <Button to="/signup" variant="primary">Sign up</Button>
@@ -30,8 +26,6 @@ export function Nav() {
         </button>
       </div>
       <div className={`nav-mobile ${mobileOpen ? 'nav-mobile--open' : ''}`}>
-        <Link to="/features" className="nav-mobile-link" onClick={() => setMobileOpen(false)}>Features</Link>
-        <Link to="/how-it-works" className="nav-mobile-link" onClick={() => setMobileOpen(false)}>How it works</Link>
         <Link to="/login" className="nav-mobile-link" onClick={() => setMobileOpen(false)}>Log in</Link>
         <Link to="/signup" className="nav-mobile-link nav-mobile-link--primary" onClick={() => setMobileOpen(false)}>Sign up</Link>
       </div>
