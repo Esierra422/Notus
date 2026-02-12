@@ -170,7 +170,6 @@ export function OrgProfilePage() {
                 </button>
               )}
             </div>
-            </div>
             {error && <p className="profile-field-error org-profile-error">{error}</p>}
             <h2 className="profile-hero-name org-profile-name">{org.name}</h2>
             <div className="profile-hero-badges">
