@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
 } from 'firebase/auth'
-import { auth, googleProvider } from '../lib/firebase'
+import { auth, googleProvider, isSafari } from '../lib/firebase'
 import {
   ensureUserDoc,
   getUserDoc,
@@ -22,9 +23,11 @@ import {
 import { ArrowLeftIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AuthPage.css'
+import './AppLayout.css'
 
 export function SignUpPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [step, setStep] = useState(1)
   const [lastDirection, setLastDirection] = useState('forward')
   const [provider, setProvider] = useState(null)
@@ -32,6 +35,27 @@ export function SignUpPage() {
   const [userDoc, setUserDoc] = useState(null)
   const [totalSteps, setTotalSteps] = useState(3)
   const [error, setError] = useState('')
+
+  const isProcessingRedirect = location.state?.fromRedirect && location.state?.provider === 'google' && auth.currentUser && !userDoc
+
+  useEffect(() => {
+    const state = location.state
+    if (state?.fromRedirect && state?.provider === 'google' && auth.currentUser) {
+      getUserDoc(auth.currentUser.uid).then((doc) => {
+        if (!doc) return
+        setUserDoc(doc)
+        if (doc.onboardingComplete) {
+          navigate('/app', { replace: true })
+          return
+        }
+        setProvider('google')
+        const missing = getMissingProfileFieldsCount(doc)
+        setTotalSteps(2 + missing)
+        setStep(2)
+        navigate(location.pathname, { replace: true, state: {} })
+      })
+    }
+  }, [location.state, location.pathname, navigate])
 
   const goNext = () => {
     setLastDirection('forward')
@@ -46,6 +70,15 @@ export function SignUpPage() {
 
   const handleGoogle = async () => {
     setError('')
+    if (isSafari) {
+      try {
+        sessionStorage.setItem('auth_redirect_pending', 'google')
+        await signInWithRedirect(auth, googleProvider)
+      } catch (err) {
+        setError(err?.message || 'Redirect failed.')
+      }
+      return
+    }
     try {
       const result = await signInWithPopup(auth, googleProvider)
       await ensureUserDoc(result.user, ['google'])
@@ -65,7 +98,11 @@ export function SignUpPage() {
         navigate('/app')
       }
     } catch (err) {
-      setError(err.message || 'Sign up failed.')
+      if (err?.code === 'auth/cancelled-popup-request') {
+        setError('Sign-in was cancelled. If Safari blocked the popup, allow popups for this site (Safari → Settings → Websites → Pop-up Windows) and try again, or sign up with email.')
+      } else {
+        setError(err.message || 'Sign up failed.')
+      }
     }
   }
 
@@ -126,7 +163,18 @@ export function SignUpPage() {
     )
   }
 
-  const nextProfileField = userDoc ? getNextProfileField(userDoc) : null
+  const   nextProfileField = userDoc ? getNextProfileField(userDoc) : null
+
+  if (isProcessingRedirect) {
+    return (
+      <div className="auth-page" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div className="app-auth-loading" style={{ color: 'var(--text-muted)' }} aria-label="Signing in">
+          <div className="app-auth-loading-spinner" style={{ borderColor: 'rgba(212,168,83,0.3)', borderTopColor: '#d4a853' }} />
+          <p>Signing you in…</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="auth-page">

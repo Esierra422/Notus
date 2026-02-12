@@ -258,15 +258,16 @@ export function OrgPage() {
 function TeamListItem({ team, orgId, membership, onRequestJoin, requesting }) {
   const isMember = membership?.state === 'active'
   const isPending = membership?.state === 'pending'
+  const canJoin = team.allowOpenJoin
 
   return (
     <li className="org-team-item">
       <Link to={`/app/org/${orgId}/teams/${team.id}`} className="org-team-link">
         {team.name}
       </Link>
-      {!isMember && !isPending && (
+      {canJoin && !isMember && !isPending && (
         <Button variant="outline" size="md" onClick={() => onRequestJoin(team.id)} disabled={requesting}>
-          {requesting ? '...' : 'Request to join'}
+          {requesting ? '...' : 'Join'}
         </Button>
       )}
       {isPending && <span className="org-team-pending">Pending</span>}

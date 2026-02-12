@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
 import { auth } from '../lib/firebase'
-import { UserIcon, LockIcon, BellIcon, PaletteIcon, ClipboardIcon, LogOutIcon } from '../components/ui/Icons'
+import { UserIcon, LockIcon, BellIcon, PaletteIcon, ClipboardIcon, LogOutIcon, VideoIcon, FileTextIcon, ArrowLeftIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './SettingsPage.css'
@@ -21,6 +21,9 @@ export function SettingsPage() {
 
   return (
     <main className="app-main settings-main">
+        <Link to="/app" className="page-back-btn">
+          <ArrowLeftIcon size={18} /> Back
+        </Link>
         <div className="settings-header">
           <h2>Settings</h2>
           <p className="settings-subtitle">Manage your account and preferences.</p>
@@ -50,8 +53,50 @@ export function SettingsPage() {
                 <LockIcon size={22} />
               </div>
               <div className="settings-card-content">
+                <span className="settings-card-title">Connected accounts & Security</span>
+                <span className="settings-card-desc">Manage linked accounts and security settings — coming soon</span>
+              </div>
+            </div>
+            <div className="settings-card settings-card-disabled">
+              <div className="settings-card-icon">
+                <LockIcon size={22} />
+              </div>
+              <div className="settings-card-content">
                 <span className="settings-card-title">Password</span>
                 <span className="settings-card-desc">Change your password — coming soon</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h3 className="settings-section-title">Meeting settings</h3>
+          <div className="settings-cards">
+            <div className="settings-card settings-card-disabled">
+              <div className="settings-card-icon">
+                <VideoIcon size={22} />
+              </div>
+              <div className="settings-card-content">
+                <span className="settings-card-title">Meeting preferences</span>
+                <span className="settings-card-desc">Microphone, camera, and subtitles defaults — coming soon</span>
+              </div>
+            </div>
+            <div className="settings-card settings-card-disabled">
+              <div className="settings-card-icon">
+                <FileTextIcon size={22} />
+              </div>
+              <div className="settings-card-content">
+                <span className="settings-card-title">Transcript preferences</span>
+                <span className="settings-card-desc">Auto-transcribe, language, and speaker labeling — coming soon</span>
+              </div>
+            </div>
+            <div className="settings-card settings-card-disabled">
+              <div className="settings-card-icon">
+                <ClipboardIcon size={22} />
+              </div>
+              <div className="settings-card-content">
+                <span className="settings-card-title">Storage & privacy</span>
+                <span className="settings-card-desc">Transcript retention and download my data — coming soon</span>
               </div>
             </div>
           </div>
@@ -65,7 +110,7 @@ export function SettingsPage() {
                 <BellIcon size={22} />
               </div>
               <div className="settings-card-content">
-                <span className="settings-card-title">Notifications</span>
+                <span className="settings-card-title">Notification settings</span>
                 <span className="settings-card-desc">Email and push notifications — coming soon</span>
               </div>
             </div>
@@ -117,10 +162,6 @@ export function SettingsPage() {
             </button>
           </div>
         </section>
-
-        <div className="settings-footer">
-          <Link to="/app" className="settings-back-link">← Back to dashboard</Link>
-        </div>
     </main>
   )
 }

@@ -4,4 +4,57 @@
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Animated gradient orbs - slow morph */
+.landing::before {
+  content: '';
+  position: fixed;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 40% at 30% 20%, rgba(212, 168, 83, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 35% at 75% 30%, rgba(212, 168, 83, 0.08) 0%, transparent 45%),
+    radial-gradient(ellipse 45% 30% at 20% 70%, rgba(212, 168, 83, 0.06) 0%, transparent 40%),
+    radial-gradient(ellipse 55% 40% at 85% 85%, rgba(212, 168, 83, 0.05) 0%, transparent 45%);
+  z-index: 0;
+  animation: landing-orb-drift 40s ease-in-out infinite;
+}
+
+@keyframes landing-orb-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 1; }
+  33% { transform: translate(2%, -1%) scale(1.02); opacity: 0.95; }
+  66% { transform: translate(-1.5%, 1.5%) scale(0.98); opacity: 1; }
+}
+
+/* Subtle grid overlay */
+.landing__grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(212, 168, 83, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(212, 168, 83, 0.03) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 0%, transparent 70%);
+}
+
+/* Fine grain texture overlay */
+.landing::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  z-index: 1;
+  opacity: 0.5;
+}
+
+.landing > * {
+  position: relative;
+  z-index: 2;
 }

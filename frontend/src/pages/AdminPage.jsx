@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import {
   getOrg,
@@ -7,13 +7,17 @@ import {
   getPendingRequests,
   getRejectedRequests,
   updateMembershipState,
+  updateMembershipRole,
   canManageOrg,
   MEMBERSHIP_STATES,
+  MEMBERSHIP_ROLES,
 } from '../lib/orgService'
 import { createOrgInvitation, getRejectedInvitationsForOrg } from '../lib/invitationService'
-import { getOrgTeams, createTeam, getTeamMembership, TEAM_STATES } from '../lib/teamService'
+import { getOrgTeams, createTeam, getTeamMembership, getTeamsForUserInOrg, TEAM_STATES } from '../lib/teamService'
 import { getUserDoc, getDisplayName, getMemberDisplayLine, getProfilePictureUrl } from '../lib/userService'
 import { Button } from '../components/ui/Button'
+import { MoreVerticalIcon, PlusIcon, ArrowLeftIcon } from '../components/ui/Icons'
+import { MemberProfileModal } from '../components/member/MemberProfileModal'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './OrgAdminPage.css'
@@ -39,8 +43,13 @@ export function AdminPage() {
   const [adminLoading, setAdminLoading] = useState({})
   const [showCreateTeam, setShowCreateTeam] = useState(false)
   const [newTeamName, setNewTeamName] = useState('')
+  const [newTeamAllowOpenJoin, setNewTeamAllowOpenJoin] = useState(false)
   const [createTeamLoading, setCreateTeamLoading] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [memberSearch, setMemberSearch] = useState('')
+  const [teamSearch, setTeamSearch] = useState('')
+  const [memberMenuOpen, setMemberMenuOpen] = useState(null)
+  const [profileModalMember, setProfileModalMember] = useState(null)
 
   useEffect(() => {
     if (!user || !orgId) return
@@ -160,15 +169,51 @@ export function AdminPage() {
     }
   }
 
+  const handleChangeRole = async (userId, newRole) => {
+    setMemberMenuOpen(null)
+    setAdminLoading((l) => ({ ...l, [userId]: true }))
+    try {
+      await updateMembershipRole(orgId, userId, newRole)
+      setMembers((m) => m.map((x) => (x.userId === userId ? { ...x, role: newRole } : x)))
+    } finally {
+      setAdminLoading((l) => ({ ...l, [userId]: false }))
+    }
+  }
+
+  const handleRemoveMember = async (userId) => {
+    setMemberMenuOpen(null)
+    if (!window.confirm('Remove this member from the organization?')) return
+    setAdminLoading((l) => ({ ...l, [userId]: true }))
+    try {
+      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.removed)
+      setMembers((m) => m.filter((x) => x.userId !== userId))
+    } finally {
+      setAdminLoading((l) => ({ ...l, [userId]: false }))
+    }
+  }
+
+
+  const memberMenuRef = useRef(null)
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (memberMenuRef.current && !memberMenuRef.current.contains(e.target)) {
+        setMemberMenuOpen(null)
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
+
   const handleCreateTeam = async (e) => {
     e.preventDefault()
     if (!newTeamName.trim()) return
     setCreateTeamLoading(true)
     try {
-      const team = await createTeam(orgId, newTeamName.trim(), user.uid)
-      setTeams((t) => [...t, team])
+      const team = await createTeam(orgId, newTeamName.trim(), user.uid, newTeamAllowOpenJoin)
+      setTeams((t) => [...t, { ...team, allowOpenJoin: newTeamAllowOpenJoin }])
       setShowCreateTeam(false)
       setNewTeamName('')
+      setNewTeamAllowOpenJoin(false)
       const m = await getTeamMembership(orgId, team.id, user.uid)
       if (m) setTeamMemberships((prev) => ({ ...prev, [team.id]: m }))
     } catch (err) {
@@ -190,13 +235,35 @@ export function AdminPage() {
 
   const rejectedTotal = rejected.length + rejectedInvitations.length
 
+  const memberSearchLower = memberSearch.trim().toLowerCase()
+  const filteredMembers = memberSearchLower
+    ? members.filter((m) => {
+        const profile = userProfiles[m.userId]
+        const authUserForDisplay = m.userId === user?.uid ? user : null
+        const fullName = (getDisplayName(profile, m.userId, authUserForDisplay) || '').toLowerCase()
+        const email = ((profile?.email || authUserForDisplay?.email) || '').toLowerCase()
+        return fullName.includes(memberSearchLower) || email.includes(memberSearchLower)
+      })
+    : members
+
+  const teamSearchLower = teamSearch.trim().toLowerCase()
+  const filteredTeams = teamSearchLower
+    ? teams.filter((t) => t.name?.toLowerCase().includes(teamSearchLower))
+    : teams
+
   return (
     <main className="app-main org-admin-main">
+      <Link to={`/app/org/${orgId}/profile`} className="page-back-btn">
+        <ArrowLeftIcon size={18} /> Back to {org.name}
+      </Link>
       <div className="org-admin-header">
         <div>
           <h2>Admin</h2>
           <p className="org-admin-subtitle">{org.name}</p>
         </div>
+        <Link to={`/app/org/${orgId}/profile`} className="org-admin-btn org-admin-btn-approve" style={{ alignSelf: 'center' }}>
+          View organization profile
+        </Link>
       </div>
 
       {/* Stats row */}
@@ -339,8 +406,16 @@ export function AdminPage() {
 
         <section className="org-admin-section org-admin-section-wide">
           <h3>Members</h3>
+          <input
+            type="text"
+            placeholder="Search members by name or email…"
+            value={memberSearch}
+            onChange={(e) => setMemberSearch(e.target.value)}
+            className="org-admin-invite-input org-admin-search-input"
+            style={{ marginBottom: '0.75rem' }}
+          />
         <ul className="member-list">
-          {members.map((m) => {
+          {filteredMembers.map((m) => {
             const profile = userProfiles[m.userId]
             const authUserForDisplay = m.userId === user?.uid ? user : null
             const fullName = getDisplayName(profile, m.userId, authUserForDisplay)
@@ -348,6 +423,15 @@ export function AdminPage() {
             const showEmail = email && fullName !== email
             const photoUrl = getProfilePictureUrl(profile, authUserForDisplay)
             const initials = fullName ? fullName.split(/\s+/).map((n) => n[0]).join('').toUpperCase().slice(0, 2) : email?.[0]?.toUpperCase() || '?'
+            const isOwner = m.role === MEMBERSHIP_ROLES.owner
+            const isAdmin = m.role === MEMBERSHIP_ROLES.admin
+            const isMember = m.role === MEMBERSHIP_ROLES.member
+            const iAmOwner = membership?.role === MEMBERSHIP_ROLES.owner
+            const iAmAdmin = membership?.role === MEMBERSHIP_ROLES.admin
+            const canMakeAdmin = (iAmOwner && isMember) || (iAmAdmin && isMember)
+            const canMakeMember = iAmOwner && isAdmin
+            const canRemove = (iAmOwner && !isOwner) || (iAmAdmin && isMember)
+            const isSelf = m.userId === user?.uid
             return (
               <li key={m.userId} className="member-card">
                 <div className="member-card-avatar">
@@ -361,14 +445,78 @@ export function AdminPage() {
                   {showEmail && <span className="member-card-email">{email}</span>}
                   <span className="member-card-role">{m.role}</span>
                 </div>
+                <div
+                  className="member-card-menu-wrapper"
+                  ref={memberMenuOpen === m.userId ? memberMenuRef : undefined}
+                >
+                  <button
+                    type="button"
+                    className="member-card-menu-trigger"
+                    onClick={(e) => { e.stopPropagation(); setMemberMenuOpen(memberMenuOpen === m.userId ? null : m.userId) }}
+                    disabled={adminLoading[m.userId]}
+                    title="Options"
+                    aria-label="Member options"
+                  >
+                    <MoreVerticalIcon size={18} />
+                  </button>
+                  {memberMenuOpen === m.userId && (
+                    <div className="member-card-menu-panel">
+                      <button
+                        type="button"
+                        className="member-card-menu-item"
+                        onClick={() => { setMemberMenuOpen(null); setProfileModalMember(m) }}
+                      >
+                        Profile
+                      </button>
+                      {canMakeAdmin && (
+                        <button
+                          type="button"
+                          className="member-card-menu-item"
+                          onClick={() => handleChangeRole(m.userId, MEMBERSHIP_ROLES.admin)}
+                        >
+                          Make admin
+                        </button>
+                      )}
+                      {canMakeMember && (
+                        <button
+                          type="button"
+                          className="member-card-menu-item"
+                          onClick={() => handleChangeRole(m.userId, MEMBERSHIP_ROLES.member)}
+                        >
+                          Make member
+                        </button>
+                      )}
+                      {canRemove && !isSelf && (
+                        <button
+                          type="button"
+                          className="member-card-menu-item member-card-menu-item-danger"
+                          onClick={() => handleRemoveMember(m.userId)}
+                        >
+                          Remove from org
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </li>
             )
           })}
         </ul>
+          {memberSearch && filteredMembers.length === 0 && (
+            <p className="app-muted">No members match "{memberSearch}"</p>
+          )}
         </section>
 
         <section className="org-admin-section org-admin-section-wide">
           <h3>Teams</h3>
+          <input
+            type="text"
+            placeholder="Search teams by name…"
+            value={teamSearch}
+            onChange={(e) => setTeamSearch(e.target.value)}
+            className="org-admin-invite-input org-admin-search-input"
+            style={{ marginBottom: '0.75rem' }}
+          />
         <p className="app-muted" style={{ marginBottom: '0.75rem' }}>
           Create and manage teams. Team leaders can approve join requests from the team page.
         </p>
@@ -386,19 +534,28 @@ export function AdminPage() {
               className="auth-input"
               disabled={createTeamLoading}
             />
+            <label className="org-admin-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={newTeamAllowOpenJoin}
+                onChange={(e) => setNewTeamAllowOpenJoin(e.target.checked)}
+                disabled={createTeamLoading}
+              />
+              <span>Allow anyone in the org to join without invitation</span>
+            </label>
             {inviteError && <p className="org-admin-error">{inviteError}</p>}
             <div className="dashboard-form-actions" style={{ marginTop: '0.5rem' }}>
               <Button type="submit" variant="primary" size="md" disabled={createTeamLoading || !newTeamName.trim()}>
                 {createTeamLoading ? 'Creating…' : 'Create'}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => { setShowCreateTeam(false); setNewTeamName(''); setInviteError(''); }}>
+              <Button type="button" variant="ghost" onClick={() => { setShowCreateTeam(false); setNewTeamName(''); setNewTeamAllowOpenJoin(false); setInviteError(''); }}>
                 Cancel
               </Button>
             </div>
           </form>
         )}
         <ul className="org-teams-list">
-          {teams.map((t) => (
+          {filteredTeams.map((t) => (
             <li key={t.id} className="org-team-item">
               <Link to={`/app/org/${orgId}/teams/${t.id}`} className="org-team-link">
                 {t.name}
@@ -408,12 +565,33 @@ export function AdminPage() {
               )}
             </li>
           ))}
-          {teams.length === 0 && (
-            <li className="org-teams-empty">No teams yet. Create one above.</li>
+          {filteredTeams.length === 0 && (
+            <li className="org-teams-empty">
+              {teamSearch ? `No teams match "${teamSearch}"` : 'No teams yet. Create one above.'}
+            </li>
           )}
         </ul>
         </section>
       </div>
+
+      {profileModalMember && (
+        <MemberProfileModal
+          userId={profileModalMember.userId}
+          orgId={orgId}
+          org={org}
+          currentUser={user}
+          myMembership={membership}
+          userDoc={userProfiles[profileModalMember.userId]}
+          memberData={{ role: profileModalMember.role, createdAt: profileModalMember.createdAt }}
+          onClose={() => setProfileModalMember(null)}
+          showManage
+          onRoleChange={async (uid, newRole) => {
+            await handleChangeRole(uid, newRole)
+            setProfileModalMember((prev) => (prev && prev.userId === uid ? { ...prev, role: newRole } : prev))
+          }}
+          onRemoveMember={handleRemoveMember}
+        />
+      )}
     </main>
   )
 }

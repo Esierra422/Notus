@@ -5,6 +5,7 @@ import '../styles/landing.css'
 export function LandingPage() {
   return (
     <div className="landing">
+      <div className="landing__grid" aria-hidden />
       <Nav />
       <Hero />
       <Features />

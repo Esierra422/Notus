@@ -1,0 +1,88 @@
+/* Floating ambient shapes - modern, chic */
+.ambient-graphics {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ambient-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.4;
+}
+
+.ambient-blob--1 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(212, 168, 83, 0.2) 0%, transparent 70%);
+  top: -10%;
+  right: -5%;
+  animation: ambient-float-1 35s ease-in-out infinite;
+}
+
+.ambient-blob--2 {
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(212, 168, 83, 0.12) 0%, transparent 70%);
+  bottom: 20%;
+  left: -8%;
+  animation: ambient-float-2 32s ease-in-out infinite 3s;
+}
+
+.ambient-blob--3 {
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, rgba(212, 168, 83, 0.08) 0%, transparent 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  animation: ambient-float-3 40s ease-in-out infinite 2s;
+}
+
+.ambient-line {
+  position: absolute;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212, 168, 83, 0.15), transparent);
+  opacity: 0.6;
+}
+
+.ambient-line--1 {
+  width: 40%;
+  top: 25%;
+  right: 0;
+  transform: rotate(-15deg);
+  animation: ambient-line-pulse 8s ease-in-out infinite;
+}
+
+.ambient-line--2 {
+  width: 30%;
+  bottom: 30%;
+  left: 0;
+  transform: rotate(12deg);
+  animation: ambient-line-pulse 8s ease-in-out infinite 2s;
+}
+
+@keyframes ambient-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-20px, 15px) scale(1.05); }
+  50% { transform: translate(15px, -20px) scale(0.95); }
+  75% { transform: translate(-10px, -10px) scale(1.02); }
+}
+
+@keyframes ambient-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(25px, -15px) scale(1.08); }
+  66% { transform: translate(-15px, 20px) scale(0.92); }
+}
+
+@keyframes ambient-float-3 {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.15); }
+}
+
+@keyframes ambient-line-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}

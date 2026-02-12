@@ -1,14 +1,15 @@
 .footer {
-  border-top: 1px solid var(--border);
-  background: var(--bg-elevated, var(--bg-card));
+  border-top: 1px solid rgba(212, 168, 83, 0.08);
+  background: rgba(18, 17, 15, 0.5);
+  backdrop-filter: blur(8px);
 }
 
 .footer-main {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 3rem 2rem 2rem;
+  padding: 4rem 2rem 3rem;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(120px, 1fr));
+  grid-template-columns: minmax(200px, 1fr) repeat(4, minmax(120px, 1fr));
   gap: 2rem 3rem;
   align-items: start;
 }
@@ -77,8 +78,8 @@
 .footer-bottom {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 1.25rem 2rem;
-  border-top: 1px solid var(--border);
+  padding: 1.5rem 2rem;
+  border-top: 1px solid rgba(212, 168, 83, 0.06);
 }
 
 .footer-copyright {

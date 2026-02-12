@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom'
+import { ScrollReveal } from './ScrollReveal'
 import './Footer.css'
 
 const FOOTER_COLUMNS = [
   {
     title: 'Product',
     links: [
-      { href: '#features', label: 'Features' },
-      { href: '#how-it-works', label: 'How it works' },
+      { to: '/features', label: 'Features' },
+      { to: '/how-it-works', label: 'How it works' },
       { to: '/signup', label: 'Sign up' },
     ],
   },
@@ -42,6 +43,7 @@ export function Footer() {
 
   return (
     <footer className="footer">
+      <ScrollReveal>
       <div className="footer-main">
         <div className="footer-brand">
           <Link to="/" className="footer-logo">Notus</Link>
@@ -66,6 +68,7 @@ export function Footer() {
           ))}
         </div>
       </div>
+      </ScrollReveal>
       <div className="footer-bottom">
         <span className="footer-copyright">
           &copy; {year} Notus. All rights reserved.

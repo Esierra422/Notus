@@ -11,6 +11,7 @@ export function AuthChoiceStep({
   onEmail,
   error,
   footerLink,
+  googleLoading = false,
 }) {
   return (
     <div className="auth-step-entry">
@@ -18,8 +19,8 @@ export function AuthChoiceStep({
       <p className="auth-step-subtitle">{subtitle}</p>
       {error && <p className="auth-error">{error}</p>}
       <div className="auth-step-actions">
-        <Button variant="outline" size="lg" className="auth-step-btn" onClick={onGoogle}>
-          {googleLabel}
+        <Button variant="outline" size="lg" className="auth-step-btn" onClick={onGoogle} disabled={googleLoading}>
+          {googleLoading ? 'Redirecting…' : googleLabel}
         </Button>
         <Button variant="outline" size="lg" className="auth-step-btn" onClick={onEmail}>
           {emailLabel}

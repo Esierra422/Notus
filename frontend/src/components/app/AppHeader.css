@@ -2,6 +2,13 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .app-header-org {
+    display: none;
+  }
 }
 
 .app-header-org {
@@ -16,15 +23,38 @@
   color: var(--border);
 }
 
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .app-nav {
+    gap: 0.125rem;
+  }
+}
+
 .app-nav-icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
+  min-width: 36px;
+  min-height: 36px;
   color: var(--text-muted);
   border-radius: 8px;
   transition: color 0.2s, background 0.2s;
+}
+
+@media (max-width: 480px) {
+  .app-nav-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
 }
 
 .app-nav-icon-btn:hover {

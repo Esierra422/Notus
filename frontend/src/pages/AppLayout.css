@@ -52,6 +52,19 @@
   border-bottom: 1px solid var(--border);
 }
 
+@media (max-width: 768px) {
+  .app-header {
+    padding: 0.75rem 1rem;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-header {
+    padding: 0.5rem 0.75rem;
+  }
+}
+
 .app-logo {
   font-family: var(--font-display);
   font-weight: 700;
@@ -89,6 +102,12 @@
   box-sizing: border-box;
 }
 
+@media (max-width: 768px) {
+  .app-main {
+    padding: 1rem 1rem 1.5rem;
+  }
+}
+
 @media (min-width: 900px) {
   .app-main.dashboard-main,
   .app-main.org-admin-main,
@@ -113,4 +132,21 @@
 .app-muted {
   color: var(--text-muted);
   font-size: 0.95rem;
+}
+
+.page-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-bottom: 1rem;
+  padding: 0.35rem 0;
+  transition: color 0.2s;
+}
+
+.page-back-btn:hover {
+  color: var(--accent);
 }

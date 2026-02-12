@@ -62,6 +62,30 @@ export async function getOrg(orgId) {
 }
 
 /**
+ * Update organization fields. Requires owner/admin.
+ */
+export async function updateOrg(orgId, updates, userId) {
+  const mem = await getMembership(orgId, userId)
+  if (!mem || mem.state !== MEMBERSHIP_STATES.active) {
+    throw new Error('You must be an active member to update the org.')
+  }
+  if (mem.role !== MEMBERSHIP_ROLES.owner && mem.role !== MEMBERSHIP_ROLES.admin) {
+    throw new Error('Only admins and owners can update the org.')
+  }
+  const ref = doc(db, ORGS_COLLECTION, orgId)
+  const data = {}
+  if (updates.description !== undefined) data.description = String(updates.description || '').trim()
+  if (updates.imageUrl !== undefined) data.imageUrl = updates.imageUrl == null ? null : String(updates.imageUrl)
+  if (updates.name !== undefined) {
+    const name = String(updates.name || '').trim()
+    data.name = name
+    data.nameLower = name.toLowerCase()
+  }
+  if (Object.keys(data).length === 0) return
+  await updateDoc(ref, { ...data, updatedAt: serverTimestamp() })
+}
+
+/**
  * Search organizations by name (prefix match, case-insensitive).
  */
 export async function searchOrgsByName(searchTerm, limit = 10) {
@@ -178,15 +202,30 @@ export async function getRejectedRequests(orgId) {
 }
 
 /**
- * Approve or reject a membership request. Requires owner/admin.
+ * Approve, reject, or remove a membership. Requires owner/admin for approve/reject/remove.
  */
 export async function updateMembershipState(orgId, userId, newState) {
-  if (newState !== MEMBERSHIP_STATES.active && newState !== MEMBERSHIP_STATES.rejected) {
+  const allowed = [MEMBERSHIP_STATES.active, MEMBERSHIP_STATES.rejected, MEMBERSHIP_STATES.removed]
+  if (!allowed.includes(newState)) {
     throw new Error('Invalid state')
   }
   const ref = doc(db, MEMBERSHIPS_COLLECTION, membershipId(orgId, userId))
   await updateDoc(ref, {
     state: newState,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/**
+ * Update a member's role. Requires owner/admin.
+ */
+export async function updateMembershipRole(orgId, userId, newRole) {
+  if (![MEMBERSHIP_ROLES.owner, MEMBERSHIP_ROLES.admin, MEMBERSHIP_ROLES.member].includes(newRole)) {
+    throw new Error('Invalid role')
+  }
+  const ref = doc(db, MEMBERSHIPS_COLLECTION, membershipId(orgId, userId))
+  await updateDoc(ref, {
+    role: newRole,
     updatedAt: serverTimestamp(),
   })
 }

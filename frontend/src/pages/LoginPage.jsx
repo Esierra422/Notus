@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth'
-import { auth, googleProvider } from '../lib/firebase'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from 'firebase/auth'
+import { auth, googleProvider, isSafari } from '../lib/firebase'
+
 import { ensureUserDoc, getUserDoc, getNextProfileField, getMissingProfileFieldsCount, updateProfileField } from '../lib/userService'
 import {
   AuthChoiceStep,
@@ -13,9 +14,11 @@ import {
 import { ArrowLeftIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AuthPage.css'
+import './AppLayout.css'
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [step, setStep] = useState(1)
   const [lastDirection, setLastDirection] = useState('forward')
   const [email, setEmail] = useState('')
@@ -23,6 +26,27 @@ export function LoginPage() {
   const [userDoc, setUserDoc] = useState(null)
   const [totalSteps, setTotalSteps] = useState(3)
   const [error, setError] = useState('')
+
+  const isProcessingRedirect = location.state?.fromRedirect && location.state?.provider === 'google' && auth.currentUser && !userDoc
+
+  useEffect(() => {
+    const state = location.state
+    if (state?.fromRedirect && state?.provider === 'google' && auth.currentUser) {
+      getUserDoc(auth.currentUser.uid).then((doc) => {
+        if (!doc) return
+        setUserDoc(doc)
+        if (doc.onboardingComplete) {
+          navigate('/app', { replace: true })
+          return
+        }
+        setProvider('google')
+        const missing = getMissingProfileFieldsCount(doc)
+        setTotalSteps(2 + missing)
+        setStep(2)
+        navigate(location.pathname, { replace: true, state: {} })
+      })
+    }
+  }, [location.state, location.pathname, navigate])
 
   const goNext = () => {
     setLastDirection('forward')
@@ -37,6 +61,15 @@ export function LoginPage() {
 
   const handleGoogle = async () => {
     setError('')
+    if (isSafari) {
+      try {
+        sessionStorage.setItem('auth_redirect_pending', 'google')
+        await signInWithRedirect(auth, googleProvider)
+      } catch (err) {
+        setError(err?.message || 'Redirect failed.')
+      }
+      return
+    }
     try {
       const result = await signInWithPopup(auth, googleProvider)
       await ensureUserDoc(result.user, ['google'])
@@ -51,7 +84,11 @@ export function LoginPage() {
       setTotalSteps(2 + missing)
       setStep(2)
     } catch (err) {
-      setError(err.message || 'Log in failed.')
+      if (err?.code === 'auth/cancelled-popup-request') {
+        setError('Sign-in was cancelled. If Safari blocked the popup, allow popups for this site in Safari settings (Safari → Settings → Websites → Pop-up Windows) and try again, or sign in with email.')
+      } else {
+        setError(err.message || 'Log in failed.')
+      }
     }
   }
 
@@ -96,6 +133,17 @@ export function LoginPage() {
       setError(err.message || 'Log in failed.')
       throw err
     }
+  }
+
+  if (isProcessingRedirect) {
+    return (
+      <div className="auth-page" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div className="app-auth-loading" style={{ color: 'var(--text-muted)' }} aria-label="Signing in">
+          <div className="app-auth-loading-spinner" style={{ borderColor: 'rgba(212,168,83,0.3)', borderTopColor: '#d4a853' }} />
+          <p>Signing you in…</p>
+        </div>
+      </div>
+    )
   }
 
   return (

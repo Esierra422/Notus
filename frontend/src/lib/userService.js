@@ -170,6 +170,30 @@ export const PROFILE_FIELDS = [
   { key: 'gender', label: 'Gender', type: 'select', options: ['male', 'female', 'non-binary', 'prefer-not-to-say'] },
 ]
 
+/** Default meeting preferences */
+export const DEFAULT_MEETING_PREFS = { micOnByDefault: true, camOnByDefault: true, subtitleToggle: true }
+/** Default transcript preferences */
+export const DEFAULT_TRANSCRIPT_PREFS = { autoTranscribe: true, language: 'en', speakerLabeling: true }
+/** Transcript retention options */
+export const TRANSCRIPT_RETENTION_OPTIONS = [
+  { value: '7', label: '7 days' },
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: 'forever', label: 'Forever' },
+]
+
+export function getMeetingPreferences(userDoc) {
+  return { ...DEFAULT_MEETING_PREFS, ...(userDoc?.meetingPreferences || {}) }
+}
+
+export function getTranscriptPreferences(userDoc) {
+  return { ...DEFAULT_TRANSCRIPT_PREFS, ...(userDoc?.transcriptPreferences || {}) }
+}
+
+export function getTranscriptRetention(userDoc) {
+  return userDoc?.transcriptRetention ?? '30'
+}
+
 /**
  * Check if a profile field value is considered "filled".
  * profilePicture: filled when URL (uploaded) or 'skipped' (user chose skip).

@@ -1,12 +1,32 @@
 .cta {
-  padding: 6rem 2rem;
+  padding: 8rem 2rem;
   text-align: center;
-  background: linear-gradient(180deg, transparent 0%, rgba(212, 168, 83, 0.04) 100%);
+  margin: 0 2rem 4rem;
+  background: linear-gradient(165deg, rgba(212, 168, 83, 0.07) 0%, rgba(212, 168, 83, 0.02) 50%, rgba(212, 168, 83, 0.05) 100%);
+  background-size: 200% 200%;
+  border: 1px solid rgba(212, 168, 83, 0.12);
+  border-radius: 24px;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 4rem;
+  animation: cta-bg-shift 20s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(212, 168, 83, 0);
+  transition: box-shadow 0.5s ease;
+}
+
+.cta:hover {
+  box-shadow: 0 0 40px -10px rgba(212, 168, 83, 0.2);
+}
+
+@keyframes cta-bg-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
 .cta-title {
   font-family: var(--font-display);
-  font-size: clamp(2rem, 4vw, 2.5rem);
+  font-size: clamp(2rem, 4vw, 2.75rem);
   font-weight: 700;
   letter-spacing: -0.03em;
   margin: 0 0 0.75rem;
@@ -15,12 +35,19 @@
 .cta-subtitle {
   font-size: 1.1rem;
   color: var(--text-muted);
-  margin: 0 0 2rem;
+  margin: 0 0 2.25rem;
+  line-height: 1.6;
+}
+
+.cta .btn {
+  padding: 0.875rem 2.25rem;
+  font-size: 1rem;
 }
 
 @media (max-width: 768px) {
   .cta {
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
+    padding: 5rem 1.5rem;
+    margin-left: 1.5rem;
+    margin-right: 1.5rem;
   }
 }

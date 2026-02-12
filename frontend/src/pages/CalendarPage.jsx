@@ -13,6 +13,7 @@ import { getTodosInRange, addTodo, toggleTodo, deleteTodo } from '../lib/todoSer
 import { Button } from '../components/ui/Button'
 import { UploadIcon } from '../components/ui/Icons'
 import { Timestamp } from 'firebase/firestore'
+import { getTimeZone, getLocale } from '../lib/dateUtils'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './CalendarPage.css'
@@ -20,11 +21,13 @@ import './CalendarPage.css'
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const VIEWS = ['month', 'week', 'day']
 
-function formatMeetingTime(startAt) {
+function formatMeetingTime(startAt, userDoc) {
   if (!startAt) return ''
   const ms = startAt?.toMillis?.() ?? startAt
   const d = new Date(ms)
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const tz = getTimeZone(userDoc)
+  const locale = getLocale(userDoc)
+  return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', ...(tz && { timeZone: tz }) })
 }
 
 function formatDateKey(d) {
@@ -32,7 +35,7 @@ function formatDateKey(d) {
 }
 
 export function CalendarPage() {
-  const { user, setNavExtra } = useOutletContext()
+  const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
   const [activeOrgId, setActiveOrgId] = useState(null)
   const [org, setOrg] = useState(null)
@@ -553,7 +556,7 @@ export function CalendarPage() {
                       {dayMeetings.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0)).map((m) => (
                         <li key={m.id} className={`calendar-meeting-item ${m._todo && m.done ? 'calendar-meeting-done' : ''}`} title={m.title}>
                           {m._todo && <input type="checkbox" checked={!!m.done} onChange={(e) => handleToggleTask(m.id, e.target.checked)} className="calendar-cell-task-check" aria-hidden />}
-                          <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt)}</span>
+                          <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
                           <span className="calendar-meeting-title">{m.title}</span>
                           {m._imported && <span className="calendar-meeting-imported">imported</span>}
                           {m._todo && <span className="calendar-meeting-task">task</span>}
@@ -583,7 +586,7 @@ export function CalendarPage() {
                       }).map((m) => (
                         <div key={m.id} className={`calendar-meeting-item ${m._todo && m.done ? 'calendar-meeting-done' : ''}`} title={m.title}>
                           {m._todo && <input type="checkbox" checked={!!m.done} onChange={(e) => handleToggleTask(m.id, e.target.checked)} className="calendar-cell-task-check" aria-hidden />}
-                          <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt)}</span>
+                          <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
                           <span className="calendar-meeting-title">{m.title}</span>
                           {m._todo && <span className="calendar-meeting-task">task</span>}
                         </div>
@@ -594,13 +597,15 @@ export function CalendarPage() {
               </div>
             </div>
           ) : (
-            <div className="calendar-grid">
+            <div
+              className="calendar-grid"
+              style={{ gridTemplateRows: `auto repeat(${rows}, minmax(80px, 110px))` }}
+            >
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
                 <div key={d} className="calendar-day-header">{d}</div>
               ))}
               {Array.from({ length: rows * 7 }, (_, i) => {
-                const cellIndex = i - blanks
-                const day = cellIndex >= 1 && cellIndex <= daysInMonth ? cellIndex : null
+                const day = (i >= blanks && i < blanks + daysInMonth) ? (i - blanks + 1) : null
                 const key = day ? formatDateKey(new Date(year, month, day)) : null
                 const dayMeetings = key ? (meetingsByDay[key] || []) : []
                 const selected = selectedKey === key
@@ -618,7 +623,7 @@ export function CalendarPage() {
                         {dayMeetings.slice(0, 4).map((m) => (
                           <li key={m.id} className={`calendar-meeting-item ${m._todo && m.done ? 'calendar-meeting-done' : ''}`} title={m.title}>
                             {m._todo && <input type="checkbox" checked={!!m.done} onChange={(e) => { e.stopPropagation(); handleToggleTask(m.id, e.target.checked); }} className="calendar-cell-task-check" aria-hidden />}
-                            <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt)}</span>
+                            <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
                             <span className="calendar-meeting-title">{m.title}</span>
                             {m._orgName && <span className="calendar-meeting-org">{m._orgName}</span>}
                             {m._imported && <span className="calendar-meeting-imported">imported</span>}
@@ -697,7 +702,7 @@ export function CalendarPage() {
                       </>
                     ) : (
                       <>
-                        <span className="calendar-detail-time">{formatMeetingTime(m.startAt) || 'All day'}</span>
+                        <span className="calendar-detail-time">{formatMeetingTime(m.startAt, userDoc) || 'All day'}</span>
                         <span className="calendar-detail-title-text">{m.title}</span>
                         {m._orgName && <span className="calendar-detail-org">{m._orgName}</span>}
                         {m._imported && <span className="calendar-meeting-imported">imported</span>}

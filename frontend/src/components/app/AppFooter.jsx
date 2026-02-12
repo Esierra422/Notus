@@ -8,13 +8,13 @@ const FOOTER_COLUMNS = [
       { to: '/app', label: 'Dashboard' },
       { to: '/app/settings', label: 'Settings' },
       { to: '/app/profile', label: 'Profile' },
-      { href: '/#features', label: 'Features' },
+      { to: '/app/features', label: 'Features' },
     ],
   },
   {
     title: 'Resources',
     links: [
-      { href: '/#how-it-works', label: 'How it works' },
+      { to: '/app/how-it-works', label: 'How it works' },
       { href: '#', label: 'Help Center' },
       { href: '#', label: 'Blog' },
       { href: '#', label: 'Community' },

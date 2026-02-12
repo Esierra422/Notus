@@ -25,6 +25,7 @@ import { createMeeting, MEETING_SCOPES } from '../lib/meetingService'
 import { Timestamp } from 'firebase/firestore'
 import { getOrgTeams, getTeamMembership, TEAM_STATES } from '../lib/teamService'
 import { getUserDoc, getDisplayName, getProfilePictureUrl } from '../lib/userService'
+import { getTimeZone, getLocale } from '../lib/dateUtils'
 import { playSendSound } from '../lib/soundUtils'
 import { Button } from '../components/ui/Button'
 import {
@@ -35,23 +36,27 @@ import {
   CalendarIcon,
   PlusIcon,
 } from '../components/ui/Icons'
+import { MemberProfileModal } from '../components/member/MemberProfileModal'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './ChatsPage.css'
 
-function formatTime(ts) {
+function formatTime(ts, userDoc) {
   if (!ts) return ''
   const ms = ts?.toMillis?.() ?? (typeof ts === 'number' ? ts : null)
   if (!ms) return ''
   const d = new Date(ms)
   const now = new Date()
+  const locale = getLocale(userDoc)
+  const tz = getTimeZone(userDoc)
+  const opts = { locale, ...(tz && { timeZone: tz }) }
   const sameDay = d.toDateString() === now.toDateString()
-  if (sameDay) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (sameDay) return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', ...(tz && { timeZone: tz }) })
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
-  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', ...(tz && { timeZone: tz }) })
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', ...(tz && { timeZone: tz }) })
 }
 
 function MessageStatus({ status }) {
@@ -150,7 +155,7 @@ function PollBubble({ message, isOwn, userId, onVote, onEndPoll }) {
   )
 }
 
-function ChatListItem({ conv, title, avatar, isActive, lastPreview, lastTime, unreadCount, onClick }) {
+function ChatListItem({ conv, title, avatar, isActive, lastPreview, lastTime, unreadCount, onClick, userDoc }) {
   const count = unreadCount || 0
   return (
     <li>
@@ -166,7 +171,7 @@ function ChatListItem({ conv, title, avatar, isActive, lastPreview, lastTime, un
           <div className="chats-list-row">
             <span className="chats-list-title">{title}</span>
             {count > 0 && <span className="chats-list-unread">{count > 99 ? '99+' : count}</span>}
-            {count === 0 && lastTime && <span className="chats-list-time">{formatTime(lastTime)}</span>}
+            {count === 0 && lastTime && <span className="chats-list-time">{formatTime(lastTime, userDoc)}</span>}
           </div>
           {lastPreview && <p className="chats-list-preview">{lastPreview}</p>}
         </div>
@@ -564,7 +569,7 @@ function PollModal({ onClose, onSubmit, sending }) {
   )
 }
 
-function EventModal({ onClose, onSubmit, sending }) {
+function EventModal({ onClose, onSubmit, sending, userDoc }) {
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
@@ -576,7 +581,9 @@ function EventModal({ onClose, onSubmit, sending }) {
     let text = `📅 Event: ${t}`
     if (date) {
       const d = new Date(date)
-      const formatted = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+      const locale = getLocale(userDoc)
+      const tz = getTimeZone(userDoc)
+      const formatted = d.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', ...(tz && { timeZone: tz }) })
       text += `\n${formatted}`
       if (time) text += ` at ${time}`
     }
@@ -631,7 +638,7 @@ function EventModal({ onClose, onSubmit, sending }) {
 export function ChatsPage() {
   const navigate = useNavigate()
   const { orgId: paramOrgId, chatId } = useParams()
-  const { user, setNavExtra } = useOutletContext() || {}
+  const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const [orgId, setOrgId] = useState(paramOrgId || null)
   const [org, setOrg] = useState(null)
   const [membership, setMembership] = useState(null)
@@ -655,6 +662,8 @@ export function ChatsPage() {
   const typingDebounceRef = useRef(null)
   const messagesEndRef = useRef(null)
   const messagesContainerRef = useRef(null)
+  const [messageImgErrors, setMessageImgErrors] = useState({})
+  const [profileModalUserId, setProfileModalUserId] = useState(null)
 
   // Sync orgId from URL (ChatsPage only renders at /app/org/:orgId/chats)
   useEffect(() => {
@@ -1052,6 +1061,7 @@ export function ChatsPage() {
                 lastTime={c.lastMessageAt}
                 unreadCount={c.unreadCount?.[user?.uid] ?? 0}
                 onClick={() => handleOpenChat(c.id)}
+                userDoc={userDoc}
               />
             ))}
             {conversations.length === 0 && <li className="chats-empty">No chats yet. Start a new one!</li>}
@@ -1061,7 +1071,24 @@ export function ChatsPage() {
           {chatId ? (
             <>
               <header className="chats-header">
-                <h2 className="chats-chat-name">{getConvTitle(selectedConv)}</h2>
+                <h2
+                  className={`chats-chat-name ${selectedConv?.type === CONV_TYPES.dm ? 'chats-chat-name-clickable' : ''}`}
+                  onClick={selectedConv?.type === CONV_TYPES.dm ? () => {
+                    const other = selectedConv.members?.find((id) => id !== user?.uid)
+                    if (other) setProfileModalUserId(other)
+                  } : undefined}
+                  role={selectedConv?.type === CONV_TYPES.dm ? 'button' : undefined}
+                  tabIndex={selectedConv?.type === CONV_TYPES.dm ? 0 : undefined}
+                  onKeyDown={selectedConv?.type === CONV_TYPES.dm ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      const other = selectedConv.members?.find((id) => id !== user?.uid)
+                      if (other) setProfileModalUserId(other)
+                    }
+                  } : undefined}
+                >
+                  {getConvTitle(selectedConv)}
+                </h2>
                 {(selectedConv?.type === CONV_TYPES.group || selectedConv?.type === CONV_TYPES.team) && (
                   <p className="chats-header-sub">{getMemberCount(selectedConv)} members</p>
                 )}
@@ -1094,12 +1121,44 @@ export function ChatsPage() {
                       const senderName = showSender
                         ? (m.senderId === user?.uid ? 'You' : getDisplayName(userProfiles[m.senderId], m.senderId, user?.uid === m.senderId ? user : null))
                         : null
-                      const ts = m.createdAt?.toMillis?.() ? new Date(m.createdAt.toMillis()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+                      const senderProfile = userProfiles[m.senderId]
+                      const avatarUrl = !messageImgErrors[`${m.id}-avatar`] && getProfilePictureUrl(senderProfile, m.senderId === user?.uid ? user : null)
+                      const avatarInitial = (senderName || getDisplayName(senderProfile, m.senderId, m.senderId === user?.uid ? user : null) || '?')[0]?.toUpperCase()
+                      const ts = m.createdAt?.toMillis?.()
+                        ? new Date(m.createdAt.toMillis()).toLocaleTimeString(getLocale(userDoc), { hour: '2-digit', minute: '2-digit', ...(getTimeZone(userDoc) && { timeZone: getTimeZone(userDoc) }) })
+                        : ''
                       return (
                         <div key={m.id} className={`chats-message-row ${isOwn ? 'chats-message-own' : ''}`}>
-                          <div className={`chats-bubble-wrap ${isOwn ? 'chats-bubble-own' : ''}`}>
-                            {senderName && <span className="chats-bubble-sender">{senderName}</span>}
-                            <div className={`chats-bubble ${isOwn ? 'chats-bubble-own' : 'chats-bubble-other'}`}>
+                          <div className="chats-message-content">
+                            {!isOwn && (
+                              <button
+                                type="button"
+                                className="chats-message-avatar chats-message-avatar-btn"
+                                onClick={() => setProfileModalUserId(m.senderId)}
+                                title="View profile"
+                              >
+                                {avatarUrl ? (
+                                  <img src={avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setMessageImgErrors((e) => ({ ...e, [`${m.id}-avatar`]: true }))} />
+                                ) : (
+                                  <span className="chats-message-avatar-initial">{avatarInitial}</span>
+                                )}
+                              </button>
+                            )}
+                            <div className={`chats-bubble-wrap ${isOwn ? 'chats-bubble-own' : ''}`}>
+                              {senderName && (
+                                isOwn ? (
+                                  <span className="chats-bubble-sender">{senderName}</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="chats-bubble-sender chats-bubble-sender-btn"
+                                    onClick={() => setProfileModalUserId(m.senderId)}
+                                  >
+                                    {senderName}
+                                  </button>
+                                )
+                              )}
+                              <div className={`chats-bubble ${isOwn ? 'chats-bubble-own' : 'chats-bubble-other'}`}>
                               {m.attachment?.type === 'poll' && (
                                 <PollBubble
                                   message={m}
@@ -1117,6 +1176,16 @@ export function ChatsPage() {
                               {m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>}
                               {ts && <span className="chats-bubble-time">{ts}</span>}
                             </div>
+                          </div>
+                            {isOwn && (
+                              <div className="chats-message-avatar chats-message-avatar-own" title="You">
+                                {avatarUrl ? (
+                                  <img src={avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setMessageImgErrors((e) => ({ ...e, [`${m.id}-avatar`]: true }))} />
+                                ) : (
+                                  <span className="chats-message-avatar-initial">{avatarInitial}</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                           {showStatus && (
                             <span className="chats-bubble-status-below">
@@ -1209,6 +1278,7 @@ export function ChatsPage() {
           onClose={() => setShowEventModal(false)}
           onSubmit={handleEventSubmit}
           sending={sending}
+          userDoc={userDoc}
         />
       )}
       {showNewChat && (
@@ -1220,6 +1290,18 @@ export function ChatsPage() {
           onOpenChat={handleOpenChat}
           userProfiles={userProfiles}
           setUserProfiles={setUserProfiles}
+        />
+      )}
+      {profileModalUserId && org && (
+        <MemberProfileModal
+          userId={profileModalUserId}
+          orgId={orgId}
+          org={org}
+          currentUser={user}
+          myMembership={membership}
+          userDoc={userProfiles[profileModalUserId]}
+          onClose={() => setProfileModalUserId(null)}
+          showManage={false}
         />
       )}
     </div>

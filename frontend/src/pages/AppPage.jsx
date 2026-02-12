@@ -434,7 +434,7 @@ export function AppPage() {
                       <Link to={`/app/org/${activeOrgId}/teams/${team.id}`} className="org-team-link">
                         {team.name}
                       </Link>
-                      {!teamMemberships[team.id]?.state && (
+                      {team.allowOpenJoin && !teamMemberships[team.id]?.state && (
                         <Button variant="outline" size="sm" onClick={() => handleRequestJoinTeam(team.id)} disabled={requesting[team.id]}>
                           {requesting[team.id] ? '...' : 'Join'}
                         </Button>

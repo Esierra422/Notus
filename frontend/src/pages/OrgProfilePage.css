@@ -1,0 +1,234 @@
+/* Org & Team profile pages — premium layout */
+.org-profile-main,
+.team-profile-main {
+  max-width: 560px;
+}
+
+.org-profile-header .profile-cover {
+  border-radius: 16px 16px 0 0;
+}
+
+.team-profile-header .org-profile-hero {
+  margin-top: 0;
+}
+
+.org-profile-cover,
+.team-profile-cover {
+  height: 80px;
+  background: linear-gradient(135deg, rgba(212, 168, 83, 0.12) 0%, rgba(184, 146, 63, 0.05) 50%, transparent 100%);
+}
+
+.org-profile-hero,
+.team-profile-hero {
+  margin-top: -48px;
+  padding: 2rem 1.75rem;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(212, 168, 83, 0.08);
+}
+
+.org-profile-avatar-block,
+.team-profile-avatar-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.org-profile-avatar-wrap,
+.team-profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.org-profile-remove-photo,
+.team-profile-remove-photo {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.2rem 0;
+}
+
+.org-profile-remove-photo:hover,
+.team-profile-remove-photo:hover {
+  color: #e57373;
+}
+
+.org-profile-avatar {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid var(--bg-card);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.org-profile-avatar-placeholder,
+.team-profile-avatar-placeholder {
+  width: 112px;
+  height: 112px;
+  font-size: 2.5rem;
+  background: linear-gradient(145deg, rgba(212, 168, 83, 0.2) 0%, rgba(184, 146, 63, 0.08) 100%);
+  border: 4px solid var(--bg-elevated);
+}
+
+.org-profile-avatar-btn,
+.team-profile-avatar-btn {
+  bottom: 2px;
+  right: 2px;
+  width: 36px;
+  height: 36px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.team-profile-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.org-profile-name,
+.team-profile-name {
+  font-size: 1.65rem;
+  letter-spacing: -0.03em;
+}
+
+.org-profile-error,
+.team-profile-error {
+  margin: -0.5rem 0 0;
+}
+
+.org-profile-card,
+.team-profile-card {
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem;
+}
+
+.org-profile-action {
+  padding: 0.85rem 1.25rem;
+  font-size: 0.95rem;
+}
+
+.profile-team-icon {
+  color: var(--accent);
+}
+
+.team-profile-hero {
+  position: relative;
+}
+
+.team-settings-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.team-settings-btn:hover {
+  color: var(--accent);
+  background: rgba(212, 168, 83, 0.1);
+  border-color: rgba(212, 168, 83, 0.25);
+}
+
+.team-settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.team-settings-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+}
+
+.team-settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.team-settings-modal-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.team-settings-modal-header h3 svg {
+  color: var(--text-muted);
+}
+
+.team-settings-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.team-settings-close:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+.team-settings-modal-body {
+  padding: 1.25rem 1.5rem;
+}
+
+.team-settings-row {
+  margin: 0;
+  padding: 0.75rem 0;
+  cursor: pointer;
+}
+
+.team-settings-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.team-settings-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}

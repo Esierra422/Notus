@@ -10,7 +10,7 @@
  */
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, setPersistence, browserSessionPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -27,6 +27,17 @@ export const analytics =
     ? getAnalytics(app)
     : null;
 export const auth = getAuth(app);
+
+// Safari: use session persistence to avoid IndexedDB slowness (can cause 2+ min load)
+if (typeof navigator !== 'undefined' && /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|CriOS/.test(navigator.userAgent)) {
+  setPersistence(auth, browserSessionPersistence).catch(() => {});
+}
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
+
+/** Safari blocks popups/third-party cookies — use redirect instead of popup for Google sign-in */
+export const isSafari = typeof navigator !== 'undefined' &&
+  /Safari/.test(navigator.userAgent) &&
+  !/Chrome|Chromium|CriOS/.test(navigator.userAgent);
+
 export default app;

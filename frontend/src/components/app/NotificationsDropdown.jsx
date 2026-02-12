@@ -1,24 +1,39 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getPendingInvitationsForEmail, acceptInvitation, rejectInvitation } from '../../lib/invitationService'
+import {
+  getPendingTeamInvitationsForEmail,
+  acceptTeamInvitation,
+  rejectTeamInvitation,
+} from '../../lib/teamInvitationService'
 import { BellIcon } from '../ui/Icons'
 import './NotificationsDropdown.css'
 
 export function NotificationsDropdown({ user }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
-  const [invitations, setInvitations] = useState([])
+  const [orgInvitations, setOrgInvitations] = useState([])
+  const [teamInvitations, setTeamInvitations] = useState([])
   const [loading, setLoading] = useState(false)
   const [actioning, setActioning] = useState({})
   const containerRef = useRef(null)
+
+  const invitations = [
+    ...orgInvitations.map((i) => ({ ...i, type: 'org' })),
+    ...teamInvitations.map((i) => ({ ...i, type: 'team' })),
+  ].sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
 
   useEffect(() => {
     if (!user?.email || !open) return
     const load = async () => {
       setLoading(true)
       try {
-        const list = await getPendingInvitationsForEmail(user.email)
-        setInvitations(list)
+        const [orgList, teamList] = await Promise.all([
+          getPendingInvitationsForEmail(user.email),
+          getPendingTeamInvitationsForEmail(user.email),
+        ])
+        setOrgInvitations(orgList)
+        setTeamInvitations(teamList)
       } finally {
         setLoading(false)
       }
@@ -36,13 +51,13 @@ export function NotificationsDropdown({ user }) {
     return () => document.removeEventListener('click', handleClickOutside)
   }, [])
 
-  const handleAccept = async (inv) => {
+  const handleAcceptOrg = async (inv) => {
     setActioning((a) => ({ ...a, [inv.id]: true }))
     try {
       const { orgId } = await acceptInvitation(inv.id, user.uid, user.email)
-      setInvitations((list) => list.filter((i) => i.id !== inv.id))
+      setOrgInvitations((list) => list.filter((i) => i.id !== inv.id))
       setOpen(false)
-      navigate(`/app/org/${orgId}`)
+      navigate(`/app/org/${orgId}/admin`)
     } catch (err) {
       console.error(err)
     } finally {
@@ -50,11 +65,37 @@ export function NotificationsDropdown({ user }) {
     }
   }
 
-  const handleDecline = async (inv) => {
+  const handleDeclineOrg = async (inv) => {
     setActioning((a) => ({ ...a, [inv.id]: true }))
     try {
       await rejectInvitation(inv.id, user.uid, user.email)
-      setInvitations((list) => list.filter((i) => i.id !== inv.id))
+      setOrgInvitations((list) => list.filter((i) => i.id !== inv.id))
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setActioning((a) => ({ ...a, [inv.id]: false }))
+    }
+  }
+
+  const handleAcceptTeam = async (inv) => {
+    setActioning((a) => ({ ...a, [inv.id]: true }))
+    try {
+      const { orgId, teamId } = await acceptTeamInvitation(inv.id, user.uid, user.email)
+      setTeamInvitations((list) => list.filter((i) => i.id !== inv.id))
+      setOpen(false)
+      navigate(`/app/org/${orgId}/teams/${teamId}`)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setActioning((a) => ({ ...a, [inv.id]: false }))
+    }
+  }
+
+  const handleDeclineTeam = async (inv) => {
+    setActioning((a) => ({ ...a, [inv.id]: true }))
+    try {
+      await rejectTeamInvitation(inv.id, user.uid, user.email)
+      setTeamInvitations((list) => list.filter((i) => i.id !== inv.id))
     } catch (err) {
       console.error(err)
     } finally {
@@ -88,15 +129,23 @@ export function NotificationsDropdown({ user }) {
           ) : (
             <ul className="notifications-list">
               {invitations.map((inv) => (
-                <li key={inv.id} className="notifications-item">
+                <li key={`${inv.type}-${inv.id}`} className="notifications-item">
                   <p className="notifications-item-text">
-                    <strong>{inv.inviterName}</strong> invited you to join <strong>{inv.orgName}</strong>
+                    {inv.type === 'org' ? (
+                      <>
+                        <strong>{inv.inviterName}</strong> invited you to join organization <strong>{inv.orgName}</strong>
+                      </>
+                    ) : (
+                      <>
+                        <strong>{inv.inviterName}</strong> invited you to join team <strong>{inv.teamName}</strong> in <strong>{inv.orgName}</strong>
+                      </>
+                    )}
                   </p>
                   <div className="notifications-item-actions">
                     <button
                       type="button"
                       className="notifications-btn notifications-btn-accept"
-                      onClick={() => handleAccept(inv)}
+                      onClick={() => (inv.type === 'org' ? handleAcceptOrg(inv) : handleAcceptTeam(inv))}
                       disabled={actioning[inv.id]}
                     >
                       {actioning[inv.id] ? '…' : 'Accept'}
@@ -104,7 +153,7 @@ export function NotificationsDropdown({ user }) {
                     <button
                       type="button"
                       className="notifications-btn notifications-btn-decline"
-                      onClick={() => handleDecline(inv)}
+                      onClick={() => (inv.type === 'org' ? handleDeclineOrg(inv) : handleDeclineTeam(inv))}
                       disabled={actioning[inv.id]}
                     >
                       Decline
