@@ -96,6 +96,11 @@ The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/ap
 
 ## Troubleshooting
 
+- **Error 400: redirect_uri_mismatch (Google Sign-In)** – Add the correct redirect URIs in [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application) → Authorized redirect URIs. Add both:
+  - `https://notusapp.com/__/auth/handler` (if using custom domain)
+  - `https://notus-e026b.firebaseapp.com/__/auth/handler` (Firebase auth domain)
+  - `https://notus-e026b.web.app/__/auth/handler` (if Firebase Auth uses it)
+  Make sure the auth domain in your Firebase config matches one of these domains.
 - **"Permission denied" when starting a chat** – Queries must match security rules. Deploy both rules and indexes: `firebase deploy --only firestore`
 - **"The query requires an index"** – Deploy indexes: `firebase deploy --only firestore:indexes`
 - **Profile picture not saving** – Profile pics are stored in Firestore (base64). Ensure Firestore rules allow users to write their own `profilePicture` field.
