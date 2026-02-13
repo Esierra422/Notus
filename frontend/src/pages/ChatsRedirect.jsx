@@ -2,7 +2,7 @@
  * Handles /app/chats - redirects to org-scoped chats or shows org picker when multiple orgs.
  */
 import { useState, useEffect } from 'react'
-import { Navigate, Link, useOutletContext } from 'react-router-dom'
+import { Navigate, useOutletContext } from 'react-router-dom'
 import { getActiveMemberships } from '../lib/orgService'
 import { getOrg } from '../lib/orgService'
 import { Button } from '../components/ui/Button'
@@ -38,10 +38,6 @@ export function ChatsRedirect() {
     )
   }
 
-  if (orgs.length === 1) {
-    return <Navigate to={`/app/org/${orgs[0].id}/chats`} replace />
-  }
-
   if (orgs.length === 0) {
     return (
       <main className="app-main">
@@ -52,20 +48,5 @@ export function ChatsRedirect() {
     )
   }
 
-  return (
-    <main className="app-main">
-      <h2>Chats</h2>
-      <p className="app-muted">Select an organization to view its conversations.</p>
-      <ul className="org-teams-list" style={{ maxWidth: '400px', marginTop: '1rem' }}>
-        {orgs.map((o) => (
-          <li key={o.id} className="org-team-item">
-            <Link to={`/app/org/${o.id}/chats`} className="org-team-link">
-              {o.name}
-            </Link>
-          </li>
-        ))}
-      </ul>
-      <Button to="/app" variant="ghost" size="md" style={{ marginTop: '1rem' }}>← Back to Dashboard</Button>
-    </main>
-  )
+  return <Navigate to={`/app/org/${orgs[0].id}/chats`} replace />
 }

@@ -13,10 +13,11 @@ import {
   MEMBERSHIP_ROLES,
 } from '../lib/orgService'
 import { createOrgInvitation, getRejectedInvitationsForOrg } from '../lib/invitationService'
+import { getReportsForOrg } from '../lib/reportService'
 import { getOrgTeams, createTeam, getTeamMembership, getTeamsForUserInOrg, TEAM_STATES } from '../lib/teamService'
 import { getUserDoc, getDisplayName, getMemberDisplayLine, getProfilePictureUrl } from '../lib/userService'
 import { Button } from '../components/ui/Button'
-import { MoreVerticalIcon, PlusIcon, ArrowLeftIcon } from '../components/ui/Icons'
+import { MoreVerticalIcon, PlusIcon, ArrowLeftIcon, FlagIcon } from '../components/ui/Icons'
 import { MemberProfileModal } from '../components/member/MemberProfileModal'
 import '../styles/variables.css'
 import './AppLayout.css'
@@ -52,6 +53,7 @@ export function AdminPage() {
   const [memberMenuOpen, setMemberMenuOpen] = useState(null)
   const [memberManageOpen, setMemberManageOpen] = useState(null)
   const [profileModalMember, setProfileModalMember] = useState(null)
+  const [reports, setReports] = useState([])
 
   useEffect(() => {
     if (!user || !orgId) return
@@ -78,22 +80,25 @@ export function AdminPage() {
     if (!orgId) return
     setLoading(true)
     const load = async () => {
-      const [membersData, pendingData, rejectedData, rejectedInvs, teamsList] = await Promise.all([
+      const [membersData, pendingData, rejectedData, rejectedInvs, teamsList, reportsData] = await Promise.all([
         getOrgMembers(orgId),
         getPendingRequests(orgId),
         getRejectedRequests(orgId),
         getRejectedInvitationsForOrg(orgId).catch(() => []),
         getOrgTeams(orgId),
+        getReportsForOrg(orgId).catch(() => []),
       ])
       setMembers(membersData.filter((m) => m.state === MEMBERSHIP_STATES.active))
       setPending(pendingData)
       setRejected(rejectedData)
       setRejectedInvitations(rejectedInvs)
       setTeams(teamsList)
+      setReports(reportsData)
       const userIds = [...new Set([
         ...membersData.map((m) => m.userId),
         ...pendingData.map((p) => p.userId),
         ...rejectedData.map((r) => r.userId),
+        ...reportsData.flatMap((r) => [r.reporterId, r.reportedUserId]).filter(Boolean),
       ])]
       const profiles = {}
       await Promise.all(userIds.map(async (uid) => {
@@ -291,6 +296,10 @@ export function AdminPage() {
           <span className="org-admin-stat-value">{rejectedTotal}</span>
           <span className="org-admin-stat-label">Declined</span>
         </div>
+        <div className="org-admin-stat">
+          <span className="org-admin-stat-value">{reports.length}</span>
+          <span className="org-admin-stat-label">Reports</span>
+        </div>
       </div>
 
       <div className="org-admin-grid">
@@ -355,6 +364,33 @@ export function AdminPage() {
                     >
                       Reject
                     </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        </section>
+
+        <section className="org-admin-section">
+          <h3><FlagIcon size={18} style={{ verticalAlign: 'middle', marginRight: '0.4rem' }} /> Reports</h3>
+        {reports.length === 0 ? (
+          <p className="app-muted">No reports.</p>
+        ) : (
+          <ul className="member-list">
+            {reports.map((r) => {
+              const reporterProfile = userProfiles[r.reporterId]
+              const reportedProfile = userProfiles[r.reportedUserId]
+              const reporterName = getDisplayName(reporterProfile, r.reporterId)
+              const reportedName = r.reportedUserName || getDisplayName(reportedProfile, r.reportedUserId)
+              const createdAt = r.createdAt?.toDate?.() ? r.createdAt.toDate().toLocaleString() : ''
+              return (
+                <li key={r.id} className="member-card member-card-pending">
+                  <div className="member-card-info" style={{ flex: 1 }}>
+                    <span className="member-card-name">{reportedName} reported</span>
+                    <span className="member-card-email">By {reporterName}</span>
+                    {r.reason && <span className="org-admin-report-reason">{r.reason}</span>}
+                    {createdAt && <span className="org-admin-report-date">{createdAt}</span>}
                   </div>
                 </li>
               )

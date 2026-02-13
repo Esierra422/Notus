@@ -13,6 +13,15 @@ service cloud.firestore {
       match /importedCalendarEvents/{eventId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      match /blocked/{blockedUserId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /starred/{starredId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /favorites/{favoriteId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
 
     // Organizations: authenticated users can create (new org) and read (search, get)
@@ -63,13 +72,27 @@ service cloud.firestore {
           allow update: if request.auth != null
             && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members
             && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attachment']));
-          allow delete: if false;
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attachment'])
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']));
+          allow delete: if request.auth != null
+            && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members;
         }
         match /typing/{typerId} {
           allow read, write: if request.auth != null
             && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members;
         }
+      }
+
+      // Reports: any org member can create; admins can read
+      match /reports/{reportId} {
+        allow create: if request.auth != null
+          && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+        allow read: if request.auth != null
+          && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active'
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.role in ['owner', 'admin'];
+        allow update, delete: if false;
       }
 
       // Channels: active org members (legacy)

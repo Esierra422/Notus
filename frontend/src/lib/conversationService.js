@@ -15,6 +15,9 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  deleteDoc,
+  deleteField,
+  writeBatch,
   onSnapshot,
   serverTimestamp,
   increment,
@@ -178,13 +181,48 @@ export function subscribeConversations(orgId, userId, callback, onError) {
   return onSnapshot(
     q,
     (snap) => {
-      callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      callback(snap.docs.map((d) => ({ id: d.id, orgId, ...d.data() })))
     },
     (err) => {
       if (onError) onError(err)
       else console.error('[subscribeConversations]', err)
     }
   )
+}
+
+/**
+ * Subscribe to conversations from multiple orgs (unified list).
+ * Each item includes orgId. Merges and sorts by lastMessageAt desc.
+ */
+export function subscribeConversationsMultiOrg(orgIds, userId, callback, onError) {
+  if (!orgIds?.length) {
+    callback([])
+    return () => {}
+  }
+  const byOrg = {}
+  orgIds.forEach((id) => { byOrg[id] = [] })
+
+  const mergeAndEmit = () => {
+    const all = Object.entries(byOrg).flatMap(([oid, convs]) =>
+      convs.map((c) => ({ ...c, orgId: oid }))
+    )
+    all.sort((a, b) => {
+      const ta = a.lastMessageAt?.toMillis?.() ?? 0
+      const tb = b.lastMessageAt?.toMillis?.() ?? 0
+      return tb - ta
+    })
+    callback(all)
+  }
+
+  const unsubs = orgIds.map((orgId) => {
+    const cb = (convs) => {
+      byOrg[orgId] = convs
+      mergeAndEmit()
+    }
+    return subscribeConversations(orgId, userId, cb, onError)
+  })
+
+  return () => unsubs.forEach((u) => (typeof u === 'function' ? u() : u?.()))
 }
 
 /**
@@ -223,6 +261,9 @@ export async function sendMessage(orgId, convId, text, userId, options = {}) {
   let preview = (text || '').trim().slice(0, 100)
   if (!preview && options.attachment?.type === 'poll' && options.attachment?.question) {
     preview = `Poll: ${options.attachment.question}`.slice(0, 100)
+  }
+  if (!preview && options.attachment?.type === 'document' && options.attachment?.fileName) {
+    preview = `Document: ${options.attachment.fileName}`.slice(0, 100)
   }
   const msgData = {
     senderId: userId,
@@ -435,4 +476,106 @@ export async function markMessagesRead(orgId, convId, messageIds) {
       return updateDoc(msgRef, { status: MESSAGE_STATUS.read })
     })
   )
+}
+
+/**
+ * Delete conversation for user (hides from list). Does not remove for other members.
+ */
+export async function deleteConversationForUser(orgId, convId, userId) {
+  const canAccess = await canAccessConversation(orgId, convId, userId)
+  if (!canAccess) throw new Error('Cannot access conversation.')
+  await updateDoc(convRef(orgId, convId), {
+    [`deletedBy.${userId}`]: serverTimestamp(),
+  })
+}
+
+/**
+ * Archive conversation for user.
+ */
+export async function archiveConversation(orgId, convId, userId, archived = true) {
+  const canAccess = await canAccessConversation(orgId, convId, userId)
+  if (!canAccess) throw new Error('Cannot access conversation.')
+  await updateDoc(convRef(orgId, convId), {
+    [`archivedBy.${userId}`]: archived,
+  })
+}
+
+/**
+ * Mute conversation for user.
+ */
+export async function muteConversation(orgId, convId, userId, muted = true) {
+  const canAccess = await canAccessConversation(orgId, convId, userId)
+  if (!canAccess) throw new Error('Cannot access conversation.')
+  await updateDoc(convRef(orgId, convId), {
+    [`mutedBy.${userId}`]: muted,
+  })
+}
+
+/**
+ * Mark conversation as unread for user.
+ */
+export async function markConversationUnread(orgId, convId, userId) {
+  const canAccess = await canAccessConversation(orgId, convId, userId)
+  if (!canAccess) throw new Error('Cannot access conversation.')
+  await updateDoc(convRef(orgId, convId), {
+    [`unreadCount.${userId}`]: increment(1),
+  })
+}
+
+/**
+ * Add or toggle reaction on a message.
+ * reactions: { "👍": ["uid1"], "❤️": ["uid2"] }
+ */
+export async function addReaction(orgId, convId, msgId, userId, emoji) {
+  const canAccess = await canAccessConversation(orgId, convId, userId)
+  if (!canAccess) throw new Error('Cannot access conversation.')
+  const ref = msgRef(orgId, convId, msgId)
+  const snap = await getDoc(ref)
+  const data = snap.data()
+  if (!data) throw new Error('Message not found.')
+  const reactions = { ...(data.reactions || {}) }
+  const list = [...(reactions[emoji] || [])]
+  const idx = list.indexOf(userId)
+  if (idx >= 0) {
+    list.splice(idx, 1)
+    if (list.length === 0) delete reactions[emoji]
+    else reactions[emoji] = list
+  } else {
+    reactions[emoji] = [...list, userId]
+  }
+  await updateDoc(ref, {
+    reactions: Object.keys(reactions).length ? reactions : deleteField(),
+  })
+}
+
+/**
+ * Delete a single message. Caller must be a member.
+ */
+export async function deleteMessage(orgId, convId, msgId, userId) {
+  const canAccess = await canAccessConversation(orgId, convId, userId)
+  if (!canAccess) throw new Error('Cannot access conversation.')
+  const ref = msgRef(orgId, convId, msgId)
+  const snap = await getDoc(ref)
+  const data = snap.data()
+  if (!data) return
+  const isSender = data.senderId === userId
+  if (!isSender) throw new Error('You can only delete your own messages.')
+  await deleteDoc(ref)
+}
+
+/**
+ * Clear all messages in conversation. Caller must be a member.
+ */
+export async function clearConversation(orgId, convId, userId) {
+  const canAccess = await canAccessConversation(orgId, convId, userId)
+  if (!canAccess) throw new Error('Cannot access conversation.')
+  const msgsSnap = await getDocs(messagesRef(orgId, convId))
+  if (msgsSnap.empty) return
+  const batch = writeBatch(db)
+  msgsSnap.docs.forEach((d) => batch.delete(d.ref))
+  await batch.commit()
+  await updateDoc(convRef(orgId, convId), {
+    lastMessagePreview: '',
+    lastMessageAt: serverTimestamp(),
+  })
 }

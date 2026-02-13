@@ -646,3 +646,11 @@
 .member-profile-modal-manage-item-danger:hover {
   background: rgba(229, 115, 115, 0.1);
 }
+
+.org-admin-report-reason,
+.org-admin-report-date {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import AgoraRTC from 'agora-rtc-sdk-ng'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import '../styles/variables.css'
 import './AppLayout.css'
@@ -10,7 +10,9 @@ const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
 export function VideoCallPage() {
   const { user, setNavExtra } = useOutletContext() || {}
-  const [channelName, setChannelName] = useState('channel1')
+  const [searchParams] = useSearchParams()
+  const channelFromUrl = searchParams.get('channel') || ''
+  const [channelName, setChannelName] = useState(channelFromUrl || 'channel1')
   const [joined, setJoined] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -42,6 +44,10 @@ export function VideoCallPage() {
     clientRef.current = null
     setJoined(false)
   }, [])
+
+  useEffect(() => {
+    if (channelFromUrl) setChannelName(channelFromUrl)
+  }, [channelFromUrl])
 
   useEffect(() => {
     if (setNavExtra) setNavExtra(undefined)

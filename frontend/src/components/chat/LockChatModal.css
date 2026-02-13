@@ -1,0 +1,86 @@
+.lock-chat-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.lock-chat-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-width: 360px;
+  width: 100%;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+.lock-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.lock-chat-icon {
+  color: var(--accent);
+}
+
+.lock-chat-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+
+.lock-chat-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lock-chat-close:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.lock-chat-body {
+  padding: 1.25rem;
+}
+
+.lock-chat-desc {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.lock-chat-pin {
+  margin-bottom: 0.75rem;
+  text-align: center;
+  font-size: 1.25rem;
+  letter-spacing: 0.25em;
+}
+
+.lock-chat-error {
+  margin-bottom: 0.75rem;
+}
+
+.lock-chat-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}

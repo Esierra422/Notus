@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams, Link, useOutletContext } from 'react-router-dom'
-import { getOrg, getMembership } from '../lib/orgService'
+import { getOrg, getMembership, getActiveMemberships } from '../lib/orgService'
+import { getBlockedUserIds } from '../lib/blockService'
 import {
   getOrCreateDM,
   createGroupChat,
   getOrCreateTeamChat,
   subscribeConversations,
+  subscribeConversationsMultiOrg,
   subscribeMessages,
+  getMessages,
   sendMessage as sendMessageApi,
   votePoll,
   endPoll,
@@ -18,6 +21,13 @@ import {
   markConversationRead,
   markMessagesDelivered,
   markMessagesRead,
+  deleteConversationForUser,
+  archiveConversation,
+  muteConversation,
+  markConversationUnread,
+  clearConversation,
+  addReaction,
+  deleteMessage,
   CONV_TYPES,
   MESSAGE_STATUS,
 } from '../lib/conversationService'
@@ -35,8 +45,33 @@ import {
   BarChartIcon,
   CalendarIcon,
   PlusIcon,
+  MoreVerticalIcon,
+  UsersIcon,
+  StarIcon,
+  SettingsIcon,
+  LockIcon,
+  BellOffIcon,
+  ChevronDownIcon,
+  SearchIcon,
+  SlidersHorizontalIcon,
 } from '../components/ui/Icons'
+import { starMessage, unstarMessage, subscribeStarredForConversation } from '../lib/starService'
+import { addToFavorites, removeFromFavorites, subscribeFavorites } from '../lib/favoritesService'
+import {
+  getLockedChatIds,
+  setChatLocked,
+  isChatLocked,
+  hasPin,
+  setPin,
+  verifyPin,
+} from '../lib/lockService'
 import { MemberProfileModal } from '../components/member/MemberProfileModal'
+import { ChatSettingsModal } from '../components/chat/ChatSettingsModal'
+import { GroupChatSettingsModal } from '../components/chat/GroupChatSettingsModal'
+import { LockChatModal } from '../components/chat/LockChatModal'
+import { MessageContextMenu } from '../components/chat/MessageContextMenu'
+import { ForwardMessageModal } from '../components/chat/ForwardMessageModal'
+import { ShareProfileModal } from '../components/chat/ShareProfileModal'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './ChatsPage.css'
@@ -71,6 +106,7 @@ const ATTACHMENT_OPTIONS = [
   { id: 'document', label: 'Document', Icon: FileTextIcon, color: '#7dd3fc' },
   { id: 'poll', label: 'Poll', Icon: BarChartIcon, color: '#fbbf24' },
   { id: 'event', label: 'Event', Icon: CalendarIcon, color: '#f87171' },
+  { id: 'users', label: 'Profiles / Users', Icon: UsersIcon, color: '#a78bfa' },
 ]
 
 function ChatAttachmentMenu({ onClose, onSelect, isClosing }) {
@@ -155,27 +191,88 @@ function PollBubble({ message, isOwn, userId, onVote, onEndPoll }) {
   )
 }
 
-function ChatListItem({ conv, title, avatar, isActive, lastPreview, lastTime, unreadCount, onClick, userDoc }) {
+function ChatListItem({
+  conv,
+  title,
+  avatar,
+  orgName,
+  isActive,
+  lastPreview,
+  lastTime,
+  unreadCount,
+  isFavorite,
+  isLocked,
+  isMuted,
+  onClick,
+  userDoc,
+  onMenuAction,
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [])
+
   const count = unreadCount || 0
+  const isDM = conv?.type === CONV_TYPES.dm
+
   return (
     <li>
-      <button
-        type="button"
-        className={`chats-list-item ${isActive ? 'chats-list-item-active' : ''}`}
-        onClick={onClick}
-      >
-        <div className="chats-list-avatar">
-          {avatar}
-        </div>
-        <div className="chats-list-content">
-          <div className="chats-list-row">
-            <span className="chats-list-title">{title}</span>
-            {count > 0 && <span className="chats-list-unread">{count > 99 ? '99+' : count}</span>}
-            {count === 0 && lastTime && <span className="chats-list-time">{formatTime(lastTime, userDoc)}</span>}
+      <div className="chats-list-item-wrap" ref={menuRef}>
+        <button
+          type="button"
+          className={`chats-list-item ${isActive ? 'chats-list-item-active' : ''}`}
+          onClick={onClick}
+        >
+          <div className="chats-list-avatar">
+            {avatar}
           </div>
-          {lastPreview && <p className="chats-list-preview">{lastPreview}</p>}
-        </div>
-      </button>
+          <div className="chats-list-content">
+            <div className="chats-list-row">
+              <span className="chats-list-title">{title}</span>
+              {isFavorite && <StarIcon size={12} className="chats-list-fav-icon" title="Favorite" />}
+              {isMuted && <BellOffIcon size={12} className="chats-list-muted-icon" title="Muted" />}
+              <span className="chats-list-row-spacer" />
+              {count > 0 && <span className="chats-list-unread">{count > 99 ? '99+' : count}</span>}
+              {count === 0 && lastTime && <span className="chats-list-date">{formatTime(lastTime, userDoc)}</span>}
+              <button
+                type="button"
+                className="chats-list-menu-btn"
+                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+                aria-label="Chat options"
+                title="Options"
+              >
+                <MoreVerticalIcon size={16} />
+              </button>
+            </div>
+            {orgName && <p className="chats-list-org">{orgName}</p>}
+            {lastPreview && <p className="chats-list-preview">{lastPreview}</p>}
+          </div>
+        </button>
+        {menuOpen && (
+          <div className="chats-list-menu-panel">
+              <button type="button" onClick={() => { onMenuAction?.('markUnread'); setMenuOpen(false) }}>Mark as unread</button>
+              <button type="button" onClick={() => { onMenuAction?.('archive'); setMenuOpen(false) }}>Archive</button>
+              <button type="button" onClick={() => { onMenuAction?.('mute'); setMenuOpen(false) }}>
+                {isMuted ? 'Unmute' : 'Mute'}
+              </button>
+              <button type="button" onClick={() => { onMenuAction?.('lock'); setMenuOpen(false) }}>
+                {isLocked ? 'Unlock chat' : 'Lock chat'}
+              </button>
+              <button type="button" onClick={() => { onMenuAction?.('favorite'); setMenuOpen(false) }}>
+                {isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+              </button>
+              {isDM && <button type="button" onClick={() => { onMenuAction?.('block'); setMenuOpen(false) }}>Block</button>}
+              <button type="button" onClick={() => { onMenuAction?.('clear'); setMenuOpen(false) }}>Clear chat</button>
+              <button type="button" className="chats-list-menu-danger" onClick={() => { onMenuAction?.('delete'); setMenuOpen(false) }}>Delete chat</button>
+            </div>
+        )}
+      </div>
     </li>
   )
 }
@@ -640,6 +737,8 @@ export function ChatsPage() {
   const { orgId: paramOrgId, chatId } = useParams()
   const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const [orgId, setOrgId] = useState(paramOrgId || null)
+  const [orgIds, setOrgIds] = useState([])
+  const [orgNames, setOrgNames] = useState({})
   const [org, setOrg] = useState(null)
   const [membership, setMembership] = useState(null)
   const [conversations, setConversations] = useState([])
@@ -664,6 +763,30 @@ export function ChatsPage() {
   const messagesContainerRef = useRef(null)
   const [messageImgErrors, setMessageImgErrors] = useState({})
   const [profileModalUserId, setProfileModalUserId] = useState(null)
+  const [chatSettingsUserId, setChatSettingsUserId] = useState(null)
+  const [searchInChat, setSearchInChat] = useState('')
+  const [showShareProfile, setShowShareProfile] = useState(false)
+  const [shareProfileUserId, setShareProfileUserId] = useState(null)
+  const [showGroupSettings, setShowGroupSettings] = useState(false)
+  const [chatListFilter, setChatListFilter] = useState('')
+  const [chatListSort, setChatListSort] = useState('recent') // 'recent' | 'name' | 'unread'
+  const [showArchived, setShowArchived] = useState(false)
+  const [blockedUserIds, setBlockedUserIds] = useState([])
+  const [starredMap, setStarredMap] = useState(() => new Map())
+  const [favoriteConvIds, setFavoriteConvIds] = useState(() => new Set())
+  const [lockedChatIds, setLockedChatIds] = useState(() => new Set())
+  const [lockModal, setLockModal] = useState(null) // { mode: 'create'|'unlock', orgId, convId, fromMenu: true }
+  const [lockOverlayPin, setLockOverlayPin] = useState('')
+  const [lockOverlayError, setLockOverlayError] = useState('')
+  const [messageContextMsg, setMessageContextMsg] = useState(null)
+  const [reactionRemoveTarget, setReactionRemoveTarget] = useState(null) // { msgId, emoji }
+  const [replyTo, setReplyTo] = useState(null)
+  const messageInputRef = useRef(null)
+  const [filterSortOpen, setFilterSortOpen] = useState(false)
+  const filterSortRef = useRef(null)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const [showForwardModal, setShowForwardModal] = useState(false)
+  const [forwardMessage, setForwardMessage] = useState(null)
 
   // Sync orgId from URL (ChatsPage only renders at /app/org/:orgId/chats)
   useEffect(() => {
@@ -672,6 +795,52 @@ export function ChatsPage() {
 
   useEffect(() => {
     if (user) setLoading(false)
+  }, [user])
+
+  useEffect(() => {
+    if (!user?.uid) return
+    getBlockedUserIds(user.uid).then(setBlockedUserIds)
+  }, [user?.uid])
+
+  useEffect(() => {
+    if (!user?.uid) return
+    setLockedChatIds(getLockedChatIds(user.uid))
+  }, [user?.uid])
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (filterSortRef.current && !filterSortRef.current.contains(e.target)) setFilterSortOpen(false)
+    }
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [])
+
+  useEffect(() => {
+    if (!reactionRemoveTarget) return
+    const handler = (e) => {
+      const target = e.target
+      if (target.closest('.chats-reaction-wrap') || target.closest('.chats-reaction-remove-pill')) return
+      setReactionRemoveTarget(null)
+    }
+    const id = setTimeout(() => document.addEventListener('click', handler), 100)
+    return () => {
+      clearTimeout(id)
+      document.removeEventListener('click', handler)
+    }
+  }, [reactionRemoveTarget])
+
+  useEffect(() => {
+    if (!user) return
+    getActiveMemberships(user.uid).then(async (memberships) => {
+      const ids = memberships.filter((m) => m.state === 'active').map((m) => m.orgId)
+      setOrgIds(ids)
+      const names = {}
+      await Promise.all(ids.map(async (oid) => {
+        const o = await getOrg(oid)
+        if (o) names[oid] = o.name
+      }))
+      setOrgNames(names)
+    })
   }, [user])
 
   useEffect(() => {
@@ -687,11 +856,11 @@ export function ChatsPage() {
     load()
   }, [user, orgId])
 
-  // Subscribe to conversations
+  // Subscribe to conversations from all orgs (unified list)
   useEffect(() => {
-    if (!orgId || !user?.uid) return
-    return subscribeConversations(
-      orgId,
+    if (!orgIds?.length || !user?.uid) return
+    return subscribeConversationsMultiOrg(
+      orgIds,
       user.uid,
       (docs) => {
         setConversations(docs)
@@ -701,7 +870,7 @@ export function ChatsPage() {
         setError(err?.message || 'Failed to load chats.')
       }
     )
-  }, [orgId, user?.uid])
+  }, [orgIds.join(','), user?.uid])
 
   // Subscribe to messages when chat selected
   useEffect(() => {
@@ -721,6 +890,18 @@ export function ChatsPage() {
       setTypers(ids.filter((id) => id !== user.uid))
     })
   }, [orgId, chatId, user?.uid])
+
+  // Subscribe to starred messages for current conversation
+  useEffect(() => {
+    if (!orgId || !chatId || !user?.uid) return
+    return subscribeStarredForConversation(user.uid, orgId, chatId, setStarredMap)
+  }, [orgId, chatId, user?.uid])
+
+  // Subscribe to favorites
+  useEffect(() => {
+    if (!user?.uid) return
+    return subscribeFavorites(user.uid, setFavoriteConvIds)
+  }, [user?.uid])
 
   // Mark conversation read when opening/viewing chat
   useEffect(() => {
@@ -763,7 +944,7 @@ export function ChatsPage() {
     })
   }, [])
 
-  const selectedConv = conversations.find((c) => c.id === chatId)
+  const selectedConv = conversations.find((c) => c.orgId === orgId && c.id === chatId)
 
   useEffect(() => {
     if (conversations.length || selectedConv || messages.length) {
@@ -778,6 +959,19 @@ export function ChatsPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
+
+  useEffect(() => {
+    const el = messagesContainerRef.current
+    if (!el) return
+    const check = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el
+      const threshold = 80
+      setShowScrollToBottom(scrollHeight - scrollTop - clientHeight > threshold)
+    }
+    check()
+    el.addEventListener('scroll', check)
+    return () => el.removeEventListener('scroll', check)
+  }, [chatId, messages.length])
 
   const getConvTitle = (conv) => {
     if (!conv) return '…'
@@ -809,9 +1003,150 @@ export function ChatsPage() {
     return conv.members.length
   }
 
-  const handleOpenChat = (id) => {
-    navigate(`/app/org/${orgId}/chats/${id}`)
+  const handleOpenChat = (conv) => {
+    const oid = conv?.orgId ?? orgId
+    if (!oid || !conv?.id) return
+    navigate(`/app/org/${oid}/chats/${conv.id}`)
   }
+
+  const handleExportChat = useCallback(async (withMedia) => {
+    if (!orgId || !chatId || !user?.uid) return
+    try {
+      const msgs = await getMessages(orgId, chatId, 500)
+      const title = selectedConv?.type === CONV_TYPES.dm
+        ? getConvTitle(selectedConv)
+        : (selectedConv?.name || 'Group')
+      const safeTitle = title.replace(/[^a-z0-9]/gi, '-')
+      if (withMedia) {
+        const escape = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+        const blocks = msgs.map((m) => {
+          const name = m.senderId === user.uid ? 'You' : escape(getDisplayName(userProfiles[m.senderId], m.senderId))
+          const time = m.createdAt?.toMillis?.()
+            ? new Date(m.createdAt.toMillis()).toLocaleString()
+            : ''
+          let body = ''
+          if (m.text) body += `<p class="msg-text">${escape(m.text)}</p>`
+          if (m.attachment?.type === 'image' && m.attachment?.data) {
+            body += `<p class="msg-img"><img src="${m.attachment.data}" alt="Image" loading="lazy" /></p>`
+          }
+          if (m.attachment?.type === 'document' && m.attachment?.data) {
+            body += `<p class="msg-doc"><a href="${escape(m.attachment.data)}" download="${escape(m.attachment?.fileName || 'document')}">${escape(m.attachment?.fileName || 'Document')}</a></p>`
+          }
+          if (m.attachment?.type === 'poll') {
+            body += `<p class="msg-poll">[Poll: ${escape(m.attachment?.question || '')}]</p>`
+          }
+          if (!body) body = '<p class="msg-text"></p>'
+          return `<div class="msg"><span class="msg-meta">[${escape(time)}] ${name}:</span>${body}</div>`
+        })
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chat: ${escape(title)}</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:1rem;max-width:600px}
+.msg{margin:1rem 0;border-bottom:1px solid #eee;padding-bottom:0.5rem}
+.msg-meta{font-size:0.85rem;color:#666}
+.msg-text{margin:0.25rem 0}
+.msg-img img{max-width:100%;max-height:300px;border-radius:8px}
+.msg-doc a{color:#0066cc;text-decoration:underline}
+.msg-poll{font-style:italic;color:#888;margin:0.25rem 0}
+</style>
+</head>
+<body>
+<h1>${escape(title)}</h1>
+<p>Exported ${new Date().toLocaleString()}</p>
+${blocks.join('\n')}
+</body>
+</html>`
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `chat-${safeTitle}.html`
+        a.click()
+        URL.revokeObjectURL(a.href)
+      } else {
+        const lines = msgs.map((m) => {
+          const name = m.senderId === user.uid ? 'You' : getDisplayName(userProfiles[m.senderId], m.senderId)
+          const time = m.createdAt?.toMillis?.()
+            ? new Date(m.createdAt.toMillis()).toLocaleString()
+            : ''
+          let text = m.text || ''
+          if (m.attachment?.type === 'image') text += ' [Image]'
+          if (m.attachment?.type === 'document') text += ` [Document: ${m.attachment?.fileName || 'File'}]`
+          if (m.attachment?.type === 'poll') text += ` [Poll: ${m.attachment?.question || ''}]`
+          return `[${time}] ${name}: ${text}`
+        })
+        const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `chat-${safeTitle}.txt`
+        a.click()
+        URL.revokeObjectURL(a.href)
+      }
+    } catch (err) {
+      setError(err?.message || 'Export failed.')
+    }
+  }, [orgId, chatId, user?.uid, selectedConv, userProfiles])
+
+  const handleStartVideoCall = useCallback((channel) => {
+    navigate(`/app/video?channel=${encodeURIComponent(channel)}`)
+  }, [navigate])
+
+  const handleChatMenuAction = useCallback(async (conv, action) => {
+    if (!user?.uid) return
+    const oid = conv?.orgId ?? orgId
+    const cid = conv?.id
+    if (!oid || !cid) return
+    try {
+      if (action === 'delete') {
+        if (!window.confirm('Delete this chat? It will be removed from your list.')) return
+        await deleteConversationForUser(oid, cid, user.uid)
+        if (cid === chatId && oid === orgId) navigate(`/app/org/${oid}/chats`)
+      } else if (action === 'archive') {
+        await archiveConversation(oid, cid, user.uid, true)
+      } else if (action === 'mute') {
+        const currentlyMuted = !!conv?.mutedBy?.[user.uid]
+        await muteConversation(oid, cid, user.uid, !currentlyMuted)
+      } else if (action === 'markUnread') {
+        await markConversationUnread(oid, cid, user.uid)
+      } else if (action === 'clear') {
+        if (!window.confirm('Clear all messages? This cannot be undone.')) return
+        await clearConversation(oid, cid, user.uid)
+      } else if (action === 'block') {
+        const other = conv?.type === CONV_TYPES.dm && conv.members?.find((id) => id !== user.uid)
+        if (other) {
+          const { blockUser } = await import('../lib/blockService')
+          await blockUser(user.uid, other)
+          setBlockedUserIds((prev) => [...prev, other])
+          if (cid === chatId && oid === orgId) navigate(`/app/org/${oid}/chats`)
+        }
+      } else if (action === 'favorite') {
+        const key = `${oid}_${cid}`
+        const isFav = favoriteConvIds.has(key)
+        if (isFav) {
+          await removeFromFavorites(user.uid, oid, cid)
+        } else {
+          await addToFavorites(user.uid, oid, cid)
+        }
+      } else if (action === 'lock') {
+        const key = `${oid}_${cid}`
+        const locked = lockedChatIds.has(key)
+        if (locked) {
+          setLockModal({ mode: 'unlock', orgId: oid, convId: cid, fromMenu: true })
+        } else {
+          if (!hasPin(user.uid)) {
+            setLockModal({ mode: 'create', orgId: oid, convId: cid, fromMenu: true })
+          } else {
+            setChatLocked(user.uid, oid, cid, true)
+            setLockedChatIds(getLockedChatIds(user.uid))
+          }
+        }
+      }
+    } catch (err) {
+      setError(err?.message || 'Action failed.')
+    }
+  }, [user?.uid, orgId, chatId, navigate, favoriteConvIds, lockedChatIds])
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
@@ -823,6 +1158,7 @@ export function ChatsPage() {
     try {
       await sendMessageApi(orgId, chatId, messageText.trim(), user.uid)
       setMessageText('')
+      setReplyTo(null)
       playSendSound()
       clearTyping(orgId, chatId, user.uid).catch(() => {})
     } catch (err) {
@@ -883,6 +1219,7 @@ export function ChatsPage() {
   }, [showAttachmentMenu, closeAttachmentMenu])
 
   const MAX_IMAGE_BASE64_SIZE = 450 * 1024 // ~450KB to stay under Firestore 1MB doc limit
+  const MAX_DOCUMENT_BASE64_SIZE = 950 * 1024 // ~950KB; Firestore 1MB hard limit
 
   const sendWithAttachment = useCallback(async (attachment, text = '') => {
     if (!chatId || !user?.uid) return
@@ -923,6 +1260,7 @@ export function ChatsPage() {
     else if (id === 'document') documentInputRef.current?.click()
     else if (id === 'poll') setShowPollModal(true)
     else if (id === 'event') setShowEventModal(true)
+    else if (id === 'users') setShowNewChat(true)
   }, [closeAttachmentMenu])
 
   const handlePhotosChange = useCallback((e) => {
@@ -945,8 +1283,22 @@ export function ChatsPage() {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    sendTextMessage(`📎 Document: ${file.name}`)
-  }, [sendTextMessage])
+    const allowed = /\.(pdf|doc|docx|xls|xlsx|txt|csv)$/i.test(file.name)
+    if (!allowed) {
+      setError('File type not supported. Use PDF, Word, Excel, TXT, or CSV.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result
+      if (base64.length > MAX_DOCUMENT_BASE64_SIZE) {
+        setError('Document too large. Maximum is ~700KB (Firestore 1MB limit).')
+        return
+      }
+      sendWithAttachment({ type: 'document', data: base64, fileName: file.name })
+    }
+    reader.readAsDataURL(file)
+  }, [sendWithAttachment])
 
   const handlePollSubmit = useCallback(({ question, options }) => {
     sendWithAttachment({
@@ -975,6 +1327,115 @@ export function ChatsPage() {
       setError(err?.message || 'Failed to end poll.')
     }
   }, [orgId, chatId, user?.uid])
+
+  const handleStarMessage = useCallback(async (msgId, text, isStarred) => {
+    if (!orgId || !chatId || !user?.uid) return
+    setError('')
+    try {
+      if (isStarred) {
+        await unstarMessage(user.uid, orgId, chatId, msgId)
+      } else {
+        await starMessage(user.uid, orgId, chatId, msgId, text || '')
+      }
+    } catch (err) {
+      setError(err?.message || 'Failed to star message.')
+    }
+  }, [orgId, chatId, user?.uid])
+
+  const handleScrollToMessage = useCallback((msgId) => {
+    const el = document.querySelector(`[data-msg-id="${msgId}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [])
+
+  const handleLockModalSubmit = useCallback(async (mode, pin) => {
+    if (!lockModal || !user?.uid) return
+    const { orgId: oid, convId: cid } = lockModal
+    if (mode === 'create') {
+      await setPin(user.uid, pin)
+      setChatLocked(user.uid, oid, cid, true)
+    } else {
+      const ok = await verifyPin(user.uid, pin)
+      if (!ok) throw new Error('Incorrect PIN')
+      setChatLocked(user.uid, oid, cid, false)
+    }
+    setLockedChatIds(getLockedChatIds(user.uid))
+    setLockModal(null)
+  }, [lockModal, user?.uid])
+
+  const handleForwardMessage = useCallback(async (targetConv) => {
+    if (!forwardMessage || !user?.uid) return
+    setError('')
+    try {
+      const text = forwardMessage.text || ''
+      const att = forwardMessage.attachment
+      const attachment = (att?.type === 'image' && att?.data) || (att?.type === 'document' && att?.data)
+        ? { type: att.type, data: att.data, ...(att.fileName && { fileName: att.fileName }) }
+        : undefined
+      await sendMessageApi(targetConv.orgId, targetConv.id, text, user.uid, attachment ? { attachment } : {})
+      playSendSound()
+    } catch (err) {
+      setError(err?.message || 'Failed to forward.')
+    } finally {
+      setForwardMessage(null)
+      setShowForwardModal(false)
+    }
+  }, [forwardMessage, user?.uid])
+
+  const handleMessageReaction = useCallback(async (msgId, emoji) => {
+    if (!orgId || !chatId || !user?.uid) return
+    try {
+      await addReaction(orgId, chatId, msgId, user.uid, emoji)
+      setMessageContextMsg(null)
+      setReactionRemoveTarget(null)
+    } catch (err) {
+      setError(err?.message || 'Failed to add reaction.')
+    }
+  }, [orgId, chatId, user?.uid])
+
+  const handleReactionClick = useCallback((m, emoji, e) => {
+    e?.stopPropagation()
+    const raw = (m.reactions && m.reactions[emoji]) || []
+    const userIds = Array.isArray(raw) ? raw : Object.keys(raw || {})
+    const hasOwn = userIds.some((id) => String(id) === String(user?.uid))
+    if (hasOwn) {
+      setReactionRemoveTarget((prev) =>
+        prev?.msgId === m.id && prev?.emoji === emoji ? null : { msgId: m.id, emoji }
+      )
+    } else {
+      handleMessageReaction(m.id, emoji)
+    }
+  }, [user?.uid, handleMessageReaction])
+
+  const handleDeleteMessage = useCallback(async (msgId) => {
+    if (!orgId || !chatId || !user?.uid) return
+    if (!window.confirm('Delete this message?')) return
+    try {
+      await deleteMessage(orgId, chatId, msgId, user.uid)
+      setMessageContextMsg(null)
+    } catch (err) {
+      setError(err?.message || 'Failed to delete.')
+    }
+  }, [orgId, chatId, user?.uid])
+
+  const handleLockOverlayUnlock = useCallback(async (e) => {
+    e?.preventDefault()
+    if (!orgId || !chatId || !user?.uid) return
+    setLockOverlayError('')
+    const p = lockOverlayPin.replace(/\D/g, '')
+    if (!p) {
+      setLockOverlayError('Enter your PIN')
+      return
+    }
+    const ok = await verifyPin(user.uid, p)
+    if (!ok) {
+      setLockOverlayError('Incorrect PIN')
+      return
+    }
+    setChatLocked(user.uid, orgId, chatId, false)
+    setLockedChatIds(getLockedChatIds(user.uid))
+    setLockOverlayPin('')
+    setLockOverlayError('')
+  }, [orgId, chatId, user?.uid, lockOverlayPin])
 
   const handleEventSubmit = useCallback(async ({ text, title, date, time }) => {
     await sendTextMessage(text)
@@ -1049,49 +1510,185 @@ export function ChatsPage() {
               +
             </button>
           </div>
+          <div className="chats-search-row">
+            <div className="chats-search-wrap">
+              <SearchIcon size={16} className="chats-search-icon" />
+              <input
+                type="text"
+                placeholder="Search chats"
+                value={chatListFilter}
+                onChange={(e) => setChatListFilter(e.target.value)}
+                className="chats-search-input"
+              />
+            </div>
+            <div className="chats-filter-sort-wrap" ref={filterSortRef}>
+              <button
+                type="button"
+                className="chats-filter-sort-icon-btn"
+                onClick={() => setFilterSortOpen((v) => !v)}
+                aria-expanded={filterSortOpen}
+                aria-haspopup="true"
+                title="Sort options"
+              >
+                <SlidersHorizontalIcon size={18} />
+              </button>
+              {filterSortOpen && (
+                <div className="chats-filter-sort-panel">
+                  <div className="chats-filter-sort-section">
+                    <span className="chats-filter-sort-label">Sort by</span>
+                    <button type="button" className={chatListSort === 'recent' ? 'chats-filter-sort-opt active' : 'chats-filter-sort-opt'} onClick={() => { setChatListSort('recent'); setFilterSortOpen(false) }}>Recent</button>
+                    <button type="button" className={chatListSort === 'name' ? 'chats-filter-sort-opt active' : 'chats-filter-sort-opt'} onClick={() => { setChatListSort('name'); setFilterSortOpen(false) }}>Name</button>
+                    <button type="button" className={chatListSort === 'unread' ? 'chats-filter-sort-opt active' : 'chats-filter-sort-opt'} onClick={() => { setChatListSort('unread'); setFilterSortOpen(false) }}>Unread first</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          {conversations.some((c) => c.archivedBy?.[user?.uid]) && (
+            <button
+              type="button"
+              className="chats-show-archived"
+              onClick={() => setShowArchived((v) => !v)}
+            >
+              {showArchived ? 'Hide archived' : 'Show archived'}
+            </button>
+          )}
           <ul className="chats-list">
-            {conversations.map((c) => (
+            {(() => {
+              let list = conversations.filter((c) => !c.deletedBy?.[user?.uid])
+              if (!showArchived) {
+                list = list.filter((c) => !c.archivedBy?.[user?.uid])
+              }
+              list = list.filter((c) => {
+                if (c.type !== CONV_TYPES.dm) return true
+                const other = c.members?.find((id) => id !== user?.uid)
+                return !other || !blockedUserIds.includes(other)
+              })
+              const filterLower = chatListFilter.trim().toLowerCase()
+              if (filterLower) {
+                list = list.filter((c) => {
+                  const title = getConvTitle(c).toLowerCase()
+                  const org = (orgNames[c.orgId] || '').toLowerCase()
+                  return title.includes(filterLower) || org.includes(filterLower)
+                })
+              }
+              if (chatListSort === 'name') {
+                list = [...list].sort((a, b) => getConvTitle(a).localeCompare(getConvTitle(b)))
+              } else if (chatListSort === 'unread') {
+                list = [...list].sort((a, b) => {
+                  const ua = a.unreadCount?.[user?.uid] ?? 0
+                  const ub = b.unreadCount?.[user?.uid] ?? 0
+                  return ub - ua
+                })
+              } else {
+                list = [...list].sort((a, b) => {
+                  const favA = favoriteConvIds.has(`${a.orgId}_${a.id}`) ? 1 : 0
+                  const favB = favoriteConvIds.has(`${b.orgId}_${b.id}`) ? 1 : 0
+                  if (favA !== favB) return favB - favA
+                  const ta = a.lastMessageAt?.toMillis?.() ?? 0
+                  const tb = b.lastMessageAt?.toMillis?.() ?? 0
+                  return tb - ta
+                })
+              }
+              return list
+            })().map((c) => (
               <ChatListItem
-                key={c.id}
+                key={`${c.orgId}-${c.id}`}
                 conv={c}
                 title={getConvTitle(c)}
                 avatar={getConvAvatar(c)}
-                isActive={c.id === chatId}
+                orgName={orgNames[c.orgId] || ''}
+                isActive={c.orgId === orgId && c.id === chatId}
                 lastPreview={c.lastMessagePreview}
                 lastTime={c.lastMessageAt}
                 unreadCount={c.unreadCount?.[user?.uid] ?? 0}
-                onClick={() => handleOpenChat(c.id)}
+                isFavorite={favoriteConvIds.has(`${c.orgId}_${c.id}`)}
+                isLocked={lockedChatIds.has(`${c.orgId}_${c.id}`)}
+                isMuted={!!c.mutedBy?.[user?.uid]}
+                onClick={() => handleOpenChat(c)}
                 userDoc={userDoc}
+                onMenuAction={(action) => handleChatMenuAction(c, action)}
               />
             ))}
             {conversations.length === 0 && <li className="chats-empty">No chats yet. Start a new one!</li>}
+            {conversations.length > 0 && (() => {
+              const filterLower = chatListFilter.trim().toLowerCase()
+              const list = filterLower
+                ? conversations.filter((c) => {
+                    const title = getConvTitle(c).toLowerCase()
+                    const org = (orgNames[c.orgId] || '').toLowerCase()
+                    return title.includes(filterLower) || org.includes(filterLower)
+                  })
+                : conversations
+              if (list.length === 0 && filterLower) {
+                return <li className="chats-empty">No chats match your filter.</li>
+              }
+              return null
+            })()}
           </ul>
         </aside>
-        <main className="chats-main">
+        <main className={`chats-main ${messageContextMsg ? 'chats-main-context-open' : ''}`}>
           {chatId ? (
             <>
               <header className="chats-header">
-                <h2
-                  className={`chats-chat-name ${selectedConv?.type === CONV_TYPES.dm ? 'chats-chat-name-clickable' : ''}`}
-                  onClick={selectedConv?.type === CONV_TYPES.dm ? () => {
+                <div className="chats-header-info">
+                  {selectedConv?.type === CONV_TYPES.dm && (() => {
                     const other = selectedConv.members?.find((id) => id !== user?.uid)
-                    if (other) setProfileModalUserId(other)
-                  } : undefined}
-                  role={selectedConv?.type === CONV_TYPES.dm ? 'button' : undefined}
-                  tabIndex={selectedConv?.type === CONV_TYPES.dm ? 0 : undefined}
-                  onKeyDown={selectedConv?.type === CONV_TYPES.dm ? (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      const other = selectedConv.members?.find((id) => id !== user?.uid)
-                      if (other) setProfileModalUserId(other)
-                    }
-                  } : undefined}
-                >
-                  {getConvTitle(selectedConv)}
-                </h2>
-                {(selectedConv?.type === CONV_TYPES.group || selectedConv?.type === CONV_TYPES.team) && (
-                  <p className="chats-header-sub">{getMemberCount(selectedConv)} members</p>
-                )}
+                    const p = other ? userProfiles[other] : null
+                    const avatarUrl = p && getProfilePictureUrl(p)
+                    return (
+                      <button
+                        type="button"
+                        className="chats-header-avatar-btn"
+                        onClick={() => other && setChatSettingsUserId(other)}
+                        title="View profile"
+                      >
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt="" className="chats-header-avatar" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span className="chats-header-avatar-initial">
+                            {other ? (getDisplayName(userProfiles[other], other)[0]?.toUpperCase() || '?') : '?'}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })()}
+                  <div className="chats-header-text">
+                    <h2
+                      className={`chats-chat-name ${selectedConv?.type === CONV_TYPES.dm ? 'chats-chat-name-clickable' : ''}`}
+                      onClick={selectedConv?.type === CONV_TYPES.dm ? () => {
+                        const other = selectedConv.members?.find((id) => id !== user?.uid)
+                        if (other) setChatSettingsUserId(other)
+                      } : undefined}
+                      role={selectedConv?.type === CONV_TYPES.dm ? 'button' : undefined}
+                      tabIndex={selectedConv?.type === CONV_TYPES.dm ? 0 : undefined}
+                      onKeyDown={selectedConv?.type === CONV_TYPES.dm ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          const other = selectedConv.members?.find((id) => id !== user?.uid)
+                          if (other) setChatSettingsUserId(other)
+                        }
+                      } : undefined}
+                    >
+                      {getConvTitle(selectedConv)}
+                    </h2>
+                    {org && <p className="chats-header-org">{org.name}</p>}
+                    {(selectedConv?.type === CONV_TYPES.group || selectedConv?.type === CONV_TYPES.team) && (
+                      <p className="chats-header-sub">{getMemberCount(selectedConv)} members</p>
+                    )}
+                  </div>
+                  {(selectedConv?.type === CONV_TYPES.group || selectedConv?.type === CONV_TYPES.team) && (
+                    <button
+                      type="button"
+                      className="chats-header-settings-btn"
+                      onClick={() => setShowGroupSettings(true)}
+                      title="Group settings"
+                      aria-label="Group settings"
+                    >
+                      <SettingsIcon size={20} />
+                    </button>
+                  )}
+                </div>
                 {typers.length > 0 && (
                   <div className="chats-typing">
                     <span>
@@ -1106,17 +1703,57 @@ export function ChatsPage() {
                   </div>
                 )}
               </header>
+              {searchInChat && !lockedChatIds.has(`${orgId}_${chatId}`) && (
+                <div className="chats-search-bar">
+                  <input
+                    type="text"
+                    placeholder="Search in chat…"
+                    value={searchInChat}
+                    onChange={(e) => setSearchInChat(e.target.value)}
+                    className="chats-search-input"
+                    autoFocus
+                  />
+                  <button type="button" className="chats-search-close" onClick={() => setSearchInChat('')} aria-label="Close search">×</button>
+                </div>
+              )}
+              {lockedChatIds.has(`${orgId}_${chatId}`) ? (
+                <div className="chats-lock-overlay">
+                  <LockIcon size={48} className="chats-lock-overlay-icon" />
+                  <h3>This chat is locked</h3>
+                  <p>Enter your PIN to view messages</p>
+                  <form onSubmit={handleLockOverlayUnlock} className="chats-lock-overlay-form">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="PIN"
+                      value={lockOverlayPin}
+                      onChange={(e) => setLockOverlayPin(e.target.value)}
+                      className="auth-input chats-lock-pin"
+                      maxLength={8}
+                      autoFocus
+                    />
+                    {lockOverlayError && <p className="auth-error">{lockOverlayError}</p>}
+                    <Button type="submit" variant="primary">Unlock</Button>
+                  </form>
+                </div>
+              ) : (
+              <div className="chats-chat-body">
               <div className="chats-messages" ref={messagesContainerRef}>
-                {messages.length === 0 ? (
+                {messages.length === 0 && !searchInChat ? (
                   <p className="chats-messages-empty">No messages yet. Start the conversation!</p>
                 ) : (
                   (() => {
-                    const lastOwnIndex = messages.reduce((acc, m, idx) =>
+                    let filtered = searchInChat.trim()
+                      ? messages.filter((m) => (m.text || '').toLowerCase().includes(searchInChat.trim().toLowerCase()))
+                      : messages
+                    filtered = filtered.filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
+                    const lastOwnIndex = filtered.reduce((acc, m, idx) =>
                       m.senderId === user?.uid ? idx : acc, -1)
-                    return messages.map((m, i) => {
+                    return filtered.map((m, i) => {
                       const isOwn = m.senderId === user?.uid
                       const showStatus = isOwn && i === lastOwnIndex
-                      const prev = messages[i - 1]
+                      const prev = filtered[i - 1]
                       const showSender = selectedConv?.type !== CONV_TYPES.dm && (!prev || prev.senderId !== m.senderId)
                       const senderName = showSender
                         ? (m.senderId === user?.uid ? 'You' : getDisplayName(userProfiles[m.senderId], m.senderId, user?.uid === m.senderId ? user : null))
@@ -1127,9 +1764,14 @@ export function ChatsPage() {
                       const ts = m.createdAt?.toMillis?.()
                         ? new Date(m.createdAt.toMillis()).toLocaleTimeString(getLocale(userDoc), { hour: '2-digit', minute: '2-digit', ...(getTimeZone(userDoc) && { timeZone: getTimeZone(userDoc) }) })
                         : ''
+                      const isStarred = starredMap.has(m.id)
                       return (
-                        <div key={m.id} className={`chats-message-row ${isOwn ? 'chats-message-own' : ''}`}>
-                          <div className="chats-message-content">
+                        <div
+                          key={m.id}
+                          data-msg-id={m.id}
+                          className={`chats-message-row ${isOwn ? 'chats-message-own' : ''} ${messageContextMsg?.id === m.id ? 'chats-message-row-context-open' : ''}`}
+                        >
+                          <div className={`chats-message-content ${isOwn ? 'chats-message-content-own' : ''}`}>
                             {!isOwn && (
                               <button
                                 type="button"
@@ -1144,21 +1786,12 @@ export function ChatsPage() {
                                 )}
                               </button>
                             )}
-                            <div className={`chats-bubble-wrap ${isOwn ? 'chats-bubble-own' : ''}`}>
-                              {senderName && (
-                                isOwn ? (
-                                  <span className="chats-bubble-sender">{senderName}</span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="chats-bubble-sender chats-bubble-sender-btn"
-                                    onClick={() => setProfileModalUserId(m.senderId)}
-                                  >
-                                    {senderName}
-                                  </button>
-                                )
-                              )}
-                              <div className={`chats-bubble ${isOwn ? 'chats-bubble-own' : 'chats-bubble-other'}`}>
+                            {isOwn ? (
+                              <>
+                                <div className="chats-own-top-row">
+                                  <div className="chats-bubble-wrap chats-bubble-wrap-own">
+                                    {senderName && <span className="chats-bubble-sender">{senderName}</span>}
+                              <div className="chats-bubble chats-bubble-own">
                               {m.attachment?.type === 'poll' && (
                                 <PollBubble
                                   message={m}
@@ -1173,25 +1806,154 @@ export function ChatsPage() {
                                   <img src={m.attachment.data} alt="" className="chats-bubble-image" referrerPolicy="no-referrer" />
                                 </div>
                               )}
+                              {m.attachment?.type === 'document' && m.attachment?.data && (
+                                <a
+                                  href={m.attachment.data}
+                                  download={m.attachment.fileName || 'document'}
+                                  className="chats-bubble-document"
+                                >
+                                  <FileTextIcon size={18} />
+                                  <span>{m.attachment.fileName || 'Document'}</span>
+                                </a>
+                              )}
                               {m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>}
-                              {ts && <span className="chats-bubble-time">{ts}</span>}
+                              <div className="chats-bubble-footer">
+                                {ts && <span className="chats-bubble-time">{ts}</span>}
+                                <button
+                                  type="button"
+                                  className="chats-message-more-btn"
+                                  onClick={(e) => { e.stopPropagation(); setMessageContextMsg(m) }}
+                                  title="More options"
+                                  aria-label="Message options"
+                                >
+                                  <MoreVerticalIcon size={14} />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                            {isOwn && (
-                              <div className="chats-message-avatar chats-message-avatar-own" title="You">
-                                {avatarUrl ? (
-                                  <img src={avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setMessageImgErrors((e) => ({ ...e, [`${m.id}-avatar`]: true }))} />
-                                ) : (
-                                  <span className="chats-message-avatar-initial">{avatarInitial}</span>
-                                )}
+                            {(m.reactions && Object.keys(m.reactions).length > 0) && (
+                              <div className="chats-bubble-reactions-wrap">
+                                {Object.entries(m.reactions).map(([emoji, userIds]) => {
+                                  const showRemove = reactionRemoveTarget?.msgId === m.id && reactionRemoveTarget?.emoji === emoji
+                                  return (
+                                    <div key={emoji} className="chats-reaction-wrap">
+                                      <button
+                                        type="button"
+                                        className={`chats-reaction-pill ${(userIds || []).includes(user?.uid) ? 'chats-reaction-own' : ''}`}
+                                        onClick={(e) => handleReactionClick(m, emoji, e)}
+                                        title={`${emoji} ${(userIds || []).length}`}
+                                      >
+                                        <span className="chats-reaction-emoji">{emoji}</span>
+                                        {(userIds || []).length > 1 && (
+                                          <span className="chats-reaction-count">{(userIds || []).length}</span>
+                                        )}
+                                      </button>
+                                      {showRemove && (
+                                        <div className="chats-reaction-remove-pill" onClick={(e) => e.stopPropagation()}>
+                                          <span>Remove?</span>
+                                          <button type="button" onClick={() => handleMessageReaction(m.id, emoji)}>Yes</button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
                               </div>
                             )}
-                          </div>
-                          {showStatus && (
-                            <span className="chats-bubble-status-below">
-                              <MessageStatus status={m.status} />
-                            </span>
-                          )}
+                                    </div>
+                                    <div className="chats-message-avatar chats-message-avatar-own" title="You">
+                                      {avatarUrl ? (
+                                        <img src={avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setMessageImgErrors((e) => ({ ...e, [`${m.id}-avatar`]: true }))} />
+                                      ) : (
+                                        <span className="chats-message-avatar-initial">{avatarInitial}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {showStatus && (
+                                    <span className="chats-bubble-status-below">
+                                      <MessageStatus status={m.status} />
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="chats-bubble-wrap">
+                                  {senderName && (
+                                    <button
+                                      type="button"
+                                      className="chats-bubble-sender chats-bubble-sender-btn"
+                                      onClick={() => setProfileModalUserId(m.senderId)}
+                                    >
+                                      {senderName}
+                                    </button>
+                                  )}
+                                  <div className="chats-bubble chats-bubble-other">
+                                    {m.attachment?.type === 'poll' && (
+                                      <PollBubble
+                                        message={m}
+                                        isOwn={isOwn}
+                                        userId={user?.uid}
+                                        onVote={(optIdx) => handleVotePoll(m.id, optIdx)}
+                                        onEndPoll={() => handleEndPoll(m.id)}
+                                      />
+                                    )}
+                                    {m.attachment?.type === 'image' && m.attachment?.data && (
+                                      <div className="chats-bubble-image-wrap">
+                                        <img src={m.attachment.data} alt="" className="chats-bubble-image" referrerPolicy="no-referrer" />
+                                      </div>
+                                    )}
+                                    {m.attachment?.type === 'document' && m.attachment?.data && (
+                                      <a
+                                        href={m.attachment.data}
+                                        download={m.attachment.fileName || 'document'}
+                                        className="chats-bubble-document"
+                                      >
+                                        <FileTextIcon size={18} />
+                                        <span>{m.attachment.fileName || 'Document'}</span>
+                                      </a>
+                                    )}
+                                    {m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>}
+                                    <div className="chats-bubble-footer">
+                                      {ts && <span className="chats-bubble-time">{ts}</span>}
+                                      <button
+                                        type="button"
+                                        className="chats-message-more-btn"
+                                        onClick={(e) => { e.stopPropagation(); setMessageContextMsg(m) }}
+                                        title="More options"
+                                        aria-label="Message options"
+                                      >
+                                        <MoreVerticalIcon size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {(m.reactions && Object.keys(m.reactions).length > 0) && (
+                                    <div className="chats-bubble-reactions-wrap">
+                                      {Object.entries(m.reactions).map(([emoji, userIds]) => {
+                                        const showRemove = reactionRemoveTarget?.msgId === m.id && reactionRemoveTarget?.emoji === emoji
+                                        return (
+                                          <div key={emoji} className="chats-reaction-wrap">
+                                            <button
+                                              type="button"
+                                              className={`chats-reaction-pill ${(userIds || []).includes(user?.uid) ? 'chats-reaction-own' : ''}`}
+                                              onClick={(e) => handleReactionClick(m, emoji, e)}
+                                              title={`${emoji} ${(userIds || []).length}`}
+                                            >
+                                              <span className="chats-reaction-emoji">{emoji}</span>
+                                              {(userIds || []).length > 1 && (
+                                                <span className="chats-reaction-count">{(userIds || []).length}</span>
+                                              )}
+                                            </button>
+                                            {showRemove && (
+                                              <div className="chats-reaction-remove-pill" onClick={(e) => e.stopPropagation()}>
+                                                <span>Remove?</span>
+                                                <button type="button" onClick={() => handleMessageReaction(m.id, emoji)}>Yes</button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                         </div>
                       )
                     })
@@ -1199,10 +1961,29 @@ export function ChatsPage() {
                 )}
                 <div ref={messagesEndRef} />
               </div>
+              {showScrollToBottom && (
+                <button
+                  type="button"
+                  className="chats-scroll-to-bottom"
+                  onClick={scrollToBottom}
+                  title="Scroll to latest messages"
+                  aria-label="Scroll to latest messages"
+                >
+                  <ChevronDownIcon size={20} />
+                </button>
+              )}
               <form onSubmit={handleSendMessage} className="chats-input-form" ref={attachmentMenuRef}>
+                {replyTo && (
+                  <div className="chats-reply-preview">
+                    <span className="chats-reply-label">Replying to {replyTo.senderId === user?.uid ? 'yourself' : getDisplayName(userProfiles[replyTo.senderId], replyTo.senderId)}</span>
+                    <span className="chats-reply-text">{(replyTo.text || (replyTo.attachment?.type === 'image' ? '[Image]' : replyTo.attachment?.type === 'document' ? '[Document]' : '')).slice(0, 60)}{(replyTo.text || (replyTo.attachment?.type === 'image' ? '[Image]' : replyTo.attachment?.type === 'document' ? '[Document]' : '')).length > 60 ? '…' : ''}</span>
+                    <button type="button" className="chats-reply-dismiss" onClick={() => setReplyTo(null)} aria-label="Cancel reply">×</button>
+                  </div>
+                )}
                 {error && <p className="auth-error">{error}</p>}
                 <div className="chats-input-row">
                   <textarea
+                    ref={messageInputRef}
                     placeholder="Type a message…"
                     value={messageText}
                     onChange={handleMessageTextChange}
@@ -1241,7 +2022,7 @@ export function ChatsPage() {
                   <input
                     ref={documentInputRef}
                     type="file"
-                    accept=".pdf,.doc,.docx,.txt,.xls,.xlsx"
+                    accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.csv"
                     className="chats-file-input-hidden"
                     onChange={handleDocumentChange}
                     aria-hidden
@@ -1258,6 +2039,8 @@ export function ChatsPage() {
                   />
                 )}
               </form>
+              </div>
+              )}
             </>
           ) : (
             <div className="chats-placeholder">
@@ -1287,9 +2070,122 @@ export function ChatsPage() {
           userId={user?.uid}
           org={org}
           onClose={() => setShowNewChat(false)}
-          onOpenChat={handleOpenChat}
+          onOpenChat={(id) => handleOpenChat({ orgId, id })}
           userProfiles={userProfiles}
           setUserProfiles={setUserProfiles}
+        />
+      )}
+      {messageContextMsg && (
+        <MessageContextMenu
+          message={messageContextMsg}
+          isStarred={starredMap.has(messageContextMsg?.id)}
+          isOwn={messageContextMsg?.senderId === user?.uid}
+          onReply={() => {
+            setReplyTo(messageContextMsg)
+            setMessageContextMsg(null)
+            setTimeout(() => messageInputRef.current?.focus(), 100)
+          }}
+          onForward={() => {
+            setForwardMessage(messageContextMsg)
+            setMessageContextMsg(null)
+            setShowForwardModal(true)
+          }}
+          onCopy={() => setMessageContextMsg(null)}
+          onInfo={() => setProfileModalUserId(messageContextMsg?.senderId)}
+          onStar={() => {
+            handleStarMessage(messageContextMsg.id, messageContextMsg.text, starredMap.has(messageContextMsg.id))
+            setMessageContextMsg(null)
+          }}
+          onDelete={() => handleDeleteMessage(messageContextMsg.id)}
+          onReactionSelect={(emoji) => handleMessageReaction(messageContextMsg.id, emoji)}
+          onClose={() => setMessageContextMsg(null)}
+        />
+      )}
+      {showForwardModal && forwardMessage && (
+        <ForwardMessageModal
+          message={forwardMessage}
+          conversations={conversations}
+          orgNames={orgNames}
+          userProfiles={userProfiles}
+          currentOrgId={orgId}
+          currentChatId={chatId}
+          user={user}
+          blockedUserIds={blockedUserIds}
+          getConvTitle={getConvTitle}
+          getConvAvatar={getConvAvatar}
+          onForward={handleForwardMessage}
+          onClose={() => { setShowForwardModal(false); setForwardMessage(null) }}
+        />
+      )}
+      {lockModal && (
+        <LockChatModal
+          mode={lockModal.mode}
+          onClose={() => setLockModal(null)}
+          onSubmit={(pin) => handleLockModalSubmit(lockModal.mode, pin)}
+        />
+      )}
+      {showGroupSettings && org && selectedConv && (selectedConv.type === CONV_TYPES.group || selectedConv.type === CONV_TYPES.team) && (
+        <GroupChatSettingsModal
+          orgId={orgId}
+          chatId={chatId}
+          conv={selectedConv}
+          orgName={org.name}
+          userProfiles={userProfiles}
+          onClose={() => setShowGroupSettings(false)}
+          onSearchInChat={() => setSearchInChat(' ')}
+          onExportChat={handleExportChat}
+          starredMessages={Array.from(starredMap.values())}
+          onScrollToMessage={(msgId) => { setShowGroupSettings(false); handleScrollToMessage(msgId) }}
+          isLocked={lockedChatIds.has(`${orgId}_${chatId}`)}
+          onLockToggle={(locked) => {
+            if (locked) {
+              if (!hasPin(user?.uid)) setLockModal({ mode: 'create', orgId, convId: chatId })
+              else { setChatLocked(user.uid, orgId, chatId, true); setLockedChatIds(getLockedChatIds(user.uid)) }
+            } else {
+              setLockModal({ mode: 'unlock', orgId, convId: chatId })
+            }
+          }}
+          isMuted={!!selectedConv?.mutedBy?.[user?.uid]}
+          onMuteToggle={(muted) => muteConversation(orgId, chatId, user?.uid, muted).catch((err) => setError(err?.message))}
+        />
+      )}
+      {chatSettingsUserId && org && selectedConv?.type === CONV_TYPES.dm && (
+        <ChatSettingsModal
+          orgId={orgId}
+          chatId={chatId}
+          userId={user?.uid}
+          otherUserId={chatSettingsUserId}
+          otherUserDoc={userProfiles[chatSettingsUserId]}
+          otherDisplayName={getDisplayName(userProfiles[chatSettingsUserId], chatSettingsUserId)}
+          orgName={org.name}
+          onClose={() => setChatSettingsUserId(null)}
+          onStartVideoCall={handleStartVideoCall}
+          onSearchInChat={() => setSearchInChat(' ')}
+          onExportChat={handleExportChat}
+          onShareProfile={() => { setShareProfileUserId(chatSettingsUserId); setShowShareProfile(true); setChatSettingsUserId(null) }}
+          onViewFullProfile={() => { setProfileModalUserId(chatSettingsUserId); setChatSettingsUserId(null) }}
+          starredMessages={Array.from(starredMap.values())}
+          onScrollToMessage={(msgId) => { setChatSettingsUserId(null); handleScrollToMessage(msgId) }}
+          isLocked={lockedChatIds.has(`${orgId}_${chatId}`)}
+          onLockToggle={(locked) => {
+            if (locked) {
+              if (!hasPin(user?.uid)) setLockModal({ mode: 'create', orgId, chatId, convId: chatId })
+              else { setChatLocked(user.uid, orgId, chatId, true); setLockedChatIds(getLockedChatIds(user.uid)) }
+            } else {
+              setLockModal({ mode: 'unlock', orgId, convId: chatId })
+            }
+          }}
+          isMuted={!!selectedConv?.mutedBy?.[user?.uid]}
+          onMuteToggle={(muted) => muteConversation(orgId, chatId, user?.uid, muted).catch((err) => setError(err?.message))}
+        />
+      )}
+      {showShareProfile && shareProfileUserId && orgId && (
+        <ShareProfileModal
+          orgId={orgId}
+          currentUserId={user?.uid}
+          profileUserId={shareProfileUserId}
+          profileUserName={getDisplayName(userProfiles[shareProfileUserId], shareProfileUserId)}
+          onClose={() => { setShowShareProfile(false); setShareProfileUserId(null) }}
         />
       )}
       {profileModalUserId && org && (
