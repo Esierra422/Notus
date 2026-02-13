@@ -8,6 +8,48 @@ import './VideoCallPage.css'
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
+/** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
+function rms(samples) {
+  if (!samples?.length) return 0
+  let sum = 0
+  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
+  return Math.sqrt(sum / samples.length)
+}
+
+const SPEECH_RMS_THRESHOLD = 0.01
+
+/** Build a WAV file buffer from Float32 mono PCM (so every chunk is valid for Whisper). */
+function float32ToWav(samples, sampleRate) {
+  const numChannels = 1
+  const bitsPerSample = 16
+  const bytesPerSample = bitsPerSample / 8
+  const blockAlign = numChannels * bytesPerSample
+  const dataSize = samples.length * bytesPerSample
+  const buffer = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(buffer)
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+  }
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true) // fmt chunk size
+  view.setUint16(20, 1, true)   // PCM
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * blockAlign, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, bitsPerSample, true)
+  writeStr(36, 'data')
+  view.setUint32(40, dataSize, true)
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+  }
+  return buffer
+}
+
 export function VideoCallPage() {
   const { user, setNavExtra } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
@@ -24,8 +66,43 @@ export function VideoCallPage() {
   const localAudioRef = useRef(null)
   const localVideoRef = useRef(null)
   const localUidRef = useRef(0)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const transcriptionWsRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const workletNodeRef = useRef(null)
+  const pcmBufferRef = useRef([])
+  const CHUNK_DURATION_SEC = 3
 
   const cleanup = useCallback(async () => {
+    if (transcriptionWsRef.current) {
+      try {
+        transcriptionWsRef.current.close()
+      } catch (e) {
+        console.warn('Transcription WS close error:', e)
+      }
+      transcriptionWsRef.current = null
+    }
+    if (workletNodeRef.current && audioContextRef.current) {
+      try {
+        workletNodeRef.current.disconnect()
+        audioContextRef.current.close()
+      } catch (e) {
+        console.warn('AudioContext cleanup error:', e)
+      }
+      workletNodeRef.current = null
+      audioContextRef.current = null
+    }
+    pcmBufferRef.current = []
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop()
+      } catch (e) {
+        console.warn('MediaRecorder stop error:', e)
+      }
+      mediaRecorderRef.current = null
+    }
+    audioChunksRef.current = []
     const client = clientRef.current
     if (!client) return
     try {
@@ -100,6 +177,64 @@ export function VideoCallPage() {
       localAudioRef.current = audioTrack
       localVideoRef.current = videoTrack
       await client.publish([audioTrack, videoTrack])
+
+      // Capture local audio as WAV chunks (each chunk valid for Whisper) and send over WebSocket
+      try {
+        const wsProtocol = (API_BASE && API_BASE.startsWith('https')) ? 'wss' : 'ws'
+        const wsHost = API_BASE ? new URL(API_BASE).host : window.location.host
+        const wsUrl = `${wsProtocol}://${wsHost}`
+        const ws = new WebSocket(wsUrl)
+        transcriptionWsRef.current = ws
+        ws.binaryType = 'arraybuffer'
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: 'meta', channel: channelName, uid }))
+        }
+        const stream = new MediaStream([audioTrack.getMediaStreamTrack()])
+        const ctx = new (window.AudioContext || window.webkitAudioContext)()
+        audioContextRef.current = ctx
+        const sampleRate = ctx.sampleRate
+        const samplesPerChunk = Math.floor(sampleRate * CHUNK_DURATION_SEC)
+
+        const workletCode = `
+          class TranscriptionProcessor extends AudioWorkletProcessor {
+            process(inputs) {
+              const input = inputs[0]
+              if (!input?.[0]) return true
+              const channel = input[0]
+              this.port.postMessage({ samples: channel.slice(0) })
+              return true
+            }
+          }
+          registerProcessor('transcription-processor', TranscriptionProcessor)
+        `
+        const blob = new Blob([workletCode], { type: 'application/javascript' })
+        const workletUrl = URL.createObjectURL(blob)
+        await ctx.audioWorklet.addModule(workletUrl)
+        URL.revokeObjectURL(workletUrl)
+
+        const source = ctx.createMediaStreamSource(stream)
+        const workletNode = new AudioWorkletNode(ctx, 'transcription-processor')
+        workletNodeRef.current = workletNode
+        pcmBufferRef.current = []
+
+        workletNode.port.onmessage = (e) => {
+          const { samples } = e.data
+          if (!samples?.length) return
+          pcmBufferRef.current.push(...samples)
+          while (pcmBufferRef.current.length >= samplesPerChunk) {
+            const chunk = pcmBufferRef.current.splice(0, samplesPerChunk)
+            if (rms(chunk) >= SPEECH_RMS_THRESHOLD && ws.readyState === WebSocket.OPEN) {
+              const wav = float32ToWav(chunk, sampleRate)
+              ws.send(wav)
+            }
+          }
+        }
+
+        source.connect(workletNode)
+        workletNode.connect(ctx.destination)
+      } catch (e) {
+        console.warn('Audio capture for transcription failed:', e)
+      }
 
       setRemoteUsers([])
       setJoined(true)
