@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import AgoraRTC from 'agora-rtc-sdk-ng'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
+import { DndContext, closestCenter } from '@dnd-kit/core'
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './VideoCallPage.css'
@@ -44,6 +47,18 @@ export function VideoCallPage() {
     clientRef.current = null
     setJoined(false)
   }, [])
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event
+    if (!over || active.id == over.id) return
+
+    setRemoteUsers((prev) => {
+      const oldIndex = prev.findIndex((u) => u.uid === active.id)
+      const newIndex = prev.findIndex((u) => u.uid === over.id)
+
+      return arrayMove(prev, oldIndex, newIndex)
+    })
+  }
 
   useEffect(() => {
     if (channelFromUrl) setChannelName(channelFromUrl)
@@ -161,9 +176,21 @@ export function VideoCallPage() {
               <span className="video-player-label">You</span>
               <LocalVideoTrack track={localVideoRef.current} enabled={camEnabled} uid={localUidRef.current} />
             </div>
-            {remoteUsers.map((user) => (
+
+            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext
+                items={remoteUsers.map((u) => u.uid)}
+                strategy={verticalListSortingStrategy} // vertical list; change to grid if needed
+              >
+              {remoteUsers.map((user) => (
+                <SortableRemoteVideo key={user.uid} user={user} />
+              ))}
+              </SortableContext>
+            </DndContext>
+            {/*{remoteUsers.map((user) => (
               <RemoteVideoPlayer key={user.uid} user={user} />
-            ))}
+            ))}*/}
+                
           </div>
           <div className="video-call-controls">
             <Button variant={micEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleMic}>
@@ -204,6 +231,7 @@ function LocalVideoTrack({ track, enabled, uid }) {
 function RemoteVideoPlayer({ user }) {
   const containerRef = useRef(null)
   useEffect(() => {
+    console.log("RemoteVideoPlayer mount", user?.uid, user?.videoTrack)
     if (!user?.videoTrack || !containerRef.current) return
     user.videoTrack.play(containerRef.current)
     return () => {
@@ -214,6 +242,28 @@ function RemoteVideoPlayer({ user }) {
     <div className="video-player video-player-remote">
       <span className="video-player-label">User {user.uid}</span>
       <div ref={containerRef} className="video-track-container" style={{ width: '100%', height: '100%' }} />
+    </div>
+  )
+}
+
+function SortableRemoteVideo({ user }) {
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id: user.uid })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    touchAction: 'none',
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+    >
+      <RemoteVideoPlayer user={user} />
     </div>
   )
 }
