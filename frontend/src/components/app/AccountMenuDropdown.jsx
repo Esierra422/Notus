@@ -1,12 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { MoreVerticalIcon, SettingsIcon, UserIcon } from '../ui/Icons'
+import { SettingsIcon, UserIcon } from '../ui/Icons'
+import { getUserDoc, getDisplayName } from '../../lib/userService'
 import { Avatar } from './Avatar'
 import './AccountMenuDropdown.css'
 
 export function AccountMenuDropdown({ user }) {
   const [open, setOpen] = useState(false)
+  const [userDoc, setUserDoc] = useState(null)
   const containerRef = useRef(null)
+
+  useEffect(() => {
+    if (!user?.uid) return
+    getUserDoc(user.uid).then(setUserDoc)
+  }, [user?.uid])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -20,23 +27,26 @@ export function AccountMenuDropdown({ user }) {
 
   if (!user) return null
 
+  const displayName = getDisplayName(userDoc, user.uid, user)
+
   return (
     <div className="account-menu-dropdown" ref={containerRef}>
       <button
         type="button"
-        className="account-menu-trigger"
+        className="account-menu-trigger account-menu-trigger-avatar"
         onClick={() => setOpen(!open)}
         title="Account menu"
         aria-label="Account menu"
         aria-expanded={open}
       >
-        <MoreVerticalIcon size={20} />
+        <Avatar user={user} size={30} />
       </button>
       {open && (
         <div className="account-menu-panel">
           <div className="account-menu-header">
             <Avatar user={user} size={40} />
             <div className="account-menu-user">
+              {displayName && <span className="account-menu-name">{displayName}</span>}
               <span className="account-menu-email">{user.email || 'Signed in'}</span>
             </div>
           </div>
