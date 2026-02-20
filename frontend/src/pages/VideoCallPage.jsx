@@ -8,6 +8,14 @@ import './VideoCallPage.css'
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
+// In production (HTTPS), always use same-origin to avoid mixed content and CORS
+function getVideoTokenUrl() {
+  if (typeof window !== 'undefined' && window.location?.protocol === 'https:') {
+    return '/api/video/token'
+  }
+  return API_BASE ? `${API_BASE}/api/video/token` : '/api/video/token'
+}
+
 export function VideoCallPage() {
   const { user, setNavExtra } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
@@ -65,7 +73,7 @@ export function VideoCallPage() {
     try {
       const uid = Math.floor(Math.random() * 100000)
       localUidRef.current = uid
-      const url = API_BASE ? `${API_BASE}/api/video/token` : '/api/video/token'
+      const url = getVideoTokenUrl()
       const res = await fetch(`${url}?channel=${encodeURIComponent(channelName)}&uid=${uid}`)
       const data = await res.json()
       if (!res.ok) {
