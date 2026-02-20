@@ -186,6 +186,10 @@
     padding: 4rem 1.5rem 5rem;
   }
 
+  .hero-title {
+    font-size: clamp(1.85rem, 7.5vw, 2.75rem);
+  }
+
   .hero-badge {
     font-size: 0.7rem;
     letter-spacing: 0.1em;

@@ -490,13 +490,14 @@ export async function deleteConversationForUser(orgId, convId, userId) {
 }
 
 /**
- * Archive conversation for user.
+ * Archive or unarchive conversation for user.
+ * @param {boolean} archived - true to archive, false to unarchive (removes field).
  */
 export async function archiveConversation(orgId, convId, userId, archived = true) {
   const canAccess = await canAccessConversation(orgId, convId, userId)
   if (!canAccess) throw new Error('Cannot access conversation.')
   await updateDoc(convRef(orgId, convId), {
-    [`archivedBy.${userId}`]: archived,
+    [`archivedBy.${userId}`]: archived ? true : deleteField(),
   })
 }
 
@@ -512,13 +513,13 @@ export async function muteConversation(orgId, convId, userId, muted = true) {
 }
 
 /**
- * Mark conversation as unread for user.
+ * Mark conversation as unread for user (sets unread count to 1; idempotent).
  */
 export async function markConversationUnread(orgId, convId, userId) {
   const canAccess = await canAccessConversation(orgId, convId, userId)
   if (!canAccess) throw new Error('Cannot access conversation.')
   await updateDoc(convRef(orgId, convId), {
-    [`unreadCount.${userId}`]: increment(1),
+    [`unreadCount.${userId}`]: 1,
   })
 }
 

@@ -15,6 +15,7 @@ import {
 import { createOrgInvitation, getRejectedInvitationsForOrg } from '../lib/invitationService'
 import { getReportsForOrg } from '../lib/reportService'
 import { getOrgTeams, createTeam, getTeamMembership, getTeamsForUserInOrg, TEAM_STATES } from '../lib/teamService'
+import { getOrCreateTeamChat } from '../lib/conversationService'
 import { getUserDoc, getDisplayName, getMemberDisplayLine, getProfilePictureUrl } from '../lib/userService'
 import { Button } from '../components/ui/Button'
 import { MoreVerticalIcon, PlusIcon, ArrowLeftIcon, FlagIcon } from '../components/ui/Icons'
@@ -228,6 +229,7 @@ export function AdminPage() {
       setNewTeamAllowOpenJoin(false)
       const m = await getTeamMembership(orgId, team.id, user.uid)
       if (m) setTeamMemberships((prev) => ({ ...prev, [team.id]: m }))
+      await getOrCreateTeamChat(orgId, user.uid, team.id)
     } catch (err) {
       setInviteError(err.message || 'Failed to create team.')
     } finally {
