@@ -51,6 +51,14 @@ export function AppShell() {
     getUserDoc(user.uid).then(setUserDoc)
   }, [user?.uid])
 
+  // If user hasn't completed profile (e.g. after Google sign-in), send to signup to complete; then they return to /app
+  useEffect(() => {
+    if (!user || userDoc === null) return
+    if (userDoc && !userDoc.onboardingComplete) {
+      navigate('/signup', { replace: true, state: { fromRedirect: true, provider: 'google' } })
+    }
+  }, [user, userDoc, navigate])
+
   useEffect(() => {
     const handler = () => user?.uid && getUserDoc(user.uid).then(setUserDoc)
     window.addEventListener(PROFILE_UPDATED_EVENT, handler)

@@ -10,6 +10,13 @@
   align-items: center;
 }
 
+.auth-step-google-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 320px;
+}
+
 .auth-step-btn {
   width: 100%;
   max-width: 320px;

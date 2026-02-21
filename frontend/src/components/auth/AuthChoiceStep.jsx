@@ -20,8 +20,11 @@ export function AuthChoiceStep({
       {error && <p className="auth-error">{error}</p>}
       <div className="auth-step-actions">
         <Button variant="outline" size="lg" className="auth-step-btn" onClick={onGoogle} disabled={googleLoading}>
-          {googleLoading ? 'Redirecting…' : googleLabel}
+          {googleLoading ? 'Redirecting to Google…' : googleLabel}
         </Button>
+        {googleLoading && (
+          <p className="auth-step-google-hint">You’ll be taken to Google to sign in, then brought back here.</p>
+        )}
         <Button variant="outline" size="lg" className="auth-step-btn" onClick={onEmail}>
           {emailLabel}
         </Button>

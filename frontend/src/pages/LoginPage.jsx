@@ -26,6 +26,7 @@ export function LoginPage() {
   const [userDoc, setUserDoc] = useState(null)
   const [totalSteps, setTotalSteps] = useState(3)
   const [error, setError] = useState('')
+  const [googleLoading, setGoogleLoading] = useState(false)
 
   const isProcessingRedirect = location.state?.fromRedirect && location.state?.provider === 'google' && auth.currentUser && !userDoc
 
@@ -72,11 +73,13 @@ export function LoginPage() {
 
   const handleGoogle = async () => {
     setError('')
+    setGoogleLoading(true)
     if (isSafari) {
       try {
         sessionStorage.setItem('auth_redirect_pending', 'google')
         await signInWithRedirect(auth, googleProvider)
       } catch (err) {
+        setGoogleLoading(false)
         setError(err?.message || 'Redirect failed.')
       }
       return
@@ -95,6 +98,7 @@ export function LoginPage() {
       setTotalSteps(2 + missing)
       setStep(2)
     } catch (err) {
+      setGoogleLoading(false)
       if (err?.code === 'auth/cancelled-popup-request') {
         setError('Sign-in was cancelled. If Safari blocked the popup, allow popups for this site in Safari settings (Safari → Settings → Websites → Pop-up Windows) and try again, or sign in with email.')
       } else {
@@ -178,6 +182,7 @@ export function LoginPage() {
                 emailLabel="Log in with Email"
                 onGoogle={handleGoogle}
                 onEmail={handleEmail}
+                googleLoading={googleLoading}
                 error={error}
                 footerLink={{ to: '/signup', label: "Don't have an account? Sign up" }}
               />
