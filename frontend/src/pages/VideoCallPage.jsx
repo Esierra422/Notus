@@ -7,6 +7,7 @@ import './AppLayout.css'
 import './VideoCallPage.css'
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+const AI_API_BASE = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
 
 /** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
 function rms(samples) {
@@ -17,37 +18,19 @@ function rms(samples) {
 }
 
 const SPEECH_RMS_THRESHOLD = 0.01
+const TARGET_SAMPLE_RATE = 16000
 
-/** Build a WAV file buffer from Float32 mono PCM (so every chunk is valid for Whisper). */
-function float32ToWav(samples, sampleRate) {
-  const numChannels = 1
-  const bitsPerSample = 16
-  const bytesPerSample = bitsPerSample / 8
-  const blockAlign = numChannels * bytesPerSample
-  const dataSize = samples.length * bytesPerSample
-  const buffer = new ArrayBuffer(44 + dataSize)
-  const view = new DataView(buffer)
-  const writeStr = (offset, str) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+/** Downsample Float32 mono to target rate and convert to Int16 LE (raw PCM for Whisper). */
+function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGET_SAMPLE_RATE) {
+  const ratio = fromSampleRate / toSampleRate
+  const outLength = Math.floor(floatSamples.length / ratio)
+  const int16 = new Int16Array(outLength)
+  for (let i = 0; i < outLength; i++) {
+    const s = floatSamples[Math.floor(i * ratio)]
+    const clamped = Math.max(-1, Math.min(1, s))
+    int16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
   }
-  writeStr(0, 'RIFF')
-  view.setUint32(4, 36 + dataSize, true)
-  writeStr(8, 'WAVE')
-  writeStr(12, 'fmt ')
-  view.setUint32(16, 16, true) // fmt chunk size
-  view.setUint16(20, 1, true)   // PCM
-  view.setUint16(22, numChannels, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * blockAlign, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, bitsPerSample, true)
-  writeStr(36, 'data')
-  view.setUint32(40, dataSize, true)
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]))
-    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
-  }
-  return buffer
+  return int16.buffer
 }
 
 export function VideoCallPage() {
@@ -61,6 +44,9 @@ export function VideoCallPage() {
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
+  const [meetingQuestion, setMeetingQuestion] = useState('')
+  const [meetingAnswer, setMeetingAnswer] = useState('')
+  const [askLoading, setAskLoading] = useState(false)
 
   const clientRef = useRef(null)
   const localAudioRef = useRef(null)
@@ -72,7 +58,8 @@ export function VideoCallPage() {
   const audioContextRef = useRef(null)
   const workletNodeRef = useRef(null)
   const pcmBufferRef = useRef([])
-  const CHUNK_DURATION_SEC = 3
+  const transcriptionChunksSentRef = useRef(0)
+  const CHUNK_DURATION_SEC = 15
 
   const cleanup = useCallback(async () => {
     if (transcriptionWsRef.current) {
@@ -94,6 +81,7 @@ export function VideoCallPage() {
       audioContextRef.current = null
     }
     pcmBufferRef.current = []
+    transcriptionChunksSentRef.current = 0
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop()
@@ -178,11 +166,20 @@ export function VideoCallPage() {
       localVideoRef.current = videoTrack
       await client.publish([audioTrack, videoTrack])
 
-      // Capture local audio as WAV chunks (each chunk valid for Whisper) and send over WebSocket
+      // Capture local audio: 16kHz mono, 10s chunks, raw Int16 PCM over WebSocket
+      // Use AI backend WS when VITE_AI_WS_URL is set; otherwise use main API host
       try {
-        const wsProtocol = (API_BASE && API_BASE.startsWith('https')) ? 'wss' : 'ws'
-        const wsHost = API_BASE ? new URL(API_BASE).host : window.location.host
-        const wsUrl = `${wsProtocol}://${wsHost}`
+        const aiWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
+        let wsUrl
+        if (aiWsBase) {
+          const protocol = aiWsBase.startsWith('https') ? 'wss' : 'ws'
+          const host = new URL(aiWsBase).host
+          wsUrl = `${protocol}://${host}/ws/transcription`
+        } else {
+          const wsProtocol = (API_BASE && API_BASE.startsWith('https')) ? 'wss' : 'ws'
+          const wsHost = API_BASE ? new URL(API_BASE).host : window.location.host
+          wsUrl = `${wsProtocol}://${wsHost}`
+        }
         const ws = new WebSocket(wsUrl)
         transcriptionWsRef.current = ws
         ws.binaryType = 'arraybuffer'
@@ -192,16 +189,21 @@ export function VideoCallPage() {
         const stream = new MediaStream([audioTrack.getMediaStreamTrack()])
         const ctx = new (window.AudioContext || window.webkitAudioContext)()
         audioContextRef.current = ctx
-        const sampleRate = ctx.sampleRate
-        const samplesPerChunk = Math.floor(sampleRate * CHUNK_DURATION_SEC)
+        const captureRate = ctx.sampleRate
+        const samplesPerChunkAtCapture = Math.floor(captureRate * CHUNK_DURATION_SEC)
 
         const workletCode = `
           class TranscriptionProcessor extends AudioWorkletProcessor {
             process(inputs) {
               const input = inputs[0]
               if (!input?.[0]) return true
-              const channel = input[0]
-              this.port.postMessage({ samples: channel.slice(0) })
+              const left = input[0]
+              const right = input[1]
+              const mono = right ? new Float32Array(left.length) : left
+              if (right) {
+                for (let i = 0; i < left.length; i++) mono[i] = (left[i] + right[i]) / 2
+              }
+              this.port.postMessage({ samples: mono.slice(0) })
               return true
             }
           }
@@ -221,11 +223,14 @@ export function VideoCallPage() {
           const { samples } = e.data
           if (!samples?.length) return
           pcmBufferRef.current.push(...samples)
-          while (pcmBufferRef.current.length >= samplesPerChunk) {
-            const chunk = pcmBufferRef.current.splice(0, samplesPerChunk)
-            if (rms(chunk) >= SPEECH_RMS_THRESHOLD && ws.readyState === WebSocket.OPEN) {
-              const wav = float32ToWav(chunk, sampleRate)
-              ws.send(wav)
+          while (pcmBufferRef.current.length >= samplesPerChunkAtCapture) {
+            const chunk = pcmBufferRef.current.splice(0, samplesPerChunkAtCapture)
+            const isFirstChunk = transcriptionChunksSentRef.current === 0
+            const aboveThreshold = rms(chunk) >= SPEECH_RMS_THRESHOLD
+            if (ws.readyState === WebSocket.OPEN && (isFirstChunk || aboveThreshold)) {
+              const rawPcm = downsampleAndToInt16(chunk, captureRate, TARGET_SAMPLE_RATE)
+              ws.send(rawPcm)
+              transcriptionChunksSentRef.current += 1
             }
           }
         }
@@ -264,6 +269,31 @@ export function VideoCallPage() {
     const next = !camEnabled
     await localVideoRef.current.setEnabled(next)
     setCamEnabled(next)
+  }
+
+  const askMeeting = async () => {
+    const q = meetingQuestion.trim()
+    if (!q || askLoading) return
+    if (!AI_API_BASE) {
+      setMeetingAnswer('Set VITE_AI_WS_URL in .env to use meeting Q&A.')
+      return
+    }
+    setAskLoading(true)
+    setMeetingAnswer('')
+    try {
+      const res = await fetch(`${AI_API_BASE}/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: channelName, question: q }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setMeetingAnswer(data.answer ?? data.error ?? (res.ok ? 'No answer.' : `Error ${res.status}`))
+      setMeetingQuestion('')
+    } catch (e) {
+      setMeetingAnswer(`Error: ${e.message}`)
+    } finally {
+      setAskLoading(false)
+    }
   }
 
   if (!user) return null
@@ -310,6 +340,29 @@ export function VideoCallPage() {
             <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
               Leave
             </Button>
+          </div>
+          <div className="video-call-meeting-chat">
+            <span className="video-call-meeting-chat-label">Ask about this meeting</span>
+            <div className="video-call-meeting-chat-row">
+              <input
+                type="text"
+                className="auth-input video-call-meeting-chat-input"
+                placeholder="e.g. What is MCP?"
+                value={meetingQuestion}
+                onChange={(e) => setMeetingQuestion(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && askMeeting()}
+                disabled={askLoading || !AI_API_BASE}
+              />
+              <Button variant="primary" size="sm" onClick={askMeeting} disabled={askLoading || !meetingQuestion.trim() || !AI_API_BASE}>
+                {askLoading ? '…' : 'Ask'}
+              </Button>
+            </div>
+            {meetingAnswer && (
+              <div className="video-call-meeting-chat-answer">{meetingAnswer}</div>
+            )}
+            {!AI_API_BASE && (
+              <p className="video-call-meeting-chat-hint">Set VITE_AI_WS_URL to enable.</p>
+            )}
           </div>
         </div>
       )}

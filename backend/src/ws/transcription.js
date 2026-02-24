@@ -13,22 +13,46 @@ function onTranscript(channel, uid, text) {
   // TODO: e.g. append to meeting transcript in Firestore, or add to vector DB for RAG
 }
 
+const WHISPER_SAMPLE_RATE = 16000
+
+/** Build 44-byte WAV header for 16kHz mono 16-bit PCM; then prepend to raw PCM buffer. */
+function rawPcmToWavBuffer(rawPcm) {
+  const pcm = Buffer.isBuffer(rawPcm) ? rawPcm : Buffer.from(rawPcm)
+  const dataSize = pcm.length
+  const header = Buffer.alloc(44)
+  const writeStr = (offset, str) => header.write(str, offset, 'ascii')
+  writeStr(0, 'RIFF')
+  header.writeUInt32LE(36 + dataSize, 4)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)   // PCM
+  header.writeUInt16LE(1, 22)   // mono
+  header.writeUInt32LE(WHISPER_SAMPLE_RATE, 24)
+  header.writeUInt32LE(WHISPER_SAMPLE_RATE * 2, 28) // byte rate
+  header.writeUInt16LE(2, 32)  // block align
+  header.writeUInt16LE(16, 34)
+  writeStr(36, 'data')
+  header.writeUInt32LE(dataSize, 40)
+  return Buffer.concat([header, pcm])
+}
+
 /**
  * Attach WebSocket handlers for the transcription connection.
- * First message = JSON { type: 'meta', channel, uid }. Rest = binary WAV chunks.
+ * First message = JSON { type: 'meta', channel, uid }. Rest = raw Int16 PCM (16kHz mono).
  */
 export function handleTranscriptionConnection(ws) {
   let channel = null
   let uid = null
 
-  const transcribeAudio = async (audioData) => {
+  const transcribeAudio = async (rawPcm) => {
     if (!openai) {
       console.warn('OpenAI API key not configured. Set OPENAI_API_KEY in .env')
       return
     }
     try {
-      const buffer = Buffer.isBuffer(audioData) ? audioData : Buffer.from(audioData)
-      const audioStream = Readable.from(buffer)
+      const wavBuffer = rawPcmToWavBuffer(rawPcm)
+      const audioStream = Readable.from(wavBuffer)
       audioStream.path = 'audio.wav'
 
       const transcription = await openai.audio.transcriptions.create({
@@ -46,9 +70,9 @@ export function handleTranscriptionConnection(ws) {
   }
 
   ws.on('message', async (data) => {
-    if (!channel && Buffer.isBuffer(data)) {
+    if (!channel) {
       try {
-        const str = data.toString('utf-8')
+        const str = typeof data === 'string' ? data : (Buffer.isBuffer(data) ? data.toString('utf-8') : String(data))
         const meta = JSON.parse(str)
         if (meta.type === 'meta') {
           channel = meta.channel
@@ -56,9 +80,9 @@ export function handleTranscriptionConnection(ws) {
           console.log(`Transcription WS: channel=${channel}, uid=${uid}`)
         }
       } catch (e) {
-        console.warn('Failed to parse WS metadata:', e)
+        // not meta (e.g. binary); ignore until meta received
       }
-    } else if (channel && Buffer.isBuffer(data)) {
+    } else if (channel && (Buffer.isBuffer(data) || data instanceof ArrayBuffer)) {
       await transcribeAudio(data)
     }
   })
