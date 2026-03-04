@@ -1,9 +1,9 @@
 import { Link, useParams } from 'react-router-dom'
 import { subscribeConversations } from '../../lib/conversationService'
 import { useState, useEffect } from 'react'
-import { SettingsIcon, LayoutDashboardIcon, CalendarIcon, MessageSquareIcon, UserIcon, VideoIcon } from '../ui/Icons'
+import { LayoutDashboardIcon, CalendarIcon, MessageSquareIcon, UserIcon, VideoIcon } from '../ui/Icons'
 import { NotificationsDropdown } from './NotificationsDropdown'
-import { Avatar } from './Avatar'
+import { AccountMenuDropdown } from './AccountMenuDropdown'
 import './AppHeader.css'
 
 export const PROFILE_UPDATED_EVENT = 'notus:profileUpdated'
@@ -84,12 +84,7 @@ export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverrid
         {user && (
           <div className="app-header-right">
             <NotificationsDropdown user={user} />
-            <Link to="/app/settings" className="app-settings-btn" title="Settings" aria-label="Settings">
-              <SettingsIcon size={20} />
-            </Link>
-            <Link to="/app/profile" className="app-avatar-link" title="Profile" aria-label="Profile">
-              <Avatar user={user} />
-            </Link>
+            <AccountMenuDropdown user={user} />
           </div>
         )}
       </nav>

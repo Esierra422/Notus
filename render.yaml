@@ -1,0 +1,28 @@
+# Deploy the Notus backend to Render (free tier) for video call tokens and calendar proxy.
+# 1. Push this repo to GitHub and connect it in Render: https://dashboard.render.com
+# 2. Create a new "Blueprint" and point it at this repo (Render will detect render.yaml).
+# 3. In the backend service, set Environment variables in the dashboard:
+#    - CLIENT_URL = https://notusapp.com,https://notus-e026b.web.app  (your frontend URLs, comma-separated)
+#    - AGORA_APP_ID = (from https://console.agora.io)
+#    - AGORA_APP_CERTIFICATE = (from https://console.agora.io)
+# 4. After deploy, copy the backend URL (e.g. https://notus-api.onrender.com).
+# 5. Create frontend/.env.production with: VITE_API_URL=https://your-backend-url.onrender.com
+# 6. Run: npm run deploy
+# Video call and calendar ICS import will then work on the live site.
+services:
+  - type: web
+    name: notus-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        sync: false
+      - key: AGORA_APP_ID
+        sync: false
+      - key: AGORA_APP_CERTIFICATE
+        sync: false

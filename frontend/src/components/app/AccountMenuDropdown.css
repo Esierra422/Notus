@@ -21,6 +21,20 @@
   background: rgba(212, 168, 83, 0.08);
 }
 
+.account-menu-trigger-avatar {
+  padding: 0;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.account-menu-trigger-avatar:hover {
+  background: transparent;
+}
+
+.account-menu-trigger-avatar .app-avatar {
+  border-radius: 50%;
+}
+
 .account-menu-panel {
   position: absolute;
   top: calc(100% + 0.5rem);
@@ -46,9 +60,20 @@
   min-width: 0;
 }
 
+.account-menu-name {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.15rem;
+}
+
 .account-menu-email {
   display: block;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;

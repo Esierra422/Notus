@@ -10,6 +10,7 @@ import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { getUserDoc } from '../lib/userService'
 import { getActiveMemberships, getOrg, getMembership, canManageOrg } from '../lib/orgService'
+import { registerForPush, onForegroundMessage } from '../lib/messagingService'
 import { AppHeader, AppFooter, PROFILE_UPDATED_EVENT } from './app'
 import { PageTransition } from './PageTransition'
 import '../styles/variables.css'
@@ -51,11 +52,37 @@ export function AppShell() {
     getUserDoc(user.uid).then(setUserDoc)
   }, [user?.uid])
 
+  // If user hasn't completed profile (e.g. after Google sign-in), send to signup to complete; then they return to /app
+  useEffect(() => {
+    if (!user || userDoc === null) return
+    if (userDoc && !userDoc.onboardingComplete) {
+      navigate('/signup', { replace: true, state: { fromRedirect: true, provider: 'google' } })
+    }
+  }, [user, userDoc, navigate])
+
   useEffect(() => {
     const handler = () => user?.uid && getUserDoc(user.uid).then(setUserDoc)
     window.addEventListener(PROFILE_UPDATED_EVENT, handler)
     return () => window.removeEventListener(PROFILE_UPDATED_EVENT, handler)
   }, [user?.uid])
+
+  // Push notifications: register FCM token when user has enabled in Settings
+  useEffect(() => {
+    if (!user?.uid || userDoc?.notificationsPushEnabled !== true) return
+    registerForPush(user.uid).catch(() => {})
+  }, [user?.uid, userDoc?.notificationsPushEnabled])
+
+  // Foreground: show browser notification when a push is received while app is open
+  useEffect(() => {
+    onForegroundMessage((payload) => {
+      if (Notification.permission === 'granted' && payload.notification) {
+        new Notification(payload.notification.title || 'Notus', {
+          body: payload.notification.body,
+          icon: payload.notification.icon || '/favicon.svg',
+        })
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (!user?.uid) return

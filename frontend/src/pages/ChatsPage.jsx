@@ -19,7 +19,6 @@ import {
   subscribeTyping,
   clearTyping,
   markConversationRead,
-  markMessagesDelivered,
   markMessagesRead,
   deleteConversationForUser,
   archiveConversation,
@@ -90,6 +89,23 @@ function formatTime(ts, userDoc) {
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', ...(tz && { timeZone: tz }) })
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', ...(tz && { timeZone: tz }) })
+}
+
+function getMessageDateLabel(ms, userDoc) {
+  if (!ms) return ''
+  const d = new Date(ms)
+  const now = new Date()
+  const locale = getLocale(userDoc)
+  const tz = getTimeZone(userDoc)
+  const opts = { locale, ...(tz && { timeZone: tz }) }
+  const todayStr = now.toLocaleDateString(locale, opts)
+  const msgDayStr = d.toLocaleDateString(locale, opts)
+  if (msgDayStr === todayStr) return 'Today'
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (msgDayStr === yesterday.toLocaleDateString(locale, opts)) return 'Yesterday'
   if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', ...(tz && { timeZone: tz }) })
   return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', ...(tz && { timeZone: tz }) })
 }
@@ -203,6 +219,7 @@ function ChatListItem({
   isFavorite,
   isLocked,
   isMuted,
+  isArchived,
   onClick,
   userDoc,
   onMenuAction,
@@ -256,8 +273,12 @@ function ChatListItem({
         </button>
         {menuOpen && (
           <div className="chats-list-menu-panel">
-              <button type="button" onClick={() => { onMenuAction?.('markUnread'); setMenuOpen(false) }}>Mark as unread</button>
-              <button type="button" onClick={() => { onMenuAction?.('archive'); setMenuOpen(false) }}>Archive</button>
+              <button type="button" onClick={() => { onMenuAction?.(count > 0 ? 'markRead' : 'markUnread'); setMenuOpen(false) }}>
+                {count > 0 ? 'Mark as read' : 'Mark as unread'}
+              </button>
+              <button type="button" onClick={() => { onMenuAction?.(isArchived ? 'unarchive' : 'archive'); setMenuOpen(false) }}>
+                {isArchived ? 'Unarchive' : 'Archive'}
+              </button>
               <button type="button" onClick={() => { onMenuAction?.('mute'); setMenuOpen(false) }}>
                 {isMuted ? 'Unmute' : 'Mute'}
               </button>
@@ -770,7 +791,30 @@ export function ChatsPage() {
   const [showGroupSettings, setShowGroupSettings] = useState(false)
   const [chatListFilter, setChatListFilter] = useState('')
   const [chatListSort, setChatListSort] = useState('recent') // 'recent' | 'name' | 'unread'
-  const [showArchived, setShowArchived] = useState(false)
+  const [showArchived, setShowArchived] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('chats_show_archived') ?? 'false')
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('chats_show_archived', JSON.stringify(showArchived))
+    } catch (_) {}
+  }, [showArchived])
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('chats_show_favorites_only') ?? 'false')
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('chats_show_favorites_only', JSON.stringify(showFavoritesOnly))
+    } catch (_) {}
+  }, [showFavoritesOnly])
   const [blockedUserIds, setBlockedUserIds] = useState([])
   const [starredMap, setStarredMap] = useState(() => new Map())
   const [favoriteConvIds, setFavoriteConvIds] = useState(() => new Set())
@@ -784,6 +828,7 @@ export function ChatsPage() {
   const messageInputRef = useRef(null)
   const [filterSortOpen, setFilterSortOpen] = useState(false)
   const filterSortRef = useRef(null)
+  const markedUnreadConvsRef = useRef(new Set())
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [showForwardModal, setShowForwardModal] = useState(false)
   const [forwardMessage, setForwardMessage] = useState(null)
@@ -842,6 +887,25 @@ export function ChatsPage() {
       setOrgNames(names)
     })
   }, [user])
+
+  // Ensure a group chat exists for each team the user is in (for teams created before this feature)
+  useEffect(() => {
+    if (!orgIds?.length || !user?.uid) return
+    const ensure = async () => {
+      for (const oid of orgIds) {
+        try {
+          const teams = await getOrgTeams(oid)
+          for (const team of teams) {
+            const mem = await getTeamMembership(oid, team.id, user.uid)
+            if (mem?.state === TEAM_STATES.active) {
+              getOrCreateTeamChat(oid, user.uid, team.id).catch(() => {})
+            }
+          }
+        } catch (_) {}
+      }
+    }
+    ensure()
+  }, [orgIds.join(','), user?.uid])
 
   useEffect(() => {
     if (!user || !orgId) return
@@ -903,22 +967,15 @@ export function ChatsPage() {
     return subscribeFavorites(user.uid, setFavoriteConvIds)
   }, [user?.uid])
 
-  // Mark conversation read when opening/viewing chat
+  // Mark conversation and messages as read when user is viewing this chat (unless they chose "Mark as unread")
   useEffect(() => {
     if (!orgId || !chatId || !user?.uid) return
+    const key = `${orgId}_${chatId}`
+    if (markedUnreadConvsRef.current.has(key)) return
     markConversationRead(orgId, chatId, user.uid).catch(() => {})
-  }, [orgId, chatId, user?.uid])
-
-  // Mark received messages as delivered, then read when viewing
-  useEffect(() => {
-    if (!orgId || !chatId || !user?.uid || !messages.length) return
-    const toDeliver = messages.filter((m) => m.senderId !== user.uid && (m.status === 'sent' || !m.status))
-    const toRead = messages.filter((m) => m.senderId !== user.uid && m.status === 'delivered')
-    if (toDeliver.length) {
-      markMessagesDelivered(orgId, chatId, toDeliver.map((m) => m.id)).catch(() => {})
-    }
-    if (toRead.length) {
-      markMessagesRead(orgId, chatId, toRead.map((m) => m.id)).catch(() => {})
+    const fromOthers = messages.filter((m) => m.senderId !== user.uid && m.status !== MESSAGE_STATUS.read)
+    if (fromOthers.length) {
+      markMessagesRead(orgId, chatId, fromOthers.map((m) => m.id)).catch(() => {})
     }
   }, [orgId, chatId, user?.uid, messages])
 
@@ -1105,10 +1162,20 @@ ${blocks.join('\n')}
         if (cid === chatId && oid === orgId) navigate(`/app/org/${oid}/chats`)
       } else if (action === 'archive') {
         await archiveConversation(oid, cid, user.uid, true)
+      } else if (action === 'unarchive') {
+        await archiveConversation(oid, cid, user.uid, false)
       } else if (action === 'mute') {
         const currentlyMuted = !!conv?.mutedBy?.[user.uid]
         await muteConversation(oid, cid, user.uid, !currentlyMuted)
+      } else if (action === 'markRead') {
+        markedUnreadConvsRef.current.delete(`${oid}_${cid}`)
+        await markConversationRead(oid, cid, user.uid)
+        if (oid === orgId && cid === chatId && messages.length) {
+          const fromOthers = messages.filter((m) => m.senderId !== user.uid && m.status !== MESSAGE_STATUS.read)
+          if (fromOthers.length) markMessagesRead(oid, cid, fromOthers.map((m) => m.id)).catch(() => {})
+        }
       } else if (action === 'markUnread') {
+        markedUnreadConvsRef.current.add(`${oid}_${cid}`)
         await markConversationUnread(oid, cid, user.uid)
       } else if (action === 'clear') {
         if (!window.confirm('Clear all messages? This cannot be undone.')) return
@@ -1146,7 +1213,7 @@ ${blocks.join('\n')}
     } catch (err) {
       setError(err?.message || 'Action failed.')
     }
-  }, [user?.uid, orgId, chatId, navigate, favoriteConvIds, lockedChatIds])
+  }, [user?.uid, orgId, chatId, navigate, favoriteConvIds, lockedChatIds, messages])
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
@@ -1157,6 +1224,7 @@ ${blocks.join('\n')}
     typingDebounceRef.current = null
     try {
       await sendMessageApi(orgId, chatId, messageText.trim(), user.uid)
+      markedUnreadConvsRef.current.delete(`${orgId}_${chatId}`)
       setMessageText('')
       setReplyTo(null)
       playSendSound()
@@ -1227,6 +1295,7 @@ ${blocks.join('\n')}
     setSending(true)
     try {
       await sendMessageApi(orgId, chatId, text, user.uid, { attachment })
+      markedUnreadConvsRef.current.delete(`${orgId}_${chatId}`)
       if (text) setMessageText('')
       playSendSound()
       clearTyping(orgId, chatId, user.uid).catch(() => {})
@@ -1243,6 +1312,7 @@ ${blocks.join('\n')}
     setSending(true)
     try {
       await sendMessageApi(orgId, chatId, text.trim(), user.uid)
+      markedUnreadConvsRef.current.delete(`${orgId}_${chatId}`)
       setMessageText('')
       playSendSound()
       clearTyping(orgId, chatId, user.uid).catch(() => {})
@@ -1528,7 +1598,7 @@ ${blocks.join('\n')}
                 onClick={() => setFilterSortOpen((v) => !v)}
                 aria-expanded={filterSortOpen}
                 aria-haspopup="true"
-                title="Sort options"
+                title="Filter and sort"
               >
                 <SlidersHorizontalIcon size={18} />
               </button>
@@ -1540,58 +1610,81 @@ ${blocks.join('\n')}
                     <button type="button" className={chatListSort === 'name' ? 'chats-filter-sort-opt active' : 'chats-filter-sort-opt'} onClick={() => { setChatListSort('name'); setFilterSortOpen(false) }}>Name</button>
                     <button type="button" className={chatListSort === 'unread' ? 'chats-filter-sort-opt active' : 'chats-filter-sort-opt'} onClick={() => { setChatListSort('unread'); setFilterSortOpen(false) }}>Unread first</button>
                   </div>
+                  <div className="chats-filter-sort-section">
+                    <span className="chats-filter-sort-label">Filter</span>
+                    {conversations.some((c) => c.archivedBy?.[user?.uid]) && (
+                      <label className="chats-filter-sort-toggle">
+                        <input
+                          type="checkbox"
+                          checked={showArchived}
+                          onChange={(e) => setShowArchived(e.target.checked)}
+                        />
+                        <span className="chats-filter-sort-toggle-slider" />
+                        <span className="chats-filter-sort-toggle-label">Show archived</span>
+                      </label>
+                    )}
+                    {favoriteConvIds.size > 0 && (
+                      <label className="chats-filter-sort-toggle">
+                        <input
+                          type="checkbox"
+                          checked={showFavoritesOnly}
+                          onChange={(e) => setShowFavoritesOnly(e.target.checked)}
+                        />
+                        <span className="chats-filter-sort-toggle-slider" />
+                        <span className="chats-filter-sort-toggle-label">Favorites only</span>
+                      </label>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           </div>
-          {conversations.some((c) => c.archivedBy?.[user?.uid]) && (
-            <button
-              type="button"
-              className="chats-show-archived"
-              onClick={() => setShowArchived((v) => !v)}
-            >
-              {showArchived ? 'Hide archived' : 'Show archived'}
-            </button>
-          )}
-          <ul className="chats-list">
-            {(() => {
-              let list = conversations.filter((c) => !c.deletedBy?.[user?.uid])
-              if (!showArchived) {
-                list = list.filter((c) => !c.archivedBy?.[user?.uid])
-              }
-              list = list.filter((c) => {
+          {(() => {
+            const filterLower = chatListFilter.trim().toLowerCase()
+            const applyFilter = (list) => {
+              let out = list.filter((c) => !c.deletedBy?.[user?.uid])
+              out = out.filter((c) => {
                 if (c.type !== CONV_TYPES.dm) return true
                 const other = c.members?.find((id) => id !== user?.uid)
                 return !other || !blockedUserIds.includes(other)
               })
-              const filterLower = chatListFilter.trim().toLowerCase()
+              if (showFavoritesOnly) {
+                out = out.filter((c) => favoriteConvIds.has(`${c.orgId}_${c.id}`))
+              }
               if (filterLower) {
-                list = list.filter((c) => {
+                out = out.filter((c) => {
                   const title = getConvTitle(c).toLowerCase()
                   const org = (orgNames[c.orgId] || '').toLowerCase()
                   return title.includes(filterLower) || org.includes(filterLower)
                 })
               }
+              return out
+            }
+            const applySort = (list) => {
               if (chatListSort === 'name') {
-                list = [...list].sort((a, b) => getConvTitle(a).localeCompare(getConvTitle(b)))
-              } else if (chatListSort === 'unread') {
-                list = [...list].sort((a, b) => {
+                return [...list].sort((a, b) => getConvTitle(a).localeCompare(getConvTitle(b)))
+              }
+              if (chatListSort === 'unread') {
+                return [...list].sort((a, b) => {
                   const ua = a.unreadCount?.[user?.uid] ?? 0
                   const ub = b.unreadCount?.[user?.uid] ?? 0
                   return ub - ua
                 })
-              } else {
-                list = [...list].sort((a, b) => {
-                  const favA = favoriteConvIds.has(`${a.orgId}_${a.id}`) ? 1 : 0
-                  const favB = favoriteConvIds.has(`${b.orgId}_${b.id}`) ? 1 : 0
-                  if (favA !== favB) return favB - favA
-                  const ta = a.lastMessageAt?.toMillis?.() ?? 0
-                  const tb = b.lastMessageAt?.toMillis?.() ?? 0
-                  return tb - ta
-                })
               }
-              return list
-            })().map((c) => (
+              return [...list].sort((a, b) => {
+                const favA = favoriteConvIds.has(`${a.orgId}_${a.id}`) ? 1 : 0
+                const favB = favoriteConvIds.has(`${b.orgId}_${b.id}`) ? 1 : 0
+                if (favA !== favB) return favB - favA
+                const ta = a.lastMessageAt?.toMillis?.() ?? 0
+                const tb = b.lastMessageAt?.toMillis?.() ?? 0
+                return tb - ta
+              })
+            }
+            const base = conversations.filter((c) => !c.deletedBy?.[user?.uid])
+            const activeList = applySort(applyFilter(base.filter((c) => !c.archivedBy?.[user?.uid])))
+            const archivedList = applySort(applyFilter(base.filter((c) => c.archivedBy?.[user?.uid])))
+
+            const renderItem = (c) => (
               <ChatListItem
                 key={`${c.orgId}-${c.id}`}
                 conv={c}
@@ -1605,27 +1698,52 @@ ${blocks.join('\n')}
                 isFavorite={favoriteConvIds.has(`${c.orgId}_${c.id}`)}
                 isLocked={lockedChatIds.has(`${c.orgId}_${c.id}`)}
                 isMuted={!!c.mutedBy?.[user?.uid]}
+                isArchived={!!c.archivedBy?.[user?.uid]}
                 onClick={() => handleOpenChat(c)}
                 userDoc={userDoc}
                 onMenuAction={(action) => handleChatMenuAction(c, action)}
               />
-            ))}
-            {conversations.length === 0 && <li className="chats-empty">No chats yet. Start a new one!</li>}
-            {conversations.length > 0 && (() => {
-              const filterLower = chatListFilter.trim().toLowerCase()
-              const list = filterLower
-                ? conversations.filter((c) => {
-                    const title = getConvTitle(c).toLowerCase()
-                    const org = (orgNames[c.orgId] || '').toLowerCase()
-                    return title.includes(filterLower) || org.includes(filterLower)
-                  })
-                : conversations
-              if (list.length === 0 && filterLower) {
-                return <li className="chats-empty">No chats match your filter.</li>
-              }
-              return null
-            })()}
-          </ul>
+            )
+
+            if (conversations.length === 0) {
+              return (
+                <ul className="chats-list">
+                  <li className="chats-empty">No chats yet. Start a new one!</li>
+                </ul>
+              )
+            }
+            if (filterLower && activeList.length === 0 && archivedList.length === 0) {
+              return (
+                <ul className="chats-list">
+                  <li className="chats-empty">No chats match your filter.</li>
+                </ul>
+              )
+            }
+
+            if (!showArchived) {
+              return (
+                <ul className="chats-list">
+                  {activeList.map(renderItem)}
+                  {activeList.length === 0 && <li className="chats-empty">No chats yet. Turn on “Show archived” in filter to see archived.</li>}
+                </ul>
+              )
+            }
+
+            return (
+              <div className="chats-list-archived-wrapper">
+                <ul className="chats-list chats-list-section">
+                  <li className="chats-list-section-header">Chats</li>
+                  {activeList.map(renderItem)}
+                  {activeList.length === 0 && <li className="chats-empty">No chats</li>}
+                </ul>
+                <ul className="chats-list chats-list-archived">
+                  <li className="chats-list-section-header">Archived</li>
+                  {archivedList.map(renderItem)}
+                  {archivedList.length === 0 && <li className="chats-empty">No archived chats</li>}
+                </ul>
+              </div>
+            )
+          })()}
         </aside>
         <main className={`chats-main ${messageContextMsg ? 'chats-main-context-open' : ''}`}>
           {chatId ? (
@@ -1703,6 +1821,18 @@ ${blocks.join('\n')}
                   </div>
                 )}
               </header>
+              {selectedConv?.archivedBy?.[user?.uid] && (
+                <div className="chats-archived-banner">
+                  <span>This chat is archived.</span>
+                  <button
+                    type="button"
+                    className="chats-archived-banner-btn"
+                    onClick={() => handleChatMenuAction(selectedConv, 'unarchive')}
+                  >
+                    Unarchive
+                  </button>
+                </div>
+              )}
               {searchInChat && !lockedChatIds.has(`${orgId}_${chatId}`) && (
                 <div className="chats-search-bar">
                   <input
@@ -1750,7 +1880,30 @@ ${blocks.join('\n')}
                     filtered = filtered.filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
                     const lastOwnIndex = filtered.reduce((acc, m, idx) =>
                       m.senderId === user?.uid ? idx : acc, -1)
-                    return filtered.map((m, i) => {
+                    const locale = getLocale(userDoc)
+                    const tz = getTimeZone(userDoc)
+                    const tzOpts = tz ? { timeZone: tz } : {}
+                    let prevDateKey = ''
+                    const items = []
+                    filtered.forEach((m, i) => {
+                      const ms = m.createdAt?.toMillis?.()
+                      const dateKey = ms ? new Date(ms).toLocaleDateString(locale, tzOpts) : ''
+                      if (dateKey && dateKey !== prevDateKey) {
+                        items.push({ type: 'date', key: `date-${dateKey}`, label: getMessageDateLabel(ms, userDoc) })
+                        prevDateKey = dateKey
+                      }
+                      items.push({ type: 'message', message: m, index: i })
+                    })
+                    return items.map((item) => {
+                      if (item.type === 'date') {
+                        return (
+                          <div key={item.key} className="chats-date-separator">
+                            <span>{item.label}</span>
+                          </div>
+                        )
+                      }
+                      const m = item.message
+                      const i = item.index
                       const isOwn = m.senderId === user?.uid
                       const showStatus = isOwn && i === lastOwnIndex
                       const prev = filtered[i - 1]

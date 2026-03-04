@@ -9,6 +9,7 @@ import {
   getTeamMembership,
   requestToJoinTeam,
 } from '../lib/teamService'
+import { getOrCreateTeamChat } from '../lib/conversationService'
 import { createMeeting, getOrgMeetings, MEETING_SCOPES } from '../lib/meetingService'
 import { AppHeader, AppFooter } from '../components/app'
 import { Button } from '../components/ui/Button'
@@ -122,6 +123,7 @@ export function OrgPage() {
       setShowCreate(false)
       setNewTeamName('')
       setTeams((t) => [...t, team])
+      await getOrCreateTeamChat(orgId, user.uid, team.id)
     } catch (err) {
       setError(err.message || 'Failed to create team.')
     } finally {

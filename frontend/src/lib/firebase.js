@@ -12,6 +12,8 @@ import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import { getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
+import { getMessaging, isSupported } from 'firebase/messaging';
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -32,6 +34,21 @@ export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(() => {});
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
+
+/** Cloud Functions (e.g. getAgoraToken for video call). Use region matching your deployed functions. */
+export function getFunctionsApp() {
+  return getFunctions(app, 'us-central1');
+}
+
+/** FCM: only in browser and if supported (HTTPS, Push API). Lazy-init to avoid SSR errors. */
+let _messaging = null;
+export async function getMessagingOrNull() {
+  if (typeof window === 'undefined') return null;
+  const supported = await isSupported();
+  if (!supported) return null;
+  if (!_messaging) _messaging = getMessaging(app);
+  return _messaging;
+}
 
 /** Safari blocks popups/third-party cookies — use redirect instead of popup for Google sign-in */
 export const isSafari = typeof navigator !== 'undefined' &&

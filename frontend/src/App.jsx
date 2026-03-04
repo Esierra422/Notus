@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { PageTransition } from './components/PageTransition'
 import { AppShell } from './components/AppShell'
 import { AuthRedirectHandler } from './components/AuthRedirectHandler'
+import { LandingOrRedirect } from './components/LandingOrRedirect'
 import {
   LandingPage,
   FeaturesPage,
@@ -31,7 +32,7 @@ function App() {
       <AuthRedirectHandler>
       <Routes>
         <Route element={<PageTransition />}>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<LandingOrRedirect />} />
           <Route path="/features" element={<FeaturesPage />} />
           <Route path="/how-it-works" element={<HowItWorksPage />} />
           <Route path="/signup" element={<SignUpPage />} />

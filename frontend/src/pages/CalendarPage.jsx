@@ -15,6 +15,7 @@ import { Button } from '../components/ui/Button'
 import { UploadIcon } from '../components/ui/Icons'
 import { Timestamp } from 'firebase/firestore'
 import { getTimeZone, getLocale } from '../lib/dateUtils'
+import { getApiUrl } from '../lib/apiConfig.js'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './CalendarPage.css'
@@ -382,8 +383,7 @@ export function CalendarPage() {
     } else if (importUrl.trim()) {
       const url = importUrl.trim()
       try {
-        const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-        const proxyUrl = apiBase ? `${apiBase}/api/calendar/fetch-ics?url=${encodeURIComponent(url)}` : `/api/calendar/fetch-ics?url=${encodeURIComponent(url)}`
+        const proxyUrl = `${getApiUrl('/api/calendar/fetch-ics')}?url=${encodeURIComponent(url)}`
         const res = await fetch(proxyUrl)
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
