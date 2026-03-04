@@ -2,36 +2,47 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import AgoraRTC from 'agora-rtc-sdk-ng'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
-import { Notepad } from '../components/app/Notepad'
+import { DndContext, closestCenter } from '@dnd-kit/core'
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './VideoCallPage.css'
 
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const AI_API_BASE = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
+import { getApiUrl, getEffectiveApiBase } from '../lib/apiConfig.js'
+import { getFunctionsApp } from '../lib/firebase.js'
+import { httpsCallable } from 'firebase/functions'
 
-/** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
-function rms(samples) {
-  if (!samples?.length) return 0
-  let sum = 0
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
-  return Math.sqrt(sum / samples.length)
+/** Fetch token from backend API or Firebase callable (production fallback). */
+async function fetchVideoToken(channelName, uid) {
+  const apiBase = getEffectiveApiBase()
+  if (apiBase) {
+    const url = `${getApiUrl('/api/video/token')}?channel=${encodeURIComponent(channelName)}&uid=${uid}`
+    const res = await fetch(url)
+    const contentType = res.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const data = await res.json()
+      if (res.ok) return data
+      throw new Error(data.error || 'Failed to get token')
+    }
+    if (!res.ok) throw new Error(`Token request failed (${res.status})`)
+    throw new Error('Server did not return JSON. Is the backend running and configured for video?')
+  }
+  const getAgoraToken = httpsCallable(getFunctionsApp(), 'getAgoraToken')
+  const { data } = await getAgoraToken({ channel: channelName, uid })
+  return data
 }
 
-const SPEECH_RMS_THRESHOLD = 0.01
-const TARGET_SAMPLE_RATE = 16000
-
-/** Downsample Float32 mono to target rate and convert to Int16 LE (raw PCM for Whisper). */
-function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGET_SAMPLE_RATE) {
-  const ratio = fromSampleRate / toSampleRate
-  const outLength = Math.floor(floatSamples.length / ratio)
-  const int16 = new Int16Array(outLength)
-  for (let i = 0; i < outLength; i++) {
-    const s = floatSamples[Math.floor(i * ratio)]
-    const clamped = Math.max(-1, Math.min(1, s))
-    int16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
-  }
-  return int16.buffer
+function toFriendlyError(err) {
+  const msg = err?.message || String(err)
+  const prodHint = " On the live site, deploy the backend to Render (free) and set VITE_API_URL—see README: Production video (free)."
+  if (/load failed|failed to fetch|network error|cors|access control/i.test(msg))
+    return "Couldn't reach the video server." + prodHint
+  if (/json|parse|unexpected token|invalid response/i.test(msg))
+    return "Video server returned an invalid response." + prodHint
+  if (/failed-precondition|not configured|Agora is not configured/i.test(msg))
+    return "Video isn't configured for production." + prodHint
+  return msg
 }
 
 export function VideoCallPage() {
@@ -45,54 +56,13 @@ export function VideoCallPage() {
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
-  const [meetingQuestion, setMeetingQuestion] = useState('')
-  const [meetingAnswer, setMeetingAnswer] = useState('')
-  const [askLoading, setAskLoading] = useState(false)
-  const [showNotepad, setShowNotepad] = useState(false)
 
   const clientRef = useRef(null)
   const localAudioRef = useRef(null)
   const localVideoRef = useRef(null)
   const localUidRef = useRef(0)
-  const mediaRecorderRef = useRef(null)
-  const audioChunksRef = useRef([])
-  const transcriptionWsRef = useRef(null)
-  const audioContextRef = useRef(null)
-  const workletNodeRef = useRef(null)
-  const pcmBufferRef = useRef([])
-  const transcriptionChunksSentRef = useRef(0)
-  const CHUNK_DURATION_SEC = 15
 
   const cleanup = useCallback(async () => {
-    if (transcriptionWsRef.current) {
-      try {
-        transcriptionWsRef.current.close()
-      } catch (e) {
-        console.warn('Transcription WS close error:', e)
-      }
-      transcriptionWsRef.current = null
-    }
-    if (workletNodeRef.current && audioContextRef.current) {
-      try {
-        workletNodeRef.current.disconnect()
-        audioContextRef.current.close()
-      } catch (e) {
-        console.warn('AudioContext cleanup error:', e)
-      }
-      workletNodeRef.current = null
-      audioContextRef.current = null
-    }
-    pcmBufferRef.current = []
-    transcriptionChunksSentRef.current = 0
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop()
-      } catch (e) {
-        console.warn('MediaRecorder stop error:', e)
-      }
-      mediaRecorderRef.current = null
-    }
-    audioChunksRef.current = []
     const client = clientRef.current
     if (!client) return
     try {
@@ -174,81 +144,6 @@ export function VideoCallPage() {
       localVideoRef.current = videoTrack
       await client.publish([audioTrack, videoTrack])
 
-      // Capture local audio: 16kHz mono, 10s chunks, raw Int16 PCM over WebSocket
-      // Use AI backend WS when VITE_AI_WS_URL is set; otherwise use main API host
-      try {
-        const aiWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
-        let wsUrl
-        if (aiWsBase) {
-          const protocol = aiWsBase.startsWith('https') ? 'wss' : 'ws'
-          const host = new URL(aiWsBase).host
-          wsUrl = `${protocol}://${host}/ws/transcription`
-        } else {
-          const wsProtocol = (API_BASE && API_BASE.startsWith('https')) ? 'wss' : 'ws'
-          const wsHost = API_BASE ? new URL(API_BASE).host : window.location.host
-          wsUrl = `${wsProtocol}://${wsHost}`
-        }
-        const ws = new WebSocket(wsUrl)
-        transcriptionWsRef.current = ws
-        ws.binaryType = 'arraybuffer'
-        ws.onopen = () => {
-          ws.send(JSON.stringify({ type: 'meta', channel: channelName, uid }))
-        }
-        const stream = new MediaStream([audioTrack.getMediaStreamTrack()])
-        const ctx = new (window.AudioContext || window.webkitAudioContext)()
-        audioContextRef.current = ctx
-        const captureRate = ctx.sampleRate
-        const samplesPerChunkAtCapture = Math.floor(captureRate * CHUNK_DURATION_SEC)
-
-        const workletCode = `
-          class TranscriptionProcessor extends AudioWorkletProcessor {
-            process(inputs) {
-              const input = inputs[0]
-              if (!input?.[0]) return true
-              const left = input[0]
-              const right = input[1]
-              const mono = right ? new Float32Array(left.length) : left
-              if (right) {
-                for (let i = 0; i < left.length; i++) mono[i] = (left[i] + right[i]) / 2
-              }
-              this.port.postMessage({ samples: mono.slice(0) })
-              return true
-            }
-          }
-          registerProcessor('transcription-processor', TranscriptionProcessor)
-        `
-        const blob = new Blob([workletCode], { type: 'application/javascript' })
-        const workletUrl = URL.createObjectURL(blob)
-        await ctx.audioWorklet.addModule(workletUrl)
-        URL.revokeObjectURL(workletUrl)
-
-        const source = ctx.createMediaStreamSource(stream)
-        const workletNode = new AudioWorkletNode(ctx, 'transcription-processor')
-        workletNodeRef.current = workletNode
-        pcmBufferRef.current = []
-
-        workletNode.port.onmessage = (e) => {
-          const { samples } = e.data
-          if (!samples?.length) return
-          pcmBufferRef.current.push(...samples)
-          while (pcmBufferRef.current.length >= samplesPerChunkAtCapture) {
-            const chunk = pcmBufferRef.current.splice(0, samplesPerChunkAtCapture)
-            const isFirstChunk = transcriptionChunksSentRef.current === 0
-            const aboveThreshold = rms(chunk) >= SPEECH_RMS_THRESHOLD
-            if (ws.readyState === WebSocket.OPEN && (isFirstChunk || aboveThreshold)) {
-              const rawPcm = downsampleAndToInt16(chunk, captureRate, TARGET_SAMPLE_RATE)
-              ws.send(rawPcm)
-              transcriptionChunksSentRef.current += 1
-            }
-          }
-        }
-
-        source.connect(workletNode)
-        workletNode.connect(ctx.destination)
-      } catch (e) {
-        console.warn('Audio capture for transcription failed:', e)
-      }
-
       setRemoteUsers([])
       setJoined(true)
     } catch (err) {
@@ -277,35 +172,6 @@ export function VideoCallPage() {
     const next = !camEnabled
     await localVideoRef.current.setEnabled(next)
     setCamEnabled(next)
-  }
-
-  const toggleNotepad = () => {
-    setShowNotepad(!showNotepad)
-  }
-
-  const askMeeting = async () => {
-    const q = meetingQuestion.trim()
-    if (!q || askLoading) return
-    if (!AI_API_BASE) {
-      setMeetingAnswer('Set VITE_AI_WS_URL in .env to use meeting Q&A.')
-      return
-    }
-    setAskLoading(true)
-    setMeetingAnswer('')
-    try {
-      const res = await fetch(`${AI_API_BASE}/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: channelName, question: q }),
-      })
-      const data = await res.json().catch(() => ({}))
-      setMeetingAnswer(data.answer ?? data.error ?? (res.ok ? 'No answer.' : `Error ${res.status}`))
-      setMeetingQuestion('')
-    } catch (e) {
-      setMeetingAnswer(`Error: ${e.message}`)
-    } finally {
-      setAskLoading(false)
-    }
   }
 
   if (!user) return null
@@ -361,41 +227,12 @@ export function VideoCallPage() {
             <Button variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam}>
               {camEnabled ? 'Camera on' : 'Camera off'}
             </Button>
-            <Button variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad}>
-              {showNotepad ? 'Notepad' : 'Notepad'}
-            </Button>
             <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
               Leave
             </Button>
           </div>
-          <div className="video-call-meeting-chat">
-            <span className="video-call-meeting-chat-label">Ask about this meeting</span>
-            <div className="video-call-meeting-chat-row">
-              <input
-                type="text"
-                className="auth-input video-call-meeting-chat-input"
-                placeholder="e.g. What is MCP?"
-                value={meetingQuestion}
-                onChange={(e) => setMeetingQuestion(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && askMeeting()}
-                disabled={askLoading || !AI_API_BASE}
-              />
-              <Button variant="primary" size="sm" onClick={askMeeting} disabled={askLoading || !meetingQuestion.trim() || !AI_API_BASE}>
-                {askLoading ? '…' : 'Ask'}
-              </Button>
-            </div>
-            {meetingAnswer && (
-              <div className="video-call-meeting-chat-answer">{meetingAnswer}</div>
-            )}
-            {!AI_API_BASE && (
-              <p className="video-call-meeting-chat-hint">Set VITE_AI_WS_URL to enable.</p>
-            )}
-          </div>
         </div>
       )}
-      <div style={{ display: showNotepad ? 'block' : 'none' }}>
-        <Notepad />
-      </div>
     </main>
   )
 }

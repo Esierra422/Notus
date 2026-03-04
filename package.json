@@ -16,15 +16,5 @@
   "devDependencies": {
     "concurrently": "^9.1.0",
     "firebase-tools": "^15.5.1"
-  },
-  "dependencies": {
-    "quill": "^2.0.3",
-    "quill-cursors": "^4.1.0",
-    "webpack": "^5.105.4",
-    "webpack-cli": "^6.0.1",
-    "webpack-dev-server": "^5.2.3",
-    "y-quill": "^1.0.0",
-    "y-websocket": "^3.0.0",
-    "yjs": "^13.6.29"
   }
 }
