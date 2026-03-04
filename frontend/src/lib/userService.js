@@ -248,3 +248,14 @@ export async function updateProfileField(uid, field, value) {
 
   await updateDoc(ref, updates)
 }
+
+/**
+ * Set push notification preference. When false, caller should remove FCM token (e.g. messagingService.removeTokenFromFirestore).
+ */
+export async function setNotificationsPushEnabled(uid, enabled) {
+  const ref = doc(db, USERS_COLLECTION, uid)
+  await updateDoc(ref, {
+    notificationsPushEnabled: enabled,
+    updatedAt: serverTimestamp(),
+  })
+}

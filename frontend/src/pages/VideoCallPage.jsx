@@ -9,14 +9,40 @@ import '../styles/variables.css'
 import './AppLayout.css'
 import './VideoCallPage.css'
 
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+import { getApiUrl, getEffectiveApiBase } from '../lib/apiConfig.js'
+import { getFunctionsApp } from '../lib/firebase.js'
+import { httpsCallable } from 'firebase/functions'
 
-// In production (HTTPS), always use same-origin to avoid mixed content and CORS
-function getVideoTokenUrl() {
-  if (typeof window !== 'undefined' && window.location?.protocol === 'https:') {
-    return '/api/video/token'
+/** Fetch token from backend API or Firebase callable (production fallback). */
+async function fetchVideoToken(channelName, uid) {
+  const apiBase = getEffectiveApiBase()
+  if (apiBase) {
+    const url = `${getApiUrl('/api/video/token')}?channel=${encodeURIComponent(channelName)}&uid=${uid}`
+    const res = await fetch(url)
+    const contentType = res.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const data = await res.json()
+      if (res.ok) return data
+      throw new Error(data.error || 'Failed to get token')
+    }
+    if (!res.ok) throw new Error(`Token request failed (${res.status})`)
+    throw new Error('Server did not return JSON. Is the backend running and configured for video?')
   }
-  return API_BASE ? `${API_BASE}/api/video/token` : '/api/video/token'
+  const getAgoraToken = httpsCallable(getFunctionsApp(), 'getAgoraToken')
+  const { data } = await getAgoraToken({ channel: channelName, uid })
+  return data
+}
+
+function toFriendlyError(err) {
+  const msg = err?.message || String(err)
+  const prodHint = " On the live site, deploy the backend to Render (free) and set VITE_API_URL—see README: Production video (free)."
+  if (/load failed|failed to fetch|network error|cors|access control/i.test(msg))
+    return "Couldn't reach the video server." + prodHint
+  if (/json|parse|unexpected token|invalid response/i.test(msg))
+    return "Video server returned an invalid response." + prodHint
+  if (/failed-precondition|not configured|Agora is not configured/i.test(msg))
+    return "Video isn't configured for production." + prodHint
+  return msg
 }
 
 export function VideoCallPage() {
@@ -88,13 +114,7 @@ export function VideoCallPage() {
     try {
       const uid = Math.floor(Math.random() * 100000)
       localUidRef.current = uid
-      const url = getVideoTokenUrl()
-      const res = await fetch(`${url}?channel=${encodeURIComponent(channelName)}&uid=${uid}`)
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error || 'Failed to get token')
-        return
-      }
+      const data = await fetchVideoToken(channelName, uid)
 
       const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
       clientRef.current = client
@@ -127,7 +147,7 @@ export function VideoCallPage() {
       setRemoteUsers([])
       setJoined(true)
     } catch (err) {
-      setError(err.message || 'Failed to join')
+      setError(toFriendlyError(err) || 'Failed to join')
     } finally {
       setLoading(false)
     }

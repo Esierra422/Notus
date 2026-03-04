@@ -10,6 +10,7 @@ import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { getUserDoc } from '../lib/userService'
 import { getActiveMemberships, getOrg, getMembership, canManageOrg } from '../lib/orgService'
+import { registerForPush, onForegroundMessage } from '../lib/messagingService'
 import { AppHeader, AppFooter, PROFILE_UPDATED_EVENT } from './app'
 import { PageTransition } from './PageTransition'
 import '../styles/variables.css'
@@ -64,6 +65,24 @@ export function AppShell() {
     window.addEventListener(PROFILE_UPDATED_EVENT, handler)
     return () => window.removeEventListener(PROFILE_UPDATED_EVENT, handler)
   }, [user?.uid])
+
+  // Push notifications: register FCM token when user has enabled in Settings
+  useEffect(() => {
+    if (!user?.uid || userDoc?.notificationsPushEnabled !== true) return
+    registerForPush(user.uid).catch(() => {})
+  }, [user?.uid, userDoc?.notificationsPushEnabled])
+
+  // Foreground: show browser notification when a push is received while app is open
+  useEffect(() => {
+    onForegroundMessage((payload) => {
+      if (Notification.permission === 'granted' && payload.notification) {
+        new Notification(payload.notification.title || 'Notus', {
+          body: payload.notification.body,
+          icon: payload.notification.icon || '/favicon.svg',
+        })
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (!user?.uid) return

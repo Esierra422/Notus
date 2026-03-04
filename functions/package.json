@@ -1,0 +1,16 @@
+{
+  "name": "notus-functions",
+  "description": "Cloud Functions for Notus (push on new message/invite)",
+  "main": "index.js",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "agora-token": "^2.0.5",
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^6.0.0"
+  }
+}
