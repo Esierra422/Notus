@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import AgoraRTC from 'agora-rtc-sdk-ng'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
+import { Notepad } from '../components/app/Notepad'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './VideoCallPage.css'
@@ -47,6 +48,7 @@ export function VideoCallPage() {
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingAnswer, setMeetingAnswer] = useState('')
   const [askLoading, setAskLoading] = useState(false)
+  const [showNotepad, setShowNotepad] = useState(false)
 
   const clientRef = useRef(null)
   const localAudioRef = useRef(null)
@@ -271,6 +273,10 @@ export function VideoCallPage() {
     setCamEnabled(next)
   }
 
+  const toggleNotepad = () => {
+    setShowNotepad(!showNotepad)
+  }
+
   const askMeeting = async () => {
     const q = meetingQuestion.trim()
     if (!q || askLoading) return
@@ -337,6 +343,9 @@ export function VideoCallPage() {
             <Button variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam}>
               {camEnabled ? 'Camera on' : 'Camera off'}
             </Button>
+            <Button variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad}>
+              {showNotepad ? 'Notepad' : 'Notepad'}
+            </Button>
             <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
               Leave
             </Button>
@@ -366,6 +375,9 @@ export function VideoCallPage() {
           </div>
         </div>
       )}
+      <div style={{ display: showNotepad ? 'block' : 'none' }}>
+        <Notepad />
+      </div>
     </main>
   )
 }

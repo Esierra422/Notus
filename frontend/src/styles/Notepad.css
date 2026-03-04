@@ -1,0 +1,72 @@
+.notepad-container {
+  position: fixed;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  user-select: none;
+}
+
+.notepad-header {
+  padding: 12px 16px;
+  cursor: grab;
+  user-select: none;
+}
+
+.notepad-header:active {
+  cursor: grabbing;
+}
+
+.notepad-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.notepad-editor {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+/* Quill editor styles */
+.notepad-editor .ql-toolbar {
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: 1px solid #eee;
+  background: #fafafa;
+}
+
+.notepad-editor .ql-container {
+  border: none;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.notepad-editor .ql-editor {
+  color: #000 !important;
+  min-height: 100%;
+}
+
+.notepad-editor .ql-editor.ql-blank::before {
+  color: #999;
+}
+
+.notepad-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, #ccc 50%);
+  border-radius: 0 0 8px 0;
+}
+
+.notepad-resize-handle:hover {
+  background: linear-gradient(135deg, transparent 50%, #999 50%);
+}
