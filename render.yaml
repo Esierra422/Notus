@@ -13,6 +13,7 @@ services:
   - type: web
     name: notus-api
     runtime: node
+    plan: free
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
