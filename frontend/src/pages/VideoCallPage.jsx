@@ -11,8 +11,17 @@ import './AppLayout.css'
 import './VideoCallPage.css'
 
 import { getApiUrl, getEffectiveApiBase } from '../lib/apiConfig.js'
-import { getFunctionsApp } from '../lib/firebase.js'
+import { db, getFunctionsApp } from '../lib/firebase.js'
 import { httpsCallable } from 'firebase/functions'
+import {
+  collection,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+  addDoc,
+  serverTimestamp,
+} from 'firebase/firestore'
 
 /** Fetch token from backend API or Firebase callable (production fallback). */
 async function fetchVideoToken(channelName, uid) {
@@ -84,6 +93,7 @@ export function VideoCallPage() {
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
+  const [chatOpen, setChatOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingAnswer, setMeetingAnswer] = useState('')
   const [askLoading, setAskLoading] = useState(false)
@@ -376,41 +386,43 @@ export function VideoCallPage() {
         </div>
       ) : (
         <div className="video-call-room">
-          <div className="video-streams">
-            <div className="video-player video-player-local" id="local-player">
-              <span className="video-player-label">You</span>
-              <LocalVideoTrack track={localVideoRef.current} enabled={camEnabled} uid={localUidRef.current} />
-            </div>
+          <div className="video-area">
+            <div className="video-streams">
+              <div className="video-player video-player-local" id="local-player">
+                <span className="video-player-label">You</span>
+                <LocalVideoTrack track={localVideoRef.current} enabled={camEnabled} uid={localUidRef.current} />
+              </div>
 
-            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext
-                items={remoteUsers.map((u) => u.uid)}
-                strategy={verticalListSortingStrategy} // vertical list; change to grid if needed
-              >
-              {remoteUsers.map((user) => (
-                <SortableRemoteVideo key={user.uid} user={user} />
-              ))}
-              </SortableContext>
-            </DndContext>
-            {/*{remoteUsers.map((user) => (
-              <RemoteVideoPlayer key={user.uid} user={user} />
-            ))}*/}
-                
-          </div>
-          <div className="video-call-controls">
-            <Button variant={micEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleMic}>
-              {micEnabled ? 'Mic on' : 'Mic off'}
-            </Button>
-            <Button variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam}>
-              {camEnabled ? 'Camera on' : 'Camera off'}
-            </Button>
+              <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext
+                  items={remoteUsers.map((u) => u.uid)}
+                  strategy={verticalListSortingStrategy}
+                >
+                {remoteUsers.map((user) => (
+                  <SortableRemoteVideo key={user.uid} user={user} />
+                ))}
+                </SortableContext>
+              </DndContext>
+            </div>
+            <div className="video-call-controls">
+              <Button variant={micEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleMic}>
+                {micEnabled ? 'Mic on' : 'Mic off'}
+              </Button>
+              <Button variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam}>
+                {camEnabled ? 'Camera on' : 'Camera off'}
+              </Button>
             <Button variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad}>
               {showNotepad ? 'Notepad' : 'Notepad'}
             </Button>        
-            <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
-              Leave
-            </Button>
+              <Button variant={chatOpen ? 'primary' : 'outline'} size="sm" onClick={() => setChatOpen(o => !o)}>
+                Chat
+              </Button>
+              <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
+                Leave
+              </Button>
+            </div>
           </div>
+          {chatOpen && <VideoCallChat channelName={channelName} user={user} />}
           <div className="video-call-meeting-chat">
             <span className="video-call-meeting-chat-label">Ask about this meeting</span>
             <div className="video-call-meeting-chat-row">
@@ -476,6 +488,92 @@ function RemoteVideoPlayer({ user }) {
     <div className="video-player video-player-remote">
       <span className="video-player-label">User {user.uid}</span>
       <div ref={containerRef} className="video-track-container" style={{ width: '100%', height: '100%' }} />
+    </div>
+  )
+}
+
+function VideoCallChat({ channelName, user }) {
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+  const [chatError, setChatError] = useState('')
+  const bottomRef = useRef(null)
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'videoChannels', channelName, 'messages'),
+      orderBy('createdAt', 'asc'),
+      limit(100)
+    )
+    return onSnapshot(
+      q,
+      (snap) => {
+        setChatError('')
+        setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      },
+      (err) => {
+        console.error('Chat listener error:', err)
+        setChatError('Could not load messages: ' + err.message)
+      }
+    )
+  }, [channelName])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const handleSend = async (e) => {
+    e.preventDefault()
+    const text = input.trim()
+    if (!text || sending) return
+    setSending(true)
+    try {
+      await addDoc(collection(db, 'videoChannels', channelName, 'messages'), {
+        senderId: user.uid,
+        senderName: user.displayName || user.email || 'Anonymous',
+        text,
+        createdAt: serverTimestamp(),
+      })
+      setInput('')
+    } catch (err) {
+      console.error('Failed to send message:', err)
+      setChatError('Send failed: ' + err.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="video-chat-panel">
+      <div className="video-chat-header">In-call chat</div>
+      <div className="video-chat-messages">
+        {chatError && <p className="video-chat-error">{chatError}</p>}
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`video-chat-msg ${msg.senderId === user.uid ? 'video-chat-msg-own' : ''}`}
+          >
+            {msg.senderId !== user.uid && (
+              <span className="video-chat-sender">{msg.senderName}</span>
+            )}
+            <span className="video-chat-bubble">{msg.text}</span>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+      <form className="video-chat-form" onSubmit={handleSend}>
+        <input
+          className="video-chat-input"
+          type="text"
+          placeholder="Message…"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          disabled={sending}
+        />
+        <button className="video-chat-send" type="submit" disabled={!input.trim() || sending}>
+          Send
+        </button>
+      </form>
     </div>
   )
 }

@@ -113,6 +113,14 @@ service cloud.firestore {
       }
     }
 
+    // Video channel chat: any authenticated user can read/create messages (channel name acts as join key)
+    match /videoChannels/{channelId} {
+      match /messages/{msgId} {
+        allow read, create: if request.auth != null;
+        allow update, delete: if false;
+      }
+    }
+
     // Memberships: create (new org owner or join request), read, update (approve/reject)
     match /memberships/{membershipId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
