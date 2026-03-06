@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import AgoraRTC from 'agora-rtc-sdk-ng'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
+import { Notepad } from '../pages/Notepad'
 import { DndContext, closestCenter } from '@dnd-kit/core'
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -46,6 +47,7 @@ function toFriendlyError(err) {
 }
 
 export function VideoCallPage() {
+  //video params
   const { user, setNavExtra } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
   const channelFromUrl = searchParams.get('channel') || ''
@@ -57,10 +59,15 @@ export function VideoCallPage() {
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
 
+  //notepad param
+  const [showNotepad, setShowNotepad] = useState(false)
+
   const clientRef = useRef(null)
   const localAudioRef = useRef(null)
   const localVideoRef = useRef(null)
   const localUidRef = useRef(0)
+
+
 
   const cleanup = useCallback(async () => {
     const client = clientRef.current
@@ -174,6 +181,10 @@ export function VideoCallPage() {
     setCamEnabled(next)
   }
 
+  const toggleNotepad = () => {
+    setShowNotepad(!showNotepad)
+  }
+
   if (!user) return null
 
   return (
@@ -227,12 +238,18 @@ export function VideoCallPage() {
             <Button variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam}>
               {camEnabled ? 'Camera on' : 'Camera off'}
             </Button>
+            <Button variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad}>
+              {showNotepad ? 'Notepad' : 'Notepad'}
+            </Button>        
             <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
               Leave
             </Button>
           </div>
         </div>
       )}
+      <div style={{ display: showNotepad ? 'block' : 'none' }}>
+        <Notepad />
+      </div>
     </main>
   )
 }
