@@ -324,7 +324,8 @@ export function VideoCallPage() {
 
   const toggleNotepad = () => {
     setShowNotepad(!showNotepad)
-    
+  }
+
   const askMeeting = async () => {
     const q = meetingQuestion.trim()
     if (!q || askLoading) return

@@ -18,7 +18,9 @@
     "firebase-tools": "^15.5.1"
   },
   "dependencies": {
+    "firebase-admin": "^13.7.0",
     "lib0": "^0.2.117",
+    "openai": "^6.27.0",
     "quill": "^2.0.3",
     "quill-cursors": "^4.1.0",
     "webpack": "^5.105.4",
