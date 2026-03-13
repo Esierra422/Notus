@@ -95,7 +95,7 @@ export function VideoCallPage() {
   const [remoteUsers, setRemoteUsers] = useState([])
   const [chatOpen, setChatOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
-  const [meetingAnswer, setMeetingAnswer] = useState('')
+  const [meetingHistory, setMeetingHistory] = useState([])
   const [askLoading, setAskLoading] = useState(false)
 
   //notepad param
@@ -180,6 +180,11 @@ export function VideoCallPage() {
   useEffect(() => {
     if (channelFromUrl) setChannelName(channelFromUrl)
   }, [channelFromUrl])
+
+  useEffect(() => {
+    setMeetingHistory([])
+    setMeetingQuestion('')
+  }, [channelName])
 
   useEffect(() => {
     if (setNavExtra) setNavExtra(undefined)
@@ -340,11 +345,12 @@ export function VideoCallPage() {
     const q = meetingQuestion.trim()
     if (!q || askLoading) return
     if (!AI_API_BASE) {
-      setMeetingAnswer('Set VITE_AI_WS_URL in .env to use meeting Q&A.')
+      setMeetingHistory(h => [...h, { role: 'ai', text: 'Set VITE_AI_WS_URL in .env to use meeting Q&A.' }])
       return
     }
+    setMeetingHistory(h => [...h, { role: 'user', text: q }])
+    setMeetingQuestion('')
     setAskLoading(true)
-    setMeetingAnswer('')
     try {
       const res = await fetch(`${AI_API_BASE}/ask`, {
         method: 'POST',
@@ -352,10 +358,10 @@ export function VideoCallPage() {
         body: JSON.stringify({ channel: channelName, question: q }),
       })
       const data = await res.json().catch(() => ({}))
-      setMeetingAnswer(data.answer ?? data.error ?? (res.ok ? 'No answer.' : `Error ${res.status}`))
-      setMeetingQuestion('')
+      const answer = data.answer ?? data.error ?? (res.ok ? 'No answer.' : `Error ${res.status}`)
+      setMeetingHistory(h => [...h, { role: 'ai', text: answer }])
     } catch (e) {
-      setMeetingAnswer(`Error: ${e.message}`)
+      setMeetingHistory(h => [...h, { role: 'ai', text: `Error: ${e.message}` }])
     } finally {
       setAskLoading(false)
     }
@@ -425,6 +431,22 @@ export function VideoCallPage() {
           {chatOpen && <VideoCallChat channelName={channelName} user={user} />}
           <div className="video-call-meeting-chat">
             <span className="video-call-meeting-chat-label">Ask about this meeting</span>
+            {meetingHistory.length > 0 && (
+              <div className="video-call-meeting-chat-history">
+                {meetingHistory.map((msg, i) => (
+                  <div key={i} className={`video-call-meeting-chat-msg video-call-meeting-chat-msg--${msg.role}`}>
+                    <span className="video-call-meeting-chat-msg-label">{msg.role === 'user' ? 'You' : 'AI'}</span>
+                    <span className="video-call-meeting-chat-msg-text">{msg.text}</span>
+                  </div>
+                ))}
+                {askLoading && (
+                  <div className="video-call-meeting-chat-msg video-call-meeting-chat-msg--ai">
+                    <span className="video-call-meeting-chat-msg-label">AI</span>
+                    <span className="video-call-meeting-chat-msg-text">…</span>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="video-call-meeting-chat-row">
               <input
                 type="text"
@@ -439,9 +461,6 @@ export function VideoCallPage() {
                 {askLoading ? '…' : 'Ask'}
               </Button>
             </div>
-            {meetingAnswer && (
-              <div className="video-call-meeting-chat-answer">{meetingAnswer}</div>
-            )}
             {!AI_API_BASE && (
               <p className="video-call-meeting-chat-hint">Set VITE_AI_WS_URL to enable.</p>
             )}

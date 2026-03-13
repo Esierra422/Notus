@@ -245,15 +245,54 @@
   font-size: 0.9rem;
 }
 
-.video-call-meeting-chat-answer {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
+.video-call-meeting-chat-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.video-call-meeting-chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.video-call-meeting-chat-msg--user {
+  align-items: flex-end;
+}
+
+.video-call-meeting-chat-msg--ai {
+  align-items: flex-start;
+}
+
+.video-call-meeting-chat-msg-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.video-call-meeting-chat-msg--user .video-call-meeting-chat-msg-text {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border-radius: 12px 12px 2px 12px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.88rem;
+  word-break: break-word;
+  max-width: 90%;
+}
+
+.video-call-meeting-chat-msg--ai .video-call-meeting-chat-msg-text {
   background: var(--bg);
-  border-radius: 8px;
-  font-size: 0.9rem;
   color: var(--text);
+  border-radius: 12px 12px 12px 2px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.88rem;
   white-space: pre-wrap;
   word-break: break-word;
+  max-width: 90%;
 }
 
 .video-call-meeting-chat-hint {

@@ -1,11 +1,10 @@
 """
-AI backend: WebSocket transcription (Whisper), Chroma per meeting, LangChain RAG.
+AI backend: WebSocket transcription (Whisper), Pinecone per meeting, LangChain RAG.
 Connect frontend transcription WS here instead of Express.
 """
 import io
 import json
 import os
-import re
 import struct
 from contextlib import asynccontextmanager
 
@@ -14,7 +13,8 @@ from pydantic import BaseModel
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_chroma import Chroma
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone, ServerlessSpec
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
@@ -24,31 +24,35 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 WHISPER_SAMPLE_RATE = 16000
-CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", os.path.join(os.path.dirname(__file__), "chroma_db"))
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "notus-meetings")
+EMBEDDING_DIMENSION = 1536  # text-embedding-ada-002 (default OpenAIEmbeddings)
 
-# LangChain: one collection per meeting (channel); embeddings + LLM use OpenAI
+# LangChain: one Pinecone namespace per meeting (channel); embeddings + LLM use OpenAI
 _embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+_pinecone_client: Pinecone | None = None
+_pinecone_index = None  # pinecone.Index, set at startup
 # Reuse one vectorstore per channel so we don't re-init on every transcript chunk
-_vectorstore_cache: dict[str, Chroma] = {}
+_vectorstore_cache: dict[str, PineconeVectorStore] = {}
 
 
-def _sanitize_collection_name(channel: str) -> str:
-    """Chroma collection names: alphanumeric, underscore, hyphen."""
-    return re.sub(r"[^a-zA-Z0-9_-]+", "_", channel or "default") or "default"
+def _namespace_for_channel(channel: str) -> str:
+    """Map a channel name to a Pinecone namespace."""
+    return (channel or "default").strip() or "default"
 
 
-def _get_vectorstore(channel: str) -> Chroma | None:
-    """Get or create Chroma collection for this meeting (channel). Cached per channel."""
-    if not _embeddings:
+def _get_vectorstore(channel: str) -> PineconeVectorStore | None:
+    """Get or create PineconeVectorStore for this meeting (channel namespace). Cached per channel."""
+    if not _embeddings or _pinecone_index is None:
         return None
-    name = _sanitize_collection_name(channel)
-    if name not in _vectorstore_cache:
-        _vectorstore_cache[name] = Chroma(
-            collection_name=name,
-            embedding_function=_embeddings,
-            persist_directory=CHROMA_PERSIST_DIR,
+    namespace = _namespace_for_channel(channel)
+    if namespace not in _vectorstore_cache:
+        _vectorstore_cache[namespace] = PineconeVectorStore(
+            index=_pinecone_index,
+            embedding=_embeddings,
+            namespace=namespace,
         )
-    return _vectorstore_cache[name]
+    return _vectorstore_cache[namespace]
 
 
 def add_transcript_to_meeting(channel: str, text: str) -> None:
@@ -61,7 +65,7 @@ def add_transcript_to_meeting(channel: str, text: str) -> None:
     try:
         vs.add_texts([text.strip()])
     except Exception as e:
-        print(f"Chroma add_texts error: {e}")
+        print(f"Pinecone add_texts error: {e}")
 
 
 def ask_meeting(channel: str, question: str) -> str:
@@ -110,14 +114,37 @@ def raw_pcm_to_wav_buffer(raw_pcm: bytes) -> bytes:
 
 
 def on_transcript(channel: str, uid: int, text: str) -> None:
-    """Called on each Whisper segment: log and add to Chroma for this meeting."""
+    """Called on each Whisper segment: log and add to Pinecone for this meeting."""
     print(f"[{channel}] Transcript (uid={uid}): {text}")
     add_transcript_to_meeting(channel, text)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup/shutdown if needed (e.g. Chroma client)
+    global _pinecone_client, _pinecone_index
+
+    if PINECONE_API_KEY:
+        try:
+            import time
+            _pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
+            existing = [idx.name for idx in _pinecone_client.list_indexes()]
+            if PINECONE_INDEX_NAME not in existing:
+                print(f"Creating Pinecone index '{PINECONE_INDEX_NAME}'...")
+                _pinecone_client.create_index(
+                    name=PINECONE_INDEX_NAME,
+                    dimension=EMBEDDING_DIMENSION,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                )
+                while not _pinecone_client.describe_index(PINECONE_INDEX_NAME).status["ready"]:
+                    time.sleep(1)
+            _pinecone_index = _pinecone_client.Index(PINECONE_INDEX_NAME)
+            print(f"Connected to Pinecone index '{PINECONE_INDEX_NAME}'.")
+        except Exception as e:
+            print(f"Pinecone initialization error: {e}")
+    else:
+        print("PINECONE_API_KEY not set. Vector DB disabled.")
+
     yield
 
 
