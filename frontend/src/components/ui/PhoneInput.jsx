@@ -18,14 +18,19 @@ export function PhoneInput({ value = '', onChange, disabled, className, id, plac
     parsed ? formatPhoneByCountry(parsed.code, parsed.national) : ''
   )
 
+  // Sync from parent only when we have a parseable E.164 or explicit empty. Don't overwrite
+  // with empty when value is a partial E.164 (e.g. +1202) or input would be wiped while typing.
   useEffect(() => {
+    if (value === '') {
+      setNationalValue('')
+      return
+    }
     const p = parseE164(value)
     if (p) {
       setCountryCode(p.code)
       setNationalValue(formatPhoneByCountry(p.code, p.national))
-    } else {
-      setNationalValue('')
     }
+    // When parseE164 returns null (partial number), do not update nationalValue so typing is not cleared.
   }, [value])
 
   const handleCountryChange = (e) => {
