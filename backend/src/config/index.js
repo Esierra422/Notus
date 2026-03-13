@@ -20,4 +20,5 @@ export const config = {
     appId: process.env.AGORA_APP_ID,
     appCertificate: process.env.AGORA_APP_CERTIFICATE,
   },
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
 }

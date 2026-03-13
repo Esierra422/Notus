@@ -1,11 +1,13 @@
 import { Router } from 'express'
 import { createRequire } from 'module'
+import OpenAI from 'openai'
 import { config } from '../config/index.js'
 
 const require = createRequire(import.meta.url)
 const { RtcTokenBuilder, RtcRole } = require('agora-token')
 
 const router = Router()
+const openai = config.openaiApiKey ? new OpenAI({ apiKey: config.openaiApiKey }) : null
 
 /**
  * Generate Agora RTC token for video calls.
@@ -30,6 +32,43 @@ router.get('/video/token', (req, res) => {
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Notus API is running' })
+})
+
+/**
+ * Meeting Q&A: uses OpenAI when OPENAI_API_KEY is set.
+ * POST /api/ask body: { channel, question }
+ */
+router.post('/ask', async (req, res) => {
+  const { question } = req.body || {}
+  if (!question || typeof question !== 'string' || !question.trim()) {
+    return res.status(400).json({ error: 'Missing or invalid question' })
+  }
+
+  if (!openai) {
+    return res.status(503).json({
+      error: 'Meeting Q&A is not configured. Set OPENAI_API_KEY in the backend environment.',
+    })
+  }
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a helpful meeting assistant. Answer questions about the current meeting or topic concisely. If you do not have meeting context, say so and answer generally.',
+        },
+        { role: 'user', content: question.trim() },
+      ],
+      max_tokens: 500,
+    })
+    const answer = completion.choices?.[0]?.message?.content?.trim() || 'No response.'
+    res.json({ answer })
+  } catch (err) {
+    console.warn('OpenAI /ask error:', err.message)
+    const message = err.message || (err.status === 401 ? 'Invalid API key' : 'AI request failed')
+    res.status(err.status === 401 ? 401 : 502).json({ error: message })
+  }
 })
 
 /**

@@ -15,11 +15,14 @@ import { db, getFunctionsApp } from '../lib/firebase.js'
 import { httpsCallable } from 'firebase/functions'
 import {
   collection,
+  doc,
   query,
   orderBy,
   limit,
   onSnapshot,
   addDoc,
+  setDoc,
+  deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore'
 
@@ -55,7 +58,6 @@ function toFriendlyError(err) {
   return msg
 }
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const AI_API_BASE = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
 
 /** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
 function rms(samples) {
@@ -93,10 +95,18 @@ export function VideoCallPage() {
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
+  const [participantNames, setParticipantNames] = useState({}) // Agora uid -> displayName
   const [chatOpen, setChatOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
   const [askLoading, setAskLoading] = useState(false)
+
+  // AI base: dedicated VITE_AI_WS_URL or fall back to main API (so production uses Render URL)
+  const effectiveAiBase = (() => {
+    const u = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
+    if (u) return u
+    return getEffectiveApiBase()
+  })()
 
   //notepad param
   const [showNotepad, setShowNotepad] = useState(false)
@@ -196,6 +206,20 @@ export function VideoCallPage() {
     }
   }, [cleanup])
 
+  // Subscribe to participant display names for this channel (so we show names instead of "User 12345")
+  useEffect(() => {
+    if (!joined || !channelName) return
+    const participantsRef = collection(db, 'videoChannels', channelName, 'participants')
+    const unsub = onSnapshot(participantsRef, (snap) => {
+      const map = {}
+      snap.docs.forEach((d) => {
+        map[d.id] = d.data()?.displayName || `User ${d.id}`
+      })
+      setParticipantNames(map)
+    }, (err) => console.warn('Participant names listener error:', err))
+    return () => unsub()
+  }, [joined, channelName])
+
   const joinChannel = async () => {
     setError('')
     setLoading(true)
@@ -233,18 +257,16 @@ export function VideoCallPage() {
       await client.publish([audioTrack, videoTrack])
 
       // Capture local audio: 16kHz mono, 10s chunks, raw Int16 PCM over WebSocket
-      // Use AI backend WS when VITE_AI_WS_URL is set; otherwise use main API host
+      // Use effective AI base (VITE_AI_WS_URL or main API) for transcription WebSocket
       try {
-        const aiWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
         let wsUrl
-        if (aiWsBase) {
-          const protocol = aiWsBase.startsWith('https') ? 'wss' : 'ws'
-          const host = new URL(aiWsBase).host
+        if (effectiveAiBase) {
+          const protocol = effectiveAiBase.startsWith('https') ? 'wss' : 'ws'
+          const host = new URL(effectiveAiBase).host
           wsUrl = `${protocol}://${host}/ws/transcription`
         } else {
-          const wsProtocol = (API_BASE && API_BASE.startsWith('https')) ? 'wss' : 'ws'
-          const wsHost = API_BASE ? new URL(API_BASE).host : window.location.host
-          wsUrl = `${wsProtocol}://${wsHost}`
+          const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+          wsUrl = `${wsProtocol}://${window.location.host}/ws/transcription`
         }
         const ws = new WebSocket(wsUrl)
         transcriptionWsRef.current = ws
@@ -309,6 +331,16 @@ export function VideoCallPage() {
 
       setRemoteUsers([])
       setJoined(true)
+
+      // Register our display name for this channel (so other participants see our name)
+      try {
+        await setDoc(doc(db, 'videoChannels', channelName, 'participants', String(uid)), {
+          displayName: user?.displayName || user?.email || 'Anonymous',
+          joinedAt: serverTimestamp(),
+        })
+      } catch (e) {
+        console.warn('Could not register participant name:', e)
+      }
     } catch (err) {
       setError(toFriendlyError(err) || 'Failed to join')
     } finally {
@@ -318,8 +350,19 @@ export function VideoCallPage() {
 
   const leaveChannel = async () => {
     setLoading(true)
+    const uidToRemove = localUidRef.current
     await cleanup()
     setRemoteUsers([])
+    setParticipantNames((prev) => {
+      const next = { ...prev }
+      delete next[uidToRemove]
+      return next
+    })
+    try {
+      await deleteDoc(doc(db, 'videoChannels', channelName, 'participants', String(uidToRemove)))
+    } catch (e) {
+      console.warn('Could not remove participant:', e)
+    }
     setLoading(false)
   }
 
@@ -344,15 +387,15 @@ export function VideoCallPage() {
   const askMeeting = async () => {
     const q = meetingQuestion.trim()
     if (!q || askLoading) return
-    if (!AI_API_BASE) {
-      setMeetingHistory(h => [...h, { role: 'ai', text: 'Set VITE_AI_WS_URL in .env to use meeting Q&A.' }])
+    if (!effectiveAiBase) {
+      setMeetingHistory(h => [...h, { role: 'ai', text: 'No API URL configured for meeting Q&A (set VITE_API_URL or VITE_AI_WS_URL).' }])
       return
     }
     setMeetingHistory(h => [...h, { role: 'user', text: q }])
     setMeetingQuestion('')
     setAskLoading(true)
     try {
-      const res = await fetch(`${AI_API_BASE}/ask`, {
+      const res = await fetch(`${effectiveAiBase}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channel: channelName, question: q }),
@@ -404,8 +447,8 @@ export function VideoCallPage() {
                   items={remoteUsers.map((u) => u.uid)}
                   strategy={verticalListSortingStrategy}
                 >
-                {remoteUsers.map((user) => (
-                  <SortableRemoteVideo key={user.uid} user={user} />
+                {remoteUsers.map((u) => (
+                  <SortableRemoteVideo key={u.uid} user={u} displayName={participantNames[String(u.uid)]} />
                 ))}
                 </SortableContext>
               </DndContext>
@@ -455,14 +498,14 @@ export function VideoCallPage() {
                 value={meetingQuestion}
                 onChange={(e) => setMeetingQuestion(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && askMeeting()}
-                disabled={askLoading || !AI_API_BASE}
+                disabled={askLoading || !effectiveAiBase}
               />
-              <Button variant="primary" size="sm" onClick={askMeeting} disabled={askLoading || !meetingQuestion.trim() || !AI_API_BASE}>
+              <Button variant="primary" size="sm" onClick={askMeeting} disabled={askLoading || !meetingQuestion.trim() || !effectiveAiBase}>
                 {askLoading ? '…' : 'Ask'}
               </Button>
             </div>
-            {!AI_API_BASE && (
-              <p className="video-call-meeting-chat-hint">Set VITE_AI_WS_URL to enable.</p>
+            {!effectiveAiBase && (
+              <p className="video-call-meeting-chat-hint">Set VITE_API_URL or VITE_AI_WS_URL to enable meeting Q&A.</p>
             )}
           </div>
         </div>
@@ -493,19 +536,19 @@ function LocalVideoTrack({ track, enabled, uid }) {
   )
 }
 
-function RemoteVideoPlayer({ user }) {
+function RemoteVideoPlayer({ user, displayName }) {
   const containerRef = useRef(null)
   useEffect(() => {
-    console.log("RemoteVideoPlayer mount", user?.uid, user?.videoTrack)
     if (!user?.videoTrack || !containerRef.current) return
     user.videoTrack.play(containerRef.current)
     return () => {
       user.videoTrack?.stop()
     }
   }, [user])
+  const label = displayName || `User ${user.uid}`
   return (
     <div className="video-player video-player-remote">
-      <span className="video-player-label">User {user.uid}</span>
+      <span className="video-player-label">{label}</span>
       <div ref={containerRef} className="video-track-container" style={{ width: '100%', height: '100%' }} />
     </div>
   )
@@ -597,7 +640,7 @@ function VideoCallChat({ channelName, user }) {
   )
 }
 
-function SortableRemoteVideo({ user }) {
+function SortableRemoteVideo({ user, displayName }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: user.uid })
 
@@ -614,7 +657,7 @@ function SortableRemoteVideo({ user }) {
       {...attributes}
       {...listeners}
     >
-      <RemoteVideoPlayer user={user} />
+      <RemoteVideoPlayer user={user} displayName={displayName} />
     </div>
   )
 }

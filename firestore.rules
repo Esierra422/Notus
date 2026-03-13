@@ -119,6 +119,10 @@ service cloud.firestore {
         allow read, create: if request.auth != null;
         allow update, delete: if false;
       }
+      // Participants: display names for video tiles (Agora uid -> displayName)
+      match /participants/{participantId} {
+        allow read, create, update, delete: if request.auth != null;
+      }
     }
 
     // Memberships: create (new org owner or join request), read, update (approve/reject)

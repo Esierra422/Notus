@@ -292,10 +292,10 @@ export function formatPhoneForDisplay(value) {
   return formatted ? `${parsed.code} ${formatted}` : parsed.code
 }
 
-/** Extract national digits from formatted input */
+/** Extract national digits from formatted input (allows partial for typing). */
 export function extractNationalNumber(code, input) {
   const d = String(input ?? '').replace(/\D/g, '')
-  if (d.length < 4) return null
+  if (d.length === 0) return null
   const entry = COUNTRY_CODES.find((c) => c.code === code)
   const maxLen = entry?.maxLen ?? 15
   return { digits: d.slice(0, maxLen) }
