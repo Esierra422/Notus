@@ -15,11 +15,14 @@ import { db, getFunctionsApp } from '../lib/firebase.js'
 import { httpsCallable } from 'firebase/functions'
 import {
   collection,
+  doc,
   query,
   orderBy,
   limit,
   onSnapshot,
   addDoc,
+  setDoc,
+  deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore'
 
@@ -92,6 +95,7 @@ export function VideoCallPage() {
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
+  const [participantNames, setParticipantNames] = useState({}) // Agora uid -> displayName
   const [chatOpen, setChatOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingAnswer, setMeetingAnswer] = useState('')
@@ -196,6 +200,20 @@ export function VideoCallPage() {
       cleanup()
     }
   }, [cleanup])
+
+  // Subscribe to participant display names for this channel (so we show names instead of "User 12345")
+  useEffect(() => {
+    if (!joined || !channelName) return
+    const participantsRef = collection(db, 'videoChannels', channelName, 'participants')
+    const unsub = onSnapshot(participantsRef, (snap) => {
+      const map = {}
+      snap.docs.forEach((d) => {
+        map[d.id] = d.data()?.displayName || `User ${d.id}`
+      })
+      setParticipantNames(map)
+    }, (err) => console.warn('Participant names listener error:', err))
+    return () => unsub()
+  }, [joined, channelName])
 
   const joinChannel = async () => {
     setError('')
@@ -308,6 +326,16 @@ export function VideoCallPage() {
 
       setRemoteUsers([])
       setJoined(true)
+
+      // Register our display name for this channel (so other participants see our name)
+      try {
+        await setDoc(doc(db, 'videoChannels', channelName, 'participants', String(uid)), {
+          displayName: user?.displayName || user?.email || 'Anonymous',
+          joinedAt: serverTimestamp(),
+        })
+      } catch (e) {
+        console.warn('Could not register participant name:', e)
+      }
     } catch (err) {
       setError(toFriendlyError(err) || 'Failed to join')
     } finally {
@@ -317,8 +345,19 @@ export function VideoCallPage() {
 
   const leaveChannel = async () => {
     setLoading(true)
+    const uidToRemove = localUidRef.current
     await cleanup()
     setRemoteUsers([])
+    setParticipantNames((prev) => {
+      const next = { ...prev }
+      delete next[uidToRemove]
+      return next
+    })
+    try {
+      await deleteDoc(doc(db, 'videoChannels', channelName, 'participants', String(uidToRemove)))
+    } catch (e) {
+      console.warn('Could not remove participant:', e)
+    }
     setLoading(false)
   }
 
@@ -402,8 +441,8 @@ export function VideoCallPage() {
                   items={remoteUsers.map((u) => u.uid)}
                   strategy={verticalListSortingStrategy}
                 >
-                {remoteUsers.map((user) => (
-                  <SortableRemoteVideo key={user.uid} user={user} />
+                {remoteUsers.map((u) => (
+                  <SortableRemoteVideo key={u.uid} user={u} displayName={participantNames[String(u.uid)]} />
                 ))}
                 </SortableContext>
               </DndContext>
@@ -478,19 +517,19 @@ function LocalVideoTrack({ track, enabled, uid }) {
   )
 }
 
-function RemoteVideoPlayer({ user }) {
+function RemoteVideoPlayer({ user, displayName }) {
   const containerRef = useRef(null)
   useEffect(() => {
-    console.log("RemoteVideoPlayer mount", user?.uid, user?.videoTrack)
     if (!user?.videoTrack || !containerRef.current) return
     user.videoTrack.play(containerRef.current)
     return () => {
       user.videoTrack?.stop()
     }
   }, [user])
+  const label = displayName || `User ${user.uid}`
   return (
     <div className="video-player video-player-remote">
-      <span className="video-player-label">User {user.uid}</span>
+      <span className="video-player-label">{label}</span>
       <div ref={containerRef} className="video-track-container" style={{ width: '100%', height: '100%' }} />
     </div>
   )
@@ -582,7 +621,7 @@ function VideoCallChat({ channelName, user }) {
   )
 }
 
-function SortableRemoteVideo({ user }) {
+function SortableRemoteVideo({ user, displayName }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: user.uid })
 
@@ -599,7 +638,7 @@ function SortableRemoteVideo({ user }) {
       {...attributes}
       {...listeners}
     >
-      <RemoteVideoPlayer user={user} />
+      <RemoteVideoPlayer user={user} displayName={displayName} />
     </div>
   )
 }
