@@ -33,6 +33,16 @@ router.get('/health', (req, res) => {
 })
 
 /**
+ * Meeting Q&A stub. Returns 503 until an AI backend is configured (set VITE_AI_WS_URL to point to it).
+ * POST /api/ask body: { channel, question }
+ */
+router.post('/ask', (req, res) => {
+  res.status(503).json({
+    error: 'Meeting Q&A is not configured. To enable, deploy an AI service and set VITE_AI_WS_URL in the frontend build.',
+  })
+})
+
+/**
  * Proxy to fetch ICS calendar from a URL (avoids CORS when the calendar server
  * does not send Access-Control-Allow-Origin).
  */

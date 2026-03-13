@@ -55,7 +55,6 @@ function toFriendlyError(err) {
   return msg
 }
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const AI_API_BASE = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
 
 /** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
 function rms(samples) {
@@ -97,6 +96,13 @@ export function VideoCallPage() {
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingAnswer, setMeetingAnswer] = useState('')
   const [askLoading, setAskLoading] = useState(false)
+
+  // AI base: dedicated VITE_AI_WS_URL or fall back to main API (so production uses Render URL)
+  const effectiveAiBase = (() => {
+    const u = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
+    if (u) return u
+    return getEffectiveApiBase()
+  })()
 
   //notepad param
   const [showNotepad, setShowNotepad] = useState(false)
@@ -228,18 +234,16 @@ export function VideoCallPage() {
       await client.publish([audioTrack, videoTrack])
 
       // Capture local audio: 16kHz mono, 10s chunks, raw Int16 PCM over WebSocket
-      // Use AI backend WS when VITE_AI_WS_URL is set; otherwise use main API host
+      // Use effective AI base (VITE_AI_WS_URL or main API) for transcription WebSocket
       try {
-        const aiWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
         let wsUrl
-        if (aiWsBase) {
-          const protocol = aiWsBase.startsWith('https') ? 'wss' : 'ws'
-          const host = new URL(aiWsBase).host
+        if (effectiveAiBase) {
+          const protocol = effectiveAiBase.startsWith('https') ? 'wss' : 'ws'
+          const host = new URL(effectiveAiBase).host
           wsUrl = `${protocol}://${host}/ws/transcription`
         } else {
-          const wsProtocol = (API_BASE && API_BASE.startsWith('https')) ? 'wss' : 'ws'
-          const wsHost = API_BASE ? new URL(API_BASE).host : window.location.host
-          wsUrl = `${wsProtocol}://${wsHost}`
+          const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+          wsUrl = `${wsProtocol}://${window.location.host}/ws/transcription`
         }
         const ws = new WebSocket(wsUrl)
         transcriptionWsRef.current = ws
@@ -339,14 +343,14 @@ export function VideoCallPage() {
   const askMeeting = async () => {
     const q = meetingQuestion.trim()
     if (!q || askLoading) return
-    if (!AI_API_BASE) {
-      setMeetingAnswer('Set VITE_AI_WS_URL in .env to use meeting Q&A.')
+    if (!effectiveAiBase) {
+      setMeetingAnswer('No API URL configured for meeting Q&A (set VITE_API_URL or VITE_AI_WS_URL).')
       return
     }
     setAskLoading(true)
     setMeetingAnswer('')
     try {
-      const res = await fetch(`${AI_API_BASE}/ask`, {
+      const res = await fetch(`${effectiveAiBase}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channel: channelName, question: q }),
@@ -433,17 +437,17 @@ export function VideoCallPage() {
                 value={meetingQuestion}
                 onChange={(e) => setMeetingQuestion(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && askMeeting()}
-                disabled={askLoading || !AI_API_BASE}
+                disabled={askLoading || !effectiveAiBase}
               />
-              <Button variant="primary" size="sm" onClick={askMeeting} disabled={askLoading || !meetingQuestion.trim() || !AI_API_BASE}>
+              <Button variant="primary" size="sm" onClick={askMeeting} disabled={askLoading || !meetingQuestion.trim() || !effectiveAiBase}>
                 {askLoading ? '…' : 'Ask'}
               </Button>
             </div>
             {meetingAnswer && (
               <div className="video-call-meeting-chat-answer">{meetingAnswer}</div>
             )}
-            {!AI_API_BASE && (
-              <p className="video-call-meeting-chat-hint">Set VITE_AI_WS_URL to enable.</p>
+            {!effectiveAiBase && (
+              <p className="video-call-meeting-chat-hint">Set VITE_API_URL or VITE_AI_WS_URL to enable meeting Q&A.</p>
             )}
           </div>
         </div>
