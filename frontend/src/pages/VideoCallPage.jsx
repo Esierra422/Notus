@@ -9,6 +9,7 @@ import { CSS } from '@dnd-kit/utilities'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './VideoCallPage.css'
+import { Mic, MicOff, Video, VideoOff, MessageSquare, Bot, LogOut, NotebookPen } from 'lucide-react'
 
 import { getApiUrl, getEffectiveApiBase } from '../lib/apiConfig.js'
 import { db, getFunctionsApp } from '../lib/firebase.js'
@@ -97,9 +98,11 @@ export function VideoCallPage() {
   const [remoteUsers, setRemoteUsers] = useState([])
   const [participantNames, setParticipantNames] = useState({}) // Agora uid -> displayName
   const [chatOpen, setChatOpen] = useState(false)
+  const [askMeetingOpen, setAskMeetingOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
   const [askLoading, setAskLoading] = useState(false)
+  const [controlsVisible, setControlsVisible] = useState(false)
 
   // AI base: dedicated VITE_AI_WS_URL or fall back to main API (so production uses Render URL)
   const effectiveAiBase = (() => {
@@ -122,6 +125,7 @@ export function VideoCallPage() {
   const workletNodeRef = useRef(null)
   const pcmBufferRef = useRef([])
   const transcriptionChunksSentRef = useRef(0)
+  const timeoutRef = useRef(null)
   const CHUNK_DURATION_SEC = 15
 
 
@@ -187,6 +191,26 @@ export function VideoCallPage() {
     })
   }
 
+  const updateGridLayout = useCallback(() => {
+    const container = document.querySelector('.video-streams')
+    if (!container) return
+    const count = remoteUsers.length + 1
+    var cols = 1
+    if(count > 1) cols = 2
+    if(count > 4) cols = 3
+    const rows = Math.ceil(count / cols)
+    container.style.setProperty('--cols', cols)
+    container.style.setProperty('--rows', rows)
+  }, [remoteUsers])
+
+  const handleMouseMove = () => {
+    setControlsVisible(true)
+    if(timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      setControlsVisible(false)
+    }, 2000)
+  }
+
   useEffect(() => {
     if (channelFromUrl) setChannelName(channelFromUrl)
   }, [channelFromUrl])
@@ -219,6 +243,10 @@ export function VideoCallPage() {
     }, (err) => console.warn('Participant names listener error:', err))
     return () => unsub()
   }, [joined, channelName])
+
+  useEffect(() => {
+    updateGridLayout()
+  }, [remoteUsers, updateGridLayout])
 
   const joinChannel = async () => {
     setError('')
@@ -384,6 +412,16 @@ export function VideoCallPage() {
     setShowNotepad(!showNotepad)
   }
 
+  const toggleChat = () => {
+    setChatOpen(o => !o)
+    if(askMeetingOpen) setAskMeetingOpen(o => !o)
+  }
+
+  const toggleBot = () => {
+    setAskMeetingOpen(o => !o)
+    if(chatOpen) setChatOpen(o => !o)
+  }
+
   const askMeeting = async () => {
     const q = meetingQuestion.trim()
     if (!q || askLoading) return
@@ -414,10 +452,6 @@ export function VideoCallPage() {
 
   return (
     <main className="app-main video-call-main">
-      <div className="video-call-header">
-        <h2>Video Call</h2>
-      </div>
-
       {!joined ? (
         <div className="video-call-join">
           <input
@@ -434,7 +468,7 @@ export function VideoCallPage() {
           </Button>
         </div>
       ) : (
-        <div className="video-call-room">
+        <div className="video-call-room" onMouseMove={handleMouseMove}>
           <div className="video-area">
             <div className="video-streams">
               <div className="video-player video-player-local" id="local-player">
@@ -453,25 +487,30 @@ export function VideoCallPage() {
                 </SortableContext>
               </DndContext>
             </div>
-            <div className="video-call-controls">
+
+          </div>            
+          <div className="video-call-controls" style={{opacity: controlsVisible ? 1 : 0, pointerEvents: controlsVisible ? 'auto' : 'none'}}>
               <Button variant={micEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleMic}>
-                {micEnabled ? 'Mic on' : 'Mic off'}
+                {micEnabled ? <Mic size={36}/> : <MicOff size={36}/>}
               </Button>
               <Button variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam}>
-                {camEnabled ? 'Camera on' : 'Camera off'}
+                {camEnabled ? <Video size={36}/> : <VideoOff size={36}/>}
               </Button>
             <Button variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad}>
-              {showNotepad ? 'Notepad' : 'Notepad'}
+                <NotebookPen size={36}/>
             </Button>        
-              <Button variant={chatOpen ? 'primary' : 'outline'} size="sm" onClick={() => setChatOpen(o => !o)}>
-                Chat
+              <Button variant={chatOpen ? 'primary' : 'outline'} size="sm" onClick={toggleChat}>
+                <MessageSquare size={36}/>
+              </Button>
+              <Button variant={askMeetingOpen ? 'primary' : 'outline'} size="sm" onClick={toggleBot}>
+                <Bot size={36}/>
               </Button>
               <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
-                Leave
+                <LogOut size={36}/>
               </Button>
             </div>
-          </div>
           {chatOpen && <VideoCallChat channelName={channelName} user={user} />}
+          {askMeetingOpen && (
           <div className="video-call-meeting-chat">
             <span className="video-call-meeting-chat-label">Ask about this meeting</span>
             {meetingHistory.length > 0 && (
@@ -508,6 +547,7 @@ export function VideoCallPage() {
               <p className="video-call-meeting-chat-hint">Set VITE_API_URL or VITE_AI_WS_URL to enable meeting Q&A.</p>
             )}
           </div>
+          )}
         </div>
       )}
       <div style={{ display: showNotepad ? 'block' : 'none' }}>

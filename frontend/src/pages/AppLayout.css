@@ -49,6 +49,15 @@
   overflow: hidden;
 }
 
+.app-layout-video {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-layout-video .page-transition {
+  overflow: hidden;
+}
+
 .app-header {
   display: flex;
   align-items: center;

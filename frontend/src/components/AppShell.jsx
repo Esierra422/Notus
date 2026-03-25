@@ -29,6 +29,7 @@ export function AppShell() {
   const [userDoc, setUserDoc] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const isChatsPage = /\/org\/[^/]+\/chats/.test(location.pathname)
+  const isVideoPage = location.pathname === '/app/video'
   const [activeOrg, setActiveOrg] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [navExtraOverride, setNavExtraOverride] = useState(undefined)
@@ -162,12 +163,12 @@ export function AppShell() {
 
   return (
     <NavExtraContext.Provider value={setNavExtraOverride}>
-      <div className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''}`}>
+      <div className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''} ${isVideoPage ? 'app-layout-video' : ''}`}>
         <AppHeader user={user} orgName={displayedOrg?.name} activeOrgId={activeOrgId} isAdmin={isAdmin} navExtraOverride={navExtraOverride} currentPageTitle={currentPageTitle} />
         <PageTransition>
           <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride }} />
         </PageTransition>
-        {!isChatsPage && <AppFooter />}
+        {!isChatsPage && !isVideoPage && <AppFooter />}
       </div>
     </NavExtraContext.Provider>
   )
