@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import AgoraRTC from 'agora-rtc-sdk-ng'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Notepad } from '../pages/Notepad'
@@ -11,9 +10,9 @@ import './AppLayout.css'
 import './VideoCallPage.css'
 import { Mic, MicOff, Video, VideoOff, MessageSquare, Bot, LogOut, NotebookPen } from 'lucide-react'
 
-import { getApiUrl, getEffectiveApiBase } from '../lib/apiConfig.js'
-import { db, getFunctionsApp } from '../lib/firebase.js'
-import { httpsCallable } from 'firebase/functions'
+import * as videoApp from '../lib/videoAppService.js'
+import { getEffectiveApiBase } from '../lib/apiConfig.js'
+import { db } from '../lib/firebase.js'
 import {
   collection,
   doc,
@@ -27,26 +26,6 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 
-/** Fetch token from backend API or Firebase callable (production fallback). */
-async function fetchVideoToken(channelName, uid) {
-  const apiBase = getEffectiveApiBase()
-  if (apiBase) {
-    const url = `${getApiUrl('/api/video/token')}?channel=${encodeURIComponent(channelName)}&uid=${uid}`
-    const res = await fetch(url)
-    const contentType = res.headers.get('content-type') || ''
-    if (contentType.includes('application/json')) {
-      const data = await res.json()
-      if (res.ok) return data
-      throw new Error(data.error || 'Failed to get token')
-    }
-    if (!res.ok) throw new Error(`Token request failed (${res.status})`)
-    throw new Error('Server did not return JSON. Is the backend running and configured for video?')
-  }
-  const getAgoraToken = httpsCallable(getFunctionsApp(), 'getAgoraToken')
-  const { data } = await getAgoraToken({ channel: channelName, uid })
-  return data
-}
-
 function toFriendlyError(err) {
   const msg = err?.message || String(err)
   const prodHint = " On the live site, deploy the backend to Render (free) and set VITE_API_URL—see README: Production video (free)."
@@ -58,7 +37,6 @@ function toFriendlyError(err) {
     return "Video isn't configured for production." + prodHint
   return msg
 }
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
 /** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
 function rms(samples) {
@@ -85,7 +63,6 @@ function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGE
 }
 
 export function VideoCallPage() {
-  //video params
   const { user, setNavExtra } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
   const channelFromUrl = searchParams.get('channel') || ''
@@ -96,86 +73,50 @@ export function VideoCallPage() {
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
-  const [participantNames, setParticipantNames] = useState({}) // Agora uid -> displayName
+  const [participantNames, setParticipantNames] = useState({})
   const [chatOpen, setChatOpen] = useState(false)
   const [askMeetingOpen, setAskMeetingOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
   const [askLoading, setAskLoading] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(false)
-
-  // AI base: dedicated VITE_AI_WS_URL or fall back to main API (so production uses Render URL)
-  const effectiveAiBase = (() => {
-    const u = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
-    if (u) return u
-    return getEffectiveApiBase()
-  })()
-
-  //notepad param
   const [showNotepad, setShowNotepad] = useState(false)
 
-  const clientRef = useRef(null)
-  const localAudioRef = useRef(null)
-  const localVideoRef = useRef(null)
+  const localVideoTrackRef = useRef(null)
   const localUidRef = useRef(0)
-  const mediaRecorderRef = useRef(null)
-  const audioChunksRef = useRef([])
   const transcriptionWsRef = useRef(null)
   const audioContextRef = useRef(null)
   const workletNodeRef = useRef(null)
   const pcmBufferRef = useRef([])
   const transcriptionChunksSentRef = useRef(0)
   const timeoutRef = useRef(null)
-  const CHUNK_DURATION_SEC = 15
+
+  const effectiveAiBase = (() => {
+    const u = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
+    if (u) return u
+    return getEffectiveApiBase()
+  })()
 
 
 
   const cleanup = useCallback(async () => {
     if (transcriptionWsRef.current) {
-      try {
-        transcriptionWsRef.current.close()
-      } catch (e) {
-        console.warn('Transcription WS close error:', e)
-      }
+      try { transcriptionWsRef.current.close() } catch (e) { console.warn('Transcription WS close error:', e) }
       transcriptionWsRef.current = null
     }
     if (workletNodeRef.current && audioContextRef.current) {
-      try {
-        workletNodeRef.current.disconnect()
-        audioContextRef.current.close()
-      } catch (e) {
-        console.warn('AudioContext cleanup error:', e)
-      }
+      try { workletNodeRef.current.disconnect(); audioContextRef.current.close() } catch (e) { console.warn('AudioContext cleanup error:', e) }
       workletNodeRef.current = null
       audioContextRef.current = null
     }
     pcmBufferRef.current = []
     transcriptionChunksSentRef.current = 0
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop()
-      } catch (e) {
-        console.warn('MediaRecorder stop error:', e)
-      }
-      mediaRecorderRef.current = null
-    }
-    audioChunksRef.current = []
-    const client = clientRef.current
-    if (!client) return
     try {
-      if (localAudioRef.current) {
-        localAudioRef.current.close()
-        localAudioRef.current = null
-      }
-      if (localVideoRef.current) {
-        localVideoRef.current.close()
-        localVideoRef.current = null
-      }
-      await client.leave()
+      await videoApp.leaveChannel()
     } catch (e) {
       console.warn('Cleanup error:', e)
     }
-    clientRef.current = null
+    localVideoTrackRef.current = null
     setJoined(false)
   }, [])
 
@@ -252,41 +193,29 @@ export function VideoCallPage() {
     setError('')
     setLoading(true)
     try {
-      const uid = Math.floor(Math.random() * 100000)
+      // Wire up remote user callbacks before joining
+      videoApp.setCallbacks({
+        onJoined: (remoteUser) => {
+          setRemoteUsers((prev) => [
+            ...prev.filter((u) => u.uid !== remoteUser.uid),
+            remoteUser,
+          ])
+        },
+        onLeft: (remoteUser) => {
+          setRemoteUsers((prev) => prev.filter((u) => u.uid !== remoteUser.uid))
+        },
+      })
+
+      // Clear before joining so the slate is clean, but won't wipe users discovered during join
+      setRemoteUsers([])
+
+      const { uid, audioTrack, videoTrack } = await videoApp.joinChannel(channelName)
       localUidRef.current = uid
-      const data = await fetchVideoToken(channelName, uid)
+      localVideoTrackRef.current = videoTrack
 
-      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
-      clientRef.current = client
-
-      client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType)
-        if (mediaType === 'video') {
-          setRemoteUsers((prev) => {
-            if (prev.some((u) => u.uid === user.uid)) return prev
-            return [...prev, user]
-          })
-        }
-        if (mediaType === 'audio') {
-          user.audioTrack?.play()
-        }
-      })
-
-      client.on('user-unpublished', (user, mediaType) => {
-        if (mediaType === 'video') {
-          setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid))
-        }
-      })
-
-      await client.join(data.appId, channelName, data.token, data.uid)
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks()
-      localAudioRef.current = audioTrack
-      localVideoRef.current = videoTrack
-      await client.publish([audioTrack, videoTrack])
-
-      // Capture local audio: 16kHz mono, 10s chunks, raw Int16 PCM over WebSocket
-      // Use effective AI base (VITE_AI_WS_URL or main API) for transcription WebSocket
+      // Transcription capture
       try {
+        const CHUNK_DURATION_SEC = 15
         let wsUrl
         if (effectiveAiBase) {
           const protocol = effectiveAiBase.startsWith('https') ? 'wss' : 'ws'
@@ -357,10 +286,8 @@ export function VideoCallPage() {
         console.warn('Audio capture for transcription failed:', e)
       }
 
-      setRemoteUsers([])
       setJoined(true)
 
-      // Register our display name for this channel (so other participants see our name)
       try {
         await setDoc(doc(db, 'videoChannels', channelName, 'participants', String(uid)), {
           displayName: user?.displayName || user?.email || 'Anonymous',
@@ -394,18 +321,14 @@ export function VideoCallPage() {
     setLoading(false)
   }
 
-  const toggleMic = async () => {
-    if (!localAudioRef.current) return
-    const next = !micEnabled
-    await localAudioRef.current.setEnabled(next)
-    setMicEnabled(next)
+  const toggleMic = () => {
+    const muted = videoApp.toggleMic()
+    setMicEnabled(!muted)
   }
 
-  const toggleCam = async () => {
-    if (!localVideoRef.current) return
-    const next = !camEnabled
-    await localVideoRef.current.setEnabled(next)
-    setCamEnabled(next)
+  const toggleCam = () => {
+    const muted = videoApp.toggleVideo()
+    setCamEnabled(!muted)
   }
 
   const toggleNotepad = () => {
@@ -473,7 +396,7 @@ export function VideoCallPage() {
             <div className="video-streams">
               <div className="video-player video-player-local" id="local-player">
                 <span className="video-player-label">You</span>
-                <LocalVideoTrack track={localVideoRef.current} enabled={camEnabled} uid={localUidRef.current} />
+                <LocalVideoTrack track={localVideoTrackRef.current} enabled={camEnabled} uid={localUidRef.current} />
               </div>
 
               <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -584,7 +507,7 @@ function RemoteVideoPlayer({ user, displayName }) {
     return () => {
       user.videoTrack?.stop()
     }
-  }, [user])
+  }, [user?.videoTrack])  // depend on the track itself, not the user object reference
   const label = displayName || `User ${user.uid}`
   return (
     <div className="video-player video-player-remote">
