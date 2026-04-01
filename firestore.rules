@@ -46,11 +46,16 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
       }
 
-      // Meetings: active org members
+      // Meetings: active org members can read/create/update; creator or admin/owner can delete
       match /meetings/{meetingId} {
         allow read, create, update: if request.auth != null
           && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+        allow delete: if request.auth != null
+          && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active'
+          && (resource.data.createdBy == request.auth.uid
+            || get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.role in ['owner', 'admin']);
       }
 
       // Conversations (WhatsApp-style: DM, group, team chats)

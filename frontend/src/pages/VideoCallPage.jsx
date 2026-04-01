@@ -63,7 +63,7 @@ function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGE
 }
 
 export function VideoCallPage() {
-  const { user, setNavExtra } = useOutletContext() || {}
+  const { user, setNavExtra, activeOrgId } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
   const channelFromUrl = searchParams.get('channel') || ''
   const [channelName, setChannelName] = useState(channelFromUrl || 'channel1')
@@ -359,7 +359,7 @@ export function VideoCallPage() {
       const res = await fetch(`${effectiveAiBase}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: channelName, question: q }),
+        body: JSON.stringify({ channel: channelName, question: q, uid: user.uid, orgId: activeOrgId || '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       })
       const data = await res.json().catch(() => ({}))
       const answer = data.answer ?? data.error ?? (res.ok ? 'No answer.' : `Error ${res.status}`)

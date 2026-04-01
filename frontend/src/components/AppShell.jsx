@@ -166,7 +166,7 @@ export function AppShell() {
       <div className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''} ${isVideoPage ? 'app-layout-video' : ''}`}>
         <AppHeader user={user} orgName={displayedOrg?.name} activeOrgId={activeOrgId} isAdmin={isAdmin} navExtraOverride={navExtraOverride} currentPageTitle={currentPageTitle} />
         <PageTransition>
-          <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride }} />
+          <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride, activeOrgId }} />
         </PageTransition>
         {!isChatsPage && !isVideoPage && <AppFooter />}
       </div>
