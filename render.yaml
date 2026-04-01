@@ -26,3 +26,14 @@ services:
         sync: false
       - key: AGORA_APP_CERTIFICATE
         sync: false
+
+  - type: web
+    name: notus-signaling
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm run signaling
+    envVars:
+      - key: PORT
+        value: 4444

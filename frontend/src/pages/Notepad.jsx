@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Quill from 'quill'
 import { QuillBinding } from 'y-quill'
 import * as Y from 'yjs'
-import { WebsocketProvider } from 'y-websocket'
+import { WebrtcProvider } from 'y-webrtc'
 import QuillCursors from 'quill-cursors'
 import '../styles/Notepad.css'
 
@@ -90,19 +90,27 @@ export function Notepad() {
 
   const connectCollaboration = () => {
     try {
-      // Determine the WebSocket URL based on environment
-      const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/ws/collab'
+      // Signaling server URL: set VITE_SIGNALING_URL in production (.env.production)
+      const signalingUrl = import.meta.env.VITE_SIGNALING_URL || 'ws://localhost:4444'
       
-      // Initialize Yjs document and provider
+      // Initialize Yjs document
       const ydoc = new Y.Doc()
       ydocRef.current = ydoc
       
-      const provider = new WebsocketProvider(
-        wsUrl,
+      const provider = new WebrtcProvider(
         'notus-notepad',
         ydoc,
         {
-          connect: true
+          signaling: [signalingUrl],
+          peerOpts: {
+            iceServers: [
+              { urls: 'stun:stun.relay.metered.ca:80' },
+              { urls: 'turn:standard.relay.metered.ca:80', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
+              { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
+              { urls: 'turn:standard.relay.metered.ca:443', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
+              { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
+            ],
+          },
         }
       )
       providerRef.current = provider
@@ -118,7 +126,7 @@ export function Notepad() {
       )
       bindingRef.current = binding
       
-      console.log('Connected to collaboration server')
+      console.log('Connected to collaboration signaling server:', signalingUrl)
     } catch (err) {
       console.error('Failed to connect to collaboration server:', err)
     }
