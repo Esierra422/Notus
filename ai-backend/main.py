@@ -2,6 +2,7 @@
 AI backend: WebSocket transcription (Whisper), Pinecone per meeting, LangChain RAG.
 Connect frontend transcription WS here instead of Express.
 Supports OpenAI function calling to create calendar meetings and tasks via Firestore.
+Post-meeting summary generation with full transcript stored in Firestore.
 """
 import io
 import json
@@ -304,10 +305,33 @@ def raw_pcm_to_wav_buffer(raw_pcm: bytes) -> bytes:
     return header + raw_pcm
 
 
+def _append_transcript_to_firestore(channel: str, uid, text: str) -> None:
+    """Append a transcript chunk to the Firestore meetingTranscripts document for this channel."""
+    if not _firestore_db or not channel:
+        return
+    try:
+        from google.cloud.firestore_v1 import ArrayUnion, Increment, SERVER_TIMESTAMP
+        doc_ref = _firestore_db.collection("meetingTranscripts").document(channel)
+        chunk = {
+            "text": text,
+            "uid": str(uid) if uid else "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        doc_ref.set({
+            "channelName": channel,
+            "chunks": ArrayUnion([chunk]),
+            "totalWordCount": Increment(len(text.split())),
+            "updatedAt": SERVER_TIMESTAMP,
+        }, merge=True)
+    except Exception as e:
+        print(f"Firestore transcript append error: {e}")
+
+
 def on_transcript(channel: str, uid: int, text: str) -> None:
-    """Called on each Whisper segment: log and add to Pinecone for this meeting."""
+    """Called on each Whisper segment: log, add to Pinecone for RAG, and append to Firestore for full transcript."""
     print(f"[{channel}] Transcript (uid={uid}): {text}")
     add_transcript_to_meeting(channel, text)
+    _append_transcript_to_firestore(channel, uid, text)
 
 
 @asynccontextmanager
@@ -386,6 +410,110 @@ def ask(body: AskBody):
     return result
 
 
+class SummarizeBody(BaseModel):
+    channel: str = ""
+    uid: str = ""
+    orgId: str = ""
+    participants: list[str] = []
+
+
+@app.post("/api/generate-summary")
+def generate_summary(body: SummarizeBody):
+    """Generate a post-meeting summary from the full transcript stored in Firestore."""
+    print(f"[Summary] Request: channel={body.channel}, uid={body.uid}, orgId={body.orgId}, participants={body.participants}")
+    if not _firestore_db:
+        print("[Summary] ERROR: Firestore not configured")
+        return {"error": "Firestore not configured."}
+    if not openai_client or not OPENAI_API_KEY:
+        print("[Summary] ERROR: OpenAI not configured")
+        return {"error": "OpenAI API key not configured."}
+    if not body.channel.strip():
+        print("[Summary] ERROR: Missing channel name")
+        return {"error": "Missing channel name."}
+
+    # Read full transcript from Firestore
+    try:
+        doc_ref = _firestore_db.collection("meetingTranscripts").document(body.channel.strip())
+        doc = doc_ref.get()
+        if not doc.exists:
+            print(f"[Summary] ERROR: No transcript doc found for channel '{body.channel}'")
+            return {"error": "No transcript found for this meeting.", "wordCount": 0}
+        data = doc.to_dict()
+        chunks = data.get("chunks", [])
+        if not chunks:
+            print("[Summary] ERROR: Transcript doc exists but chunks array is empty")
+            return {"error": "Transcript is empty.", "wordCount": 0}
+        print(f"[Summary] Found {len(chunks)} chunks in Firestore")
+    except Exception as e:
+        print(f"[Summary] ERROR reading transcript: {e}")
+        return {"error": f"Failed to read transcript: {e}"}
+
+    full_text = " ".join(c.get("text", "") for c in chunks)
+    word_count = len(full_text.split())
+    print(f"[Summary] Total word count: {word_count}")
+    if word_count < 100:
+        print(f"[Summary] Transcript too short ({word_count} words)")
+        return {"error": "Transcript too short for a meaningful summary.", "wordCount": word_count}
+
+    # Generate summary via OpenAI
+    print("[Summary] Calling OpenAI for summary generation...")
+    try:
+        system_prompt = (
+            "You are an AI that summarizes meeting transcripts. Given the full transcript below, "
+            "produce a structured JSON response with these keys:\n"
+            '- "title": a short, descriptive meeting title (5-10 words)\n'
+            '- "summary": a 2-4 paragraph summary of what was discussed\n'
+            '- "keyPoints": an array of 3-7 key takeaways as short bullet strings\n'
+            '- "actionItems": an array of action items or next steps mentioned (empty array if none)\n\n'
+            "Respond ONLY with valid JSON. No markdown, no extra text.\n\n"
+            f"Transcript:\n\n{full_text}"
+        )
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Please summarize this meeting."},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3,
+        )
+        raw = response.choices[0].message.content or "{}"
+        summary_data = json.loads(raw)
+    except Exception as e:
+        print(f"[Summary] ERROR OpenAI: {e}")
+        return {"error": f"Summary generation failed: {e}"}
+
+    print(f"[Summary] OpenAI returned title: {summary_data.get('title')}")
+    # Write summary to Firestore
+    try:
+        from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+        summary_doc = {
+            "channelName": body.channel.strip(),
+            "generatedBy": body.uid,
+            "orgId": body.orgId,
+            "title": summary_data.get("title", "Meeting Summary"),
+            "summary": summary_data.get("summary", ""),
+            "keyPoints": summary_data.get("keyPoints", []),
+            "actionItems": summary_data.get("actionItems", []),
+            "participants": body.participants,
+            "transcript": full_text,
+            "wordCount": word_count,
+            "createdAt": SERVER_TIMESTAMP,
+        }
+        doc_ref = _firestore_db.collection("meetingSummaries").document()
+        doc_ref.set(summary_doc)
+        print(f"[Summary] SUCCESS: saved as {doc_ref.id}")
+        return {
+            "success": True,
+            "summaryId": doc_ref.id,
+            "title": summary_doc["title"],
+            "wordCount": word_count,
+        }
+    except Exception as e:
+        print(f"[Summary] ERROR saving to Firestore: {e}")
+        return {"error": f"Failed to save summary: {e}"}
+
+
 @app.websocket("/ws/transcription")
 async def websocket_transcription(websocket: WebSocket):
     await websocket.accept()
@@ -420,6 +548,8 @@ async def websocket_transcription(websocket: WebSocket):
                 print("OpenAI API key not set. Set OPENAI_API_KEY in .env")
                 continue
             try:
+                duration_sec = len(data) / (WHISPER_SAMPLE_RATE * 2)  # 16-bit = 2 bytes per sample
+                print(f"[{channel}] Audio chunk: {len(data)} bytes, ~{duration_sec:.1f}s")
                 wav_bytes = raw_pcm_to_wav_buffer(data)
                 file_like = io.BytesIO(wav_bytes)
                 file_like.name = "audio.wav"
@@ -439,10 +569,3 @@ async def websocket_transcription(websocket: WebSocket):
         print(f"WebSocket error: {e}")
     finally:
         print(f"Transcription WS closed: channel={channel}, uid={uid}")
-        # Test RAG when meeting ends: ask "What is MCP?" and print the answer
-        if channel and OPENAI_API_KEY:
-            try:
-                test_answer = ask_meeting(channel, "What is MCP?")
-                print(f"[RAG test] What is MCP? -> {test_answer}")
-            except Exception as e:
-                print(f"[RAG test] Error: {e}")

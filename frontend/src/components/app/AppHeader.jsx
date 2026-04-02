@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { subscribeConversations } from '../../lib/conversationService'
 import { useState, useEffect } from 'react'
-import { LayoutDashboardIcon, CalendarIcon, MessageSquareIcon, UserIcon, VideoIcon } from '../ui/Icons'
+import { LayoutDashboardIcon, CalendarIcon, MessageSquareIcon, UserIcon, VideoIcon, FileTextIcon } from '../ui/Icons'
 import { NotificationsDropdown } from './NotificationsDropdown'
 import { AccountMenuDropdown } from './AccountMenuDropdown'
 import './AppHeader.css'
@@ -76,6 +76,9 @@ export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverrid
             </Link>
             <Link to="/app/video" className="app-nav-icon-btn" title="Video Call" aria-label="Video Call">
               <VideoIcon size={20} />
+            </Link>
+            <Link to="/app/previous-meetings" className="app-nav-icon-btn" title="Previous Meetings" aria-label="Previous Meetings">
+              <FileTextIcon size={20} />
             </Link>
             <ChatsNavLink user={user} activeOrgId={activeOrgId} />
             <AdminNavLink isAdmin={isAdmin} />

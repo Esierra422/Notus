@@ -15,6 +15,7 @@ let localUid = 0
 // Callbacks the page sets to react to remote user changes
 let onUserJoined = null
 let onUserLeft = null
+let onAudioPublished = null
 
 function initializeClient() {
   if (isClientInitialized) return
@@ -31,6 +32,7 @@ function setupEventListeners() {
     }
     if (mediaType === 'audio') {
       user.audioTrack?.play()
+      onAudioPublished?.(user)
     }
   })
 
@@ -123,9 +125,10 @@ function getLocalUid() {
   return localUid
 }
 
-function setCallbacks({ onJoined, onLeft }) {
+function setCallbacks({ onJoined, onLeft, onAudioPublished: onAudioPub }) {
   onUserJoined = onJoined || null
   onUserLeft = onLeft || null
+  onAudioPublished = onAudioPub || null
 }
 
 export {

@@ -130,6 +130,18 @@ service cloud.firestore {
       }
     }
 
+    // Meeting transcripts: Admin SDK only (ai-backend writes during transcription)
+    match /meetingTranscripts/{channelName} {
+      allow read, write: if false;
+    }
+
+    // Meeting summaries: authenticated user can read their own; Admin SDK creates
+    match /meetingSummaries/{summaryId} {
+      allow read: if request.auth != null
+        && resource.data.generatedBy == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
     // Memberships: create (new org owner or join request), read, update (approve/reject)
     match /memberships/{membershipId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;

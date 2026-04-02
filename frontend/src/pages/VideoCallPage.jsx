@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useOutletContext, useSearchParams } from 'react-router-dom'
+import { useOutletContext, useSearchParams, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Notepad } from '../pages/Notepad'
 import { DndContext, closestCenter } from '@dnd-kit/core'
@@ -12,6 +12,7 @@ import { Mic, MicOff, Video, VideoOff, MessageSquare, Bot, LogOut, NotebookPen }
 
 import * as videoApp from '../lib/videoAppService.js'
 import { getEffectiveApiBase } from '../lib/apiConfig.js'
+import { generateMeetingSummary } from '../lib/meetingSummaryService.js'
 import { db } from '../lib/firebase.js'
 import {
   collection,
@@ -46,7 +47,7 @@ function rms(samples) {
   return Math.sqrt(sum / samples.length)
 }
 
-const SPEECH_RMS_THRESHOLD = 0.01
+const SPEECH_RMS_THRESHOLD = 0.002
 const TARGET_SAMPLE_RATE = 16000
 
 /** Downsample Float32 mono to target rate and convert to Int16 LE (raw PCM for Whisper). */
@@ -65,6 +66,7 @@ function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGE
 export function VideoCallPage() {
   const { user, setNavExtra, activeOrgId } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const channelFromUrl = searchParams.get('channel') || ''
   const [channelName, setChannelName] = useState(channelFromUrl || 'channel1')
   const [joined, setJoined] = useState(false)
@@ -81,6 +83,7 @@ export function VideoCallPage() {
   const [askLoading, setAskLoading] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(false)
   const [showNotepad, setShowNotepad] = useState(false)
+  const [generatingSummary, setGeneratingSummary] = useState(false)
 
   const localVideoTrackRef = useRef(null)
   const localUidRef = useRef(0)
@@ -204,6 +207,20 @@ export function VideoCallPage() {
         onLeft: (remoteUser) => {
           setRemoteUsers((prev) => prev.filter((u) => u.uid !== remoteUser.uid))
         },
+        onAudioPublished: (remoteUser) => {
+          // Connect remote audio to the transcription worklet so all voices are captured
+          try {
+            const ctx = audioContextRef.current
+            const worklet = workletNodeRef.current
+            if (ctx && worklet && remoteUser.audioTrack) {
+              const remoteStream = new MediaStream([remoteUser.audioTrack.getMediaStreamTrack()])
+              const remoteSource = ctx.createMediaStreamSource(remoteStream)
+              remoteSource.connect(worklet)
+            }
+          } catch (e) {
+            console.warn('Could not connect remote audio to transcription:', e)
+          }
+        },
       })
 
       // Clear before joining so the slate is clean, but won't wipe users discovered during join
@@ -271,7 +288,9 @@ export function VideoCallPage() {
           while (pcmBufferRef.current.length >= samplesPerChunkAtCapture) {
             const chunk = pcmBufferRef.current.splice(0, samplesPerChunkAtCapture)
             const isFirstChunk = transcriptionChunksSentRef.current === 0
-            const aboveThreshold = rms(chunk) >= SPEECH_RMS_THRESHOLD
+            const chunkRms = rms(chunk)
+            const aboveThreshold = chunkRms >= SPEECH_RMS_THRESHOLD
+            console.log(`[Transcription] chunk RMS: ${chunkRms.toFixed(6)}, threshold: ${SPEECH_RMS_THRESHOLD}, sending: ${isFirstChunk || aboveThreshold}`)
             if (ws.readyState === WebSocket.OPEN && (isFirstChunk || aboveThreshold)) {
               const rawPcm = downsampleAndToInt16(chunk, captureRate, TARGET_SAMPLE_RATE)
               ws.send(rawPcm)
@@ -306,6 +325,8 @@ export function VideoCallPage() {
   const leaveChannel = async () => {
     setLoading(true)
     const uidToRemove = localUidRef.current
+    const currentChannel = channelName
+    const currentParticipants = [...new Set(Object.values(participantNames))]
     await cleanup()
     setRemoteUsers([])
     setParticipantNames((prev) => {
@@ -314,11 +335,32 @@ export function VideoCallPage() {
       return next
     })
     try {
-      await deleteDoc(doc(db, 'videoChannels', channelName, 'participants', String(uidToRemove)))
+      await deleteDoc(doc(db, 'videoChannels', currentChannel, 'participants', String(uidToRemove)))
     } catch (e) {
       console.warn('Could not remove participant:', e)
     }
     setLoading(false)
+
+    // Generate post-meeting summary
+    if (effectiveAiBase && currentChannel && user?.uid) {
+      setGeneratingSummary(true)
+      try {
+        const result = await generateMeetingSummary(
+          effectiveAiBase, currentChannel, user.uid, activeOrgId || '', currentParticipants
+        )
+        console.log('[Summary] generate-summary response:', result)
+        if (result.success && result.summaryId) {
+          navigate(`/app/meeting-summary/${result.summaryId}`)
+          return
+        }
+        if (result.error) {
+          console.warn('[Summary] Server returned error:', result.error)
+        }
+      } catch (e) {
+        console.warn('Meeting summary generation failed:', e)
+      }
+      setGeneratingSummary(false)
+    }
   }
 
   const toggleMic = () => {
@@ -375,7 +417,13 @@ export function VideoCallPage() {
 
   return (
     <main className="app-main video-call-main">
-      {!joined ? (
+      {generatingSummary ? (
+        <div className="video-call-generating-summary">
+          <div className="video-call-generating-spinner" />
+          <h2>Generating meeting summary</h2>
+          <p>Hang on tight, this will only take a moment...</p>
+        </div>
+      ) : !joined ? (
         <div className="video-call-join">
           <input
             type="text"

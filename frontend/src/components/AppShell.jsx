@@ -122,6 +122,8 @@ export function AppShell() {
     if (/^\/app\/org\/[^/]+\/admin$/.test(p)) return 'Admin'
     if (/^\/app\/org\/[^/]+\/calendar$/.test(p)) return 'Calendar'
     if (/^\/app\/org\/[^/]+\/teams\/[^/]+$/.test(p)) return 'Team'
+    if (p === '/app/previous-meetings') return 'Previous Meetings'
+    if (/^\/app\/meeting-summary\//.test(p)) return 'Meeting Summary'
     if (p === '/app/features') return 'Features'
     if (p === '/app/how-it-works') return 'How it works'
     return 'Notus'
