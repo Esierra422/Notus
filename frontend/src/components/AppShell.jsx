@@ -122,6 +122,8 @@ export function AppShell() {
     if (/^\/app\/org\/[^/]+\/admin$/.test(p)) return 'Admin'
     if (/^\/app\/org\/[^/]+\/calendar$/.test(p)) return 'Calendar'
     if (/^\/app\/org\/[^/]+\/teams\/[^/]+$/.test(p)) return 'Team'
+    if (p === '/app/previous-meetings') return 'Previous Meetings'
+    if (/^\/app\/meeting-summary\//.test(p)) return 'Meeting Summary'
     if (p === '/app/features') return 'Features'
     if (p === '/app/how-it-works') return 'How it works'
     return 'Notus'
@@ -166,7 +168,7 @@ export function AppShell() {
       <div className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''} ${isVideoPage ? 'app-layout-video' : ''}`}>
         <AppHeader user={user} orgName={displayedOrg?.name} activeOrgId={activeOrgId} isAdmin={isAdmin} navExtraOverride={navExtraOverride} currentPageTitle={currentPageTitle} />
         <PageTransition>
-          <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride }} />
+          <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride, activeOrgId }} />
         </PageTransition>
         {!isChatsPage && !isVideoPage && <AppFooter />}
       </div>

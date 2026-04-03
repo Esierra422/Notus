@@ -26,6 +26,7 @@ Anyone cloning the repo can run the AI backend like this:
    cp .env.example .env
    ```
    Edit `.env`: set `OPENAI_API_KEY`. Optionally `CORS_ORIGIN=http://localhost:5173` and `PORT=8000`.
+   For AI-powered calendar features (creating meetings/tasks via the video call Ask panel), also set `FIREBASE_SERVICE_ACCOUNT_KEY` to your Firebase service account JSON as a single-line string. You can generate one from the Firebase Console under Project Settings > Service accounts > Generate new private key, then collapse the JSON to one line (e.g. `cat key.json | jq -c`). Without this key, transcription and RAG still work but calendar write features are disabled.
 5. **Run the server**
    ```bash
    python -m uvicorn main:app --reload --port 8000

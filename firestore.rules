@@ -46,11 +46,16 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
       }
 
-      // Meetings: active org members
+      // Meetings: active org members can read/create/update; creator or admin/owner can delete
       match /meetings/{meetingId} {
         allow read, create, update: if request.auth != null
           && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+        allow delete: if request.auth != null
+          && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+          && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active'
+          && (resource.data.createdBy == request.auth.uid
+            || get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.role in ['owner', 'admin']);
       }
 
       // Conversations (WhatsApp-style: DM, group, team chats)
@@ -123,6 +128,18 @@ service cloud.firestore {
       match /participants/{participantId} {
         allow read, create, update, delete: if request.auth != null;
       }
+    }
+
+    // Meeting transcripts: Admin SDK only (ai-backend writes during transcription)
+    match /meetingTranscripts/{channelName} {
+      allow read, write: if false;
+    }
+
+    // Meeting summaries: authenticated user can read their own; Admin SDK creates
+    match /meetingSummaries/{summaryId} {
+      allow read: if request.auth != null
+        && resource.data.generatedBy == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     // Memberships: create (new org owner or join request), read, update (approve/reject)

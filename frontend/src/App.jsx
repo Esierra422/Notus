@@ -24,6 +24,8 @@ import {
   ChatsPage,
   AdminPage,
   VideoCallPage,
+  MeetingSummaryPage,
+  PreviousMeetingsPage,
 } from './pages'
 
 function App() {
@@ -44,6 +46,8 @@ function App() {
           <Route path="how-it-works" element={<AppHowItWorksPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="video" element={<VideoCallPage />} />
+          <Route path="previous-meetings" element={<PreviousMeetingsPage />} />
+          <Route path="meeting-summary/:summaryId" element={<MeetingSummaryPage />} />
           <Route path="chats" element={<ChatsRedirect />} />
           <Route path="org/:orgId/calendar" element={<CalendarPage />} />
           <Route path="org/:orgId/chats" element={<ChatsPage />} />

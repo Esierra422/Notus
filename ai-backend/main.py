@@ -1,22 +1,27 @@
 """
 AI backend: WebSocket transcription (Whisper), Pinecone per meeting, LangChain RAG.
 Connect frontend transcription WS here instead of Express.
+Supports OpenAI function calling to create calendar meetings and tasks via Firestore.
+Post-meeting summary generation with full transcript stored in Firestore.
 """
 import io
 import json
 import os
 import struct
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
+from typing import Optional
+
 from pydantic import BaseModel
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import OpenAIEmbeddings
 from openai import OpenAI
 
 load_dotenv()
@@ -30,10 +35,13 @@ EMBEDDING_DIMENSION = 1536  # text-embedding-ada-002 (default OpenAIEmbeddings)
 
 # LangChain: one Pinecone namespace per meeting (channel); embeddings + LLM use OpenAI
 _embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-_pinecone_client: Pinecone | None = None
+_pinecone_client: Optional[Pinecone] = None
 _pinecone_index = None  # pinecone.Index, set at startup
 # Reuse one vectorstore per channel so we don't re-init on every transcript chunk
 _vectorstore_cache: dict[str, PineconeVectorStore] = {}
+
+# Firebase Admin SDK for Firestore writes (calendar meetings & tasks)
+_firestore_db = None
 
 
 def _namespace_for_channel(channel: str) -> str:
@@ -41,7 +49,7 @@ def _namespace_for_channel(channel: str) -> str:
     return (channel or "default").strip() or "default"
 
 
-def _get_vectorstore(channel: str) -> PineconeVectorStore | None:
+def _get_vectorstore(channel: str) -> Optional[PineconeVectorStore]:
     """Get or create PineconeVectorStore for this meeting (channel namespace). Cached per channel."""
     if not _embeddings or _pinecone_index is None:
         return None
@@ -68,26 +76,210 @@ def add_transcript_to_meeting(channel: str, text: str) -> None:
         print(f"Pinecone add_texts error: {e}")
 
 
-def ask_meeting(channel: str, question: str) -> str:
-    """RAG: retrieve relevant transcript chunks for this meeting, then answer with LLM."""
-    if not OPENAI_API_KEY:
-        return "OpenAI API key not configured."
-    vs = _get_vectorstore(channel)
-    if vs is None:
-        return "Embeddings not available."
+TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_meeting",
+            "description": "Create a calendar meeting in the user's organization.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Meeting title"},
+                    "start_time": {"type": "string", "description": "Start time in ISO 8601 format (e.g. 2026-03-26T10:00:00)"},
+                    "end_time": {"type": "string", "description": "End time in ISO 8601 format. Defaults to 1 hour after start."},
+                    "scope": {"type": "string", "enum": ["org", "team", "private"], "description": "Meeting visibility scope. Defaults to org."},
+                },
+                "required": ["title", "start_time"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_task",
+            "description": "Create a personal to-do task for the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Task description"},
+                    "due_date": {"type": "string", "description": "Due date in ISO 8601 format (optional)"},
+                },
+                "required": ["text"],
+            },
+        },
+    },
+]
+
+
+def _parse_iso(dt_string: str, user_tz: str = "") -> datetime:
+    """Parse an ISO 8601 string into a UTC datetime, interpreting naive times in the user's timezone."""
+    dt = datetime.fromisoformat(dt_string)
+    if dt.tzinfo is None:
+        # Naive datetime — treat as user's local time, then convert to UTC
+        try:
+            tz = ZoneInfo(user_tz) if user_tz else timezone.utc
+        except (KeyError, ValueError):
+            tz = timezone.utc
+        dt = dt.replace(tzinfo=tz)
+    return dt.astimezone(timezone.utc)
+
+
+def firestore_create_meeting(uid: str, org_id: str, title: str, start_time: str, end_time: Optional[str], scope: Optional[str], user_tz: str = "") -> dict:
+    """Write a meeting document to Firestore. Returns result dict for the LLM tool response."""
+    if not _firestore_db:
+        return {"success": False, "error": "Calendar features not configured (Firestore unavailable)."}
+    if not uid or not org_id:
+        return {"success": False, "error": "Missing user or organization context. Cannot create meeting."}
+
+    from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+
+    start_dt = _parse_iso(start_time, user_tz)
+    if end_time:
+        end_dt = _parse_iso(end_time, user_tz)
+    else:
+        end_dt = start_dt + timedelta(hours=1)
+
+    scope = scope if scope in ("org", "team", "private") else "org"
+    meetings_ref = _firestore_db.collection("organizations").document(org_id).collection("meetings")
+    doc_ref = meetings_ref.document()
+    doc_ref.set({
+        "orgId": org_id,
+        "title": title or "Meeting",
+        "scope": scope,
+        "scopeTeamId": None,
+        "scopeInviteList": [],
+        "startAt": start_dt,
+        "endAt": end_dt,
+        "createdBy": uid,
+        "createdAt": SERVER_TIMESTAMP,
+    })
+    return {"success": True, "meetingId": doc_ref.id, "title": title, "startAt": start_time}
+
+
+def firestore_create_task(uid: str, text: str, due_date: Optional[str], user_tz: str = "") -> dict:
+    """Write a todo document to Firestore. Returns result dict for the LLM tool response."""
+    if not _firestore_db:
+        return {"success": False, "error": "Calendar features not configured (Firestore unavailable)."}
+    if not uid:
+        return {"success": False, "error": "Missing user context. Cannot create task."}
+
+    from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+
+    data = {
+        "text": (text or "").strip(),
+        "done": False,
+        "createdAt": SERVER_TIMESTAMP,
+    }
+    if due_date:
+        data["dueDate"] = _parse_iso(due_date, user_tz)
+
+    todos_ref = _firestore_db.collection("users").document(uid).collection("todos")
+    doc_ref = todos_ref.document()
+    doc_ref.set(data)
+    return {"success": True, "taskId": doc_ref.id, "text": text}
+
+
+def _execute_tool_call(name: str, arguments: dict, uid: str, org_id: str, user_tz: str = "") -> dict:
+    """Dispatch a tool call to the appropriate Firestore helper."""
     try:
-        docs = vs.similarity_search(question, k=6)
-        context = "\n\n".join(d.page_content for d in docs) if docs else "(No transcript content yet.)"
-        llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY, temperature=0)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "Answer based only on the following meeting transcript excerpts. If the content does not contain enough information, say so briefly."),
-            ("human", "Transcript excerpts:\n\n{context}\n\nQuestion: {question}"),
-        ])
-        chain = prompt | llm
-        response = chain.invoke({"context": context, "question": question})
-        return response.content if hasattr(response, "content") else str(response)
+        if name == "create_meeting":
+            return firestore_create_meeting(
+                uid, org_id,
+                arguments.get("title", "Meeting"),
+                arguments["start_time"],
+                arguments.get("end_time"),
+                arguments.get("scope"),
+                user_tz,
+            )
+        elif name == "create_task":
+            return firestore_create_task(
+                uid,
+                arguments.get("text", ""),
+                arguments.get("due_date"),
+                user_tz,
+            )
+        return {"success": False, "error": f"Unknown tool: {name}"}
+    except (ValueError, KeyError) as e:
+        return {"success": False, "error": f"Invalid parameters: {e}"}
     except Exception as e:
-        return f"Error: {e}"
+        return {"success": False, "error": str(e)}
+
+
+def ask_meeting(channel: str, question: str, uid: str = "", org_id: str = "", user_tz: str = "") -> dict:
+    """RAG + function calling: answer transcript questions or create meetings/tasks."""
+    if not OPENAI_API_KEY or not openai_client:
+        return {"answer": "OpenAI API key not configured."}
+    vs = _get_vectorstore(channel)
+    context = "(No transcript content yet.)"
+    if vs is not None:
+        try:
+            docs = vs.similarity_search(question, k=6)
+            if docs:
+                context = "\n\n".join(d.page_content for d in docs)
+        except Exception:
+            pass
+
+    # Show the current time in the user's timezone so the LLM can resolve "tomorrow", "next Monday", etc.
+    try:
+        tz = ZoneInfo(user_tz) if user_tz else timezone.utc
+    except (KeyError, ValueError):
+        tz = timezone.utc
+    now_local = datetime.now(tz).strftime("%Y-%m-%dT%H:%M:%S")
+    tz_label = user_tz or "UTC"
+    system_msg = (
+        "You are an AI assistant in a video meeting. You can answer questions about the meeting transcript, "
+        "create calendar meetings, and create tasks for the user. "
+        "Use the provided tools when the user asks to schedule something or create a task. "
+        "For questions about the meeting, answer based on the transcript context. "
+        f"The current date/time in the user's timezone ({tz_label}) is {now_local}. "
+        "IMPORTANT: All times in tool call arguments (start_time, end_time, due_date) must be plain local times "
+        "WITHOUT any UTC offset or timezone suffix (e.g. 2026-03-27T14:00:00, not 2026-03-27T14:00:00-04:00). "
+        "The server handles timezone conversion automatically.\n\n"
+        f"Transcript excerpts:\n\n{context}"
+    )
+
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": question},
+    ]
+
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            temperature=0,
+        )
+        choice = response.choices[0]
+
+        if choice.message.tool_calls:
+            # Execute each tool call and collect results
+            messages.append(choice.message)
+            actions = []
+            for tool_call in choice.message.tool_calls:
+                args = json.loads(tool_call.function.arguments)
+                result = _execute_tool_call(tool_call.function.name, args, uid, org_id, user_tz)
+                actions.append({"type": tool_call.function.name, **result})
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(result),
+                })
+
+            # Second LLM call to get natural language confirmation
+            follow_up = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                temperature=0,
+            )
+            answer = follow_up.choices[0].message.content or ""
+            return {"answer": answer, "actions": actions}
+        else:
+            return {"answer": choice.message.content or ""}
+
+    except Exception as e:
+        return {"answer": f"Error: {e}"}
 
 
 def raw_pcm_to_wav_buffer(raw_pcm: bytes) -> bytes:
@@ -113,15 +305,53 @@ def raw_pcm_to_wav_buffer(raw_pcm: bytes) -> bytes:
     return header + raw_pcm
 
 
+def _append_transcript_to_firestore(channel: str, uid, text: str) -> None:
+    """Append a transcript chunk to the Firestore meetingTranscripts document for this channel."""
+    if not _firestore_db or not channel:
+        return
+    try:
+        from google.cloud.firestore_v1 import ArrayUnion, Increment, SERVER_TIMESTAMP
+        doc_ref = _firestore_db.collection("meetingTranscripts").document(channel)
+        chunk = {
+            "text": text,
+            "uid": str(uid) if uid else "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        doc_ref.set({
+            "channelName": channel,
+            "chunks": ArrayUnion([chunk]),
+            "totalWordCount": Increment(len(text.split())),
+            "updatedAt": SERVER_TIMESTAMP,
+        }, merge=True)
+    except Exception as e:
+        print(f"Firestore transcript append error: {e}")
+
+
 def on_transcript(channel: str, uid: int, text: str) -> None:
-    """Called on each Whisper segment: log and add to Pinecone for this meeting."""
+    """Called on each Whisper segment: log, add to Pinecone for RAG, and append to Firestore for full transcript."""
     print(f"[{channel}] Transcript (uid={uid}): {text}")
     add_transcript_to_meeting(channel, text)
+    _append_transcript_to_firestore(channel, uid, text)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _pinecone_client, _pinecone_index
+    global _pinecone_client, _pinecone_index, _firestore_db
+
+    # Firebase Admin SDK for Firestore (calendar meetings & tasks)
+    firebase_sa_key = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
+    if firebase_sa_key:
+        try:
+            import firebase_admin
+            from firebase_admin import credentials, firestore
+            creds = json.loads(firebase_sa_key)
+            firebase_admin.initialize_app(credentials.Certificate(creds))
+            _firestore_db = firestore.client()
+            print("Firebase Admin SDK initialized (Firestore ready).")
+        except Exception as e:
+            print(f"Firebase Admin initialization error: {e}")
+    else:
+        print("FIREBASE_SERVICE_ACCOUNT_KEY not set. Calendar write features disabled.")
 
     if PINECONE_API_KEY:
         try:
@@ -136,7 +366,7 @@ async def lifespan(app: FastAPI):
                     metric="cosine",
                     spec=ServerlessSpec(cloud="aws", region="us-east-1"),
                 )
-                while not _pinecone_client.describe_index(PINECONE_INDEX_NAME).status["ready"]:
+                while not _pinecone_client.describe_index(PINECONE_INDEX_NAME).status.ready:
                     time.sleep(1)
             _pinecone_index = _pinecone_client.Index(PINECONE_INDEX_NAME)
             print(f"Connected to Pinecone index '{PINECONE_INDEX_NAME}'.")
@@ -158,7 +388,7 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "ok"}
 
@@ -166,15 +396,122 @@ def health():
 class AskBody(BaseModel):
     channel: str = ""
     question: str = ""
+    uid: str = ""
+    orgId: str = ""
+    timezone: str = ""
 
 
-@app.post("/ask")
+@app.post("/api/ask")
 def ask(body: AskBody):
-    """RAG: ask a question about a meeting's transcript. Body: { \"channel\": \"channel1\", \"question\": \"What is MCP?\" }"""
+    """RAG + calendar tools: ask a question, schedule meetings, or create tasks."""
     if not body.question.strip():
         return {"answer": "", "error": "Missing 'question' in body."}
-    answer = ask_meeting(body.channel or "", body.question.strip())
-    return {"answer": answer}
+    result = ask_meeting(body.channel or "", body.question.strip(), body.uid, body.orgId, body.timezone)
+    return result
+
+
+class SummarizeBody(BaseModel):
+    channel: str = ""
+    uid: str = ""
+    orgId: str = ""
+    participants: list[str] = []
+
+
+@app.post("/api/generate-summary")
+def generate_summary(body: SummarizeBody):
+    """Generate a post-meeting summary from the full transcript stored in Firestore."""
+    print(f"[Summary] Request: channel={body.channel}, uid={body.uid}, orgId={body.orgId}, participants={body.participants}")
+    if not _firestore_db:
+        print("[Summary] ERROR: Firestore not configured")
+        return {"error": "Firestore not configured."}
+    if not openai_client or not OPENAI_API_KEY:
+        print("[Summary] ERROR: OpenAI not configured")
+        return {"error": "OpenAI API key not configured."}
+    if not body.channel.strip():
+        print("[Summary] ERROR: Missing channel name")
+        return {"error": "Missing channel name."}
+
+    # Read full transcript from Firestore
+    try:
+        doc_ref = _firestore_db.collection("meetingTranscripts").document(body.channel.strip())
+        doc = doc_ref.get()
+        if not doc.exists:
+            print(f"[Summary] ERROR: No transcript doc found for channel '{body.channel}'")
+            return {"error": "No transcript found for this meeting.", "wordCount": 0}
+        data = doc.to_dict()
+        chunks = data.get("chunks", [])
+        if not chunks:
+            print("[Summary] ERROR: Transcript doc exists but chunks array is empty")
+            return {"error": "Transcript is empty.", "wordCount": 0}
+        print(f"[Summary] Found {len(chunks)} chunks in Firestore")
+    except Exception as e:
+        print(f"[Summary] ERROR reading transcript: {e}")
+        return {"error": f"Failed to read transcript: {e}"}
+
+    full_text = " ".join(c.get("text", "") for c in chunks)
+    word_count = len(full_text.split())
+    print(f"[Summary] Total word count: {word_count}")
+    if word_count < 100:
+        print(f"[Summary] Transcript too short ({word_count} words)")
+        return {"error": "Transcript too short for a meaningful summary.", "wordCount": word_count}
+
+    # Generate summary via OpenAI
+    print("[Summary] Calling OpenAI for summary generation...")
+    try:
+        system_prompt = (
+            "You are an AI that summarizes meeting transcripts. Given the full transcript below, "
+            "produce a structured JSON response with these keys:\n"
+            '- "title": a short, descriptive meeting title (5-10 words)\n'
+            '- "summary": a 2-4 paragraph summary of what was discussed\n'
+            '- "keyPoints": an array of 3-7 key takeaways as short bullet strings\n'
+            '- "actionItems": an array of action items or next steps mentioned (empty array if none)\n\n'
+            "Respond ONLY with valid JSON. No markdown, no extra text.\n\n"
+            f"Transcript:\n\n{full_text}"
+        )
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Please summarize this meeting."},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3,
+        )
+        raw = response.choices[0].message.content or "{}"
+        summary_data = json.loads(raw)
+    except Exception as e:
+        print(f"[Summary] ERROR OpenAI: {e}")
+        return {"error": f"Summary generation failed: {e}"}
+
+    print(f"[Summary] OpenAI returned title: {summary_data.get('title')}")
+    # Write summary to Firestore
+    try:
+        from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+        summary_doc = {
+            "channelName": body.channel.strip(),
+            "generatedBy": body.uid,
+            "orgId": body.orgId,
+            "title": summary_data.get("title", "Meeting Summary"),
+            "summary": summary_data.get("summary", ""),
+            "keyPoints": summary_data.get("keyPoints", []),
+            "actionItems": summary_data.get("actionItems", []),
+            "participants": body.participants,
+            "transcript": full_text,
+            "wordCount": word_count,
+            "createdAt": SERVER_TIMESTAMP,
+        }
+        doc_ref = _firestore_db.collection("meetingSummaries").document()
+        doc_ref.set(summary_doc)
+        print(f"[Summary] SUCCESS: saved as {doc_ref.id}")
+        return {
+            "success": True,
+            "summaryId": doc_ref.id,
+            "title": summary_doc["title"],
+            "wordCount": word_count,
+        }
+    except Exception as e:
+        print(f"[Summary] ERROR saving to Firestore: {e}")
+        return {"error": f"Failed to save summary: {e}"}
 
 
 @app.websocket("/ws/transcription")
@@ -211,6 +548,8 @@ async def websocket_transcription(websocket: WebSocket):
                 print("OpenAI API key not set. Set OPENAI_API_KEY in .env")
                 continue
             try:
+                duration_sec = len(data) / (WHISPER_SAMPLE_RATE * 2)  # 16-bit = 2 bytes per sample
+                print(f"[{channel}] Audio chunk: {len(data)} bytes, ~{duration_sec:.1f}s")
                 wav_bytes = raw_pcm_to_wav_buffer(data)
                 file_like = io.BytesIO(wav_bytes)
                 file_like.name = "audio.wav"
@@ -230,10 +569,3 @@ async def websocket_transcription(websocket: WebSocket):
         print(f"WebSocket error: {e}")
     finally:
         print(f"Transcription WS closed: channel={channel}, uid={uid}")
-        # Test RAG when meeting ends: ask "What is MCP?" and print the answer
-        if channel and OPENAI_API_KEY:
-            try:
-                test_answer = ask_meeting(channel, "What is MCP?")
-                print(f"[RAG test] What is MCP? -> {test_answer}")
-            except Exception as e:
-                print(f"[RAG test] Error: {e}")

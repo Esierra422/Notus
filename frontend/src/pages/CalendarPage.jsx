@@ -7,6 +7,7 @@ import {
   getMeetingsInRangeForUser,
   getMeetingsInRangeForUserInOrg,
   createMeeting,
+  deleteMeeting,
   MEETING_SCOPES,
 } from '../lib/meetingService'
 import { importICSFile, getImportedEventsInRange } from '../lib/calendarImportService'
@@ -370,6 +371,16 @@ export function CalendarPage() {
     }
   }
 
+  const handleDeleteMeeting = async (meeting) => {
+    if (!user?.uid || !meeting.orgId) return
+    try {
+      await deleteMeeting(meeting.orgId, meeting.id, user.uid)
+      setMeetings((prev) => prev.filter((m) => m.id !== meeting.id))
+    } catch (err) {
+      alert(err.message || 'Failed to delete meeting.')
+    }
+  }
+
   const handleImportSubmit = async (e) => {
     e.preventDefault()
     setImportError('')
@@ -718,6 +729,9 @@ export function CalendarPage() {
                         <span className="calendar-detail-title-text">{m.title}</span>
                         {m._orgName && <span className="calendar-detail-org">{m._orgName}</span>}
                         {m._imported && <span className="calendar-meeting-imported">imported</span>}
+                        {!m._imported && (
+                          <button type="button" className="calendar-task-delete" onClick={() => handleDeleteMeeting(m)} aria-label="Delete meeting">×</button>
+                        )}
                       </>
                     )}
                   </li>

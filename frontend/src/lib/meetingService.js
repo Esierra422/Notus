@@ -6,6 +6,8 @@ import {
   collection,
   doc,
   setDoc,
+  deleteDoc,
+  getDoc,
   query,
   where,
   getDocs,
@@ -55,6 +57,29 @@ export async function createMeeting(orgId, data, userId) {
   })
 
   return { id: meetingId, orgId, title: title || 'Meeting', scope }
+}
+
+/**
+ * Delete a meeting. Only the creator or org admin/owner may delete.
+ */
+export async function deleteMeeting(orgId, meetingId, userId) {
+  const meetingRef = doc(db, 'organizations', orgId, MEETINGS_SUB, meetingId)
+  const snap = await getDoc(meetingRef)
+  if (!snap.exists()) throw new Error('Meeting not found.')
+
+  const meeting = snap.data()
+  const orgMem = await getMembership(orgId, userId)
+  if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) {
+    throw new Error('Not an active org member.')
+  }
+
+  const isCreator = meeting.createdBy === userId
+  const isAdminOrOwner = orgMem.role === 'admin' || orgMem.role === 'owner'
+  if (!isCreator && !isAdminOrOwner) {
+    throw new Error('Only the meeting creator or an org admin can delete meetings.')
+  }
+
+  await deleteDoc(meetingRef)
 }
 
 /**
