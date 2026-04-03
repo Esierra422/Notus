@@ -10,7 +10,7 @@ import {
   requestToJoinTeam,
 } from '../lib/teamService'
 import { getOrCreateTeamChat } from '../lib/conversationService'
-import { createMeeting, getOrgMeetings, MEETING_SCOPES } from '../lib/meetingService'
+import { createMeeting, getOrgMeetingsForUser, MEETING_SCOPES } from '../lib/meetingService'
 import { AppHeader, AppFooter } from '../components/app'
 import { Button } from '../components/ui/Button'
 import '../styles/variables.css'
@@ -84,13 +84,13 @@ export function OrgPage() {
   }, [orgId, user, showCreate])
 
   useEffect(() => {
-    if (!orgId) return
+    if (!orgId || !user?.uid) return
     const load = async () => {
-      const list = await getOrgMeetings(orgId)
+      const list = await getOrgMeetingsForUser(orgId, user.uid)
       setMeetings(list)
     }
     load()
-  }, [orgId])
+  }, [orgId, user?.uid])
 
   const handleCreateMeeting = async (e) => {
     e.preventDefault()
@@ -104,7 +104,7 @@ export function OrgPage() {
       }, user.uid)
       setShowCreateMeeting(false)
       setNewMeetingTitle('')
-      const list = await getOrgMeetings(orgId)
+      const list = await getOrgMeetingsForUser(orgId, user.uid)
       setMeetings(list)
     } catch (err) {
       setError(err.message || 'Failed to create meeting.')
@@ -163,7 +163,7 @@ export function OrgPage() {
       <AppHeader user={user} navExtra={navExtra} />
       <main className="app-main org-page-main">
         <h2>Org meetings</h2>
-        <p className="app-muted">Org-scoped meetings (visible to all org members).</p>
+        <p className="app-muted">Meetings in this org. Invite-only meetings show only for people who were invited.</p>
         <div className="org-meetings-actions" style={{ marginBottom: '1rem' }}>
           {!showCreateMeeting ? (
             <Button variant="outline" size="md" onClick={() => setShowCreateMeeting(true)}>

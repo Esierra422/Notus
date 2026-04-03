@@ -128,6 +128,10 @@ service cloud.firestore {
       match /participants/{participantId} {
         allow read, create, update, delete: if request.auth != null;
       }
+      // Host end-for-all, screen-share policy (clients trust meeting.createdBy as hostUid)
+      match /roomState/{docId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
     // Meeting transcripts: Admin SDK only (ai-backend writes during transcription)

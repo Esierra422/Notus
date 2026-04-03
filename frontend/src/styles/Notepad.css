@@ -1,15 +1,20 @@
+/* Shared notepad — matches video call panels; Quill Snow defaults use #ccc borders — override after bundled quill.snow.css */
+
 .notepad-container {
   position: fixed;
   right: 20px;
   bottom: 100px;
   width: 500px;
   height: 400px;
-  background: white;
-  border: 1px solid #ccc;
-  border-radius: 8px;
   display: flex;
   flex-direction: column;
   z-index: 1000;
+  user-select: none;
+  font-family: var(--font-body);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
   resize: both;
   overflow: hidden;
   min-width: 300px;
@@ -17,9 +22,15 @@
 }
 
 .notepad-header {
-  padding: 12px 16px;
+  padding: 0.75rem 1rem;
   cursor: grab;
   user-select: none;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .notepad-header:active {
@@ -28,51 +39,220 @@
 
 .notepad-header h3 {
   margin: 0;
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 1rem;
   font-weight: 600;
-  color: #333;
+  color: var(--text);
+  letter-spacing: -0.02em;
 }
 
 .notepad-editor {
   flex: 1;
   overflow: auto;
+  min-height: 0;
+  padding: 0;
+  background: var(--bg-card);
 }
 
-/* Quill editor styles */
-.notepad-editor .ql-toolbar {
-  border-top: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: 1px solid #eee;
-  background: #fafafa;
+/*
+ * Quill inserts the toolbar with insertBefore(toolbar, quill.container) — it is a *sibling*
+ * before .notepad-editor, not a descendant. Selectors must not use .notepad-editor .ql-toolbar.
+ */
+.notepad-container .ql-toolbar.ql-snow {
+  border: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: var(--bg-elevated);
+  padding: 0.5rem 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  flex-shrink: 0;
 }
 
-.notepad-editor .ql-container {
-  border: none;
-  font-family: inherit;
-  font-size: 14px;
+/* Editor wrapper is .notepad-editor and also .ql-container.ql-snow — kill Snow’s outer #ccc frame */
+.notepad-container .ql-container.ql-snow {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  color: var(--text);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.notepad-editor .ql-editor {
-  color: #000 !important;
-  min-height: 100%;
+.notepad-container .ql-toolbar.ql-snow + .ql-container.ql-snow {
+  border-top: none !important;
 }
 
-.notepad-editor .ql-editor.ql-blank::before {
-  color: #999;
+.notepad-container .ql-toolbar.ql-snow .ql-picker-label {
+  border-color: transparent !important;
+}
+
+.notepad-container .ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-label {
+  border-color: var(--border) !important;
+}
+
+.notepad-container .ql-toolbar.ql-snow .ql-picker-options {
+  border-color: var(--border) !important;
+}
+
+.notepad-container .ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-options {
+  border-color: var(--border) !important;
+}
+
+.notepad-container .ql-toolbar.ql-snow .ql-color-picker .ql-picker-item.ql-selected,
+.notepad-container .ql-toolbar.ql-snow .ql-color-picker .ql-picker-item:hover {
+  border-color: var(--accent) !important;
+}
+
+.notepad-container .ql-toolbar .ql-stroke {
+  stroke: var(--text-muted);
+}
+
+.notepad-container .ql-toolbar .ql-fill {
+  fill: var(--text-muted);
+}
+
+.notepad-container .ql-toolbar button:hover .ql-stroke,
+.notepad-container .ql-toolbar button:focus .ql-stroke {
+  stroke: var(--accent);
+}
+
+.notepad-container .ql-toolbar button:hover .ql-fill,
+.notepad-container .ql-toolbar button:focus .ql-fill {
+  fill: var(--accent);
+}
+
+.notepad-container .ql-toolbar button.ql-active .ql-stroke {
+  stroke: var(--accent);
+}
+
+.notepad-container .ql-toolbar button.ql-active .ql-fill {
+  fill: var(--accent);
+}
+
+.notepad-container .ql-toolbar.ql-snow .ql-formats {
+  margin-right: 0.5rem;
+}
+
+.notepad-container .ql-snow .ql-picker {
+  color: var(--text-muted);
+}
+
+.notepad-container .ql-snow .ql-picker-label:hover {
+  color: var(--accent);
+}
+
+.notepad-container .ql-snow .ql-picker.ql-expanded .ql-picker-label {
+  color: var(--text);
+}
+
+.notepad-container .ql-snow .ql-picker-options {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border) !important;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 0.35rem 0;
+}
+
+.notepad-container .ql-snow .ql-picker-options .ql-picker-item {
+  color: var(--text-muted);
+}
+
+.notepad-container .ql-snow .ql-picker-options .ql-picker-item:hover,
+.notepad-container .ql-snow .ql-picker-options .ql-picker-item.ql-selected {
+  color: var(--accent);
+  background: rgba(212, 168, 83, 0.08);
+}
+
+.notepad-container .ql-snow .ql-tooltip {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px;
+  color: var(--text) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.notepad-container .ql-snow .ql-tooltip input[type='text'] {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px;
+  color: var(--text) !important;
+}
+
+.notepad-container .ql-snow .ql-tooltip a.ql-action::after {
+  border-right: 1px solid var(--border) !important;
+}
+
+.notepad-container .ql-snow .ql-tooltip a.ql-action,
+.notepad-container .ql-snow .ql-tooltip a.ql-remove {
+  color: var(--accent);
+}
+
+.notepad-container .ql-editor {
+  flex: 1;
+  min-height: 200px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.notepad-container .ql-editor.ql-blank::before {
+  color: var(--text-muted);
+  font-style: normal;
+  opacity: 0.75;
+}
+
+.notepad-container .ql-editor a {
+  color: var(--accent);
+}
+
+.notepad-container .ql-snow .ql-editor blockquote {
+  border-left: 3px solid var(--accent) !important;
+  color: var(--text-muted);
+}
+
+.notepad-container .ql-snow .ql-editor code,
+.notepad-container .ql-snow .ql-editor pre:not(.ql-syntax) {
+  background-color: var(--bg) !important;
+  color: var(--text);
+}
+
+.notepad-container .ql-editor pre.ql-syntax {
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.notepad-container .ql-snow a {
+  color: var(--accent);
 }
 
 .notepad-resize-handle {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 50%, #ccc 50%);
-  border-radius: 0 0 8px 0;
+  border-radius: 0 0 10px 0;
+  background: linear-gradient(
+    135deg,
+    transparent 52%,
+    rgba(212, 168, 83, 0.35) 52%,
+    rgba(212, 168, 83, 0.55) 100%
+  );
 }
 
 .notepad-resize-handle:hover {
-  background: linear-gradient(135deg, transparent 50%, #999 50%);
+  background: linear-gradient(
+    135deg,
+    transparent 52%,
+    rgba(212, 168, 83, 0.5) 52%,
+    var(--accent) 100%
+  );
 }

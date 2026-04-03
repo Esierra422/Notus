@@ -37,17 +37,20 @@ export function PreviousMeetingsPage() {
   const { user } = useOutletContext()
   const [summaries, setSummaries] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     if (!user?.uid) return
     setLoading(true)
+    setLoadError('')
     getUserSummaries(user.uid)
-      .then(data => {
-        console.log('[PreviousMeetings] Loaded summaries:', data.length)
+      .then((data) => {
         setSummaries(data)
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('[PreviousMeetings] Failed to load summaries:', err.code, err.message)
+        setLoadError(err.message || 'Could not load summaries. If this persists, deploy Firestore indexes: firebase deploy --only firestore:indexes')
+        setSummaries([])
       })
       .finally(() => setLoading(false))
   }, [user?.uid])
@@ -58,6 +61,17 @@ export function PreviousMeetingsPage() {
         <div className="prev-meetings-loading">
           <div className="prev-meetings-spinner" />
           <p>Loading your meetings...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="prev-meetings-page">
+        <div className="prev-meetings-empty">
+          <h2>Could not load summaries</h2>
+          <p className="prev-meetings-error-text">{loadError}</p>
         </div>
       </div>
     )
@@ -76,10 +90,15 @@ export function PreviousMeetingsPage() {
   }
 
   const groups = groupByDate(summaries)
+  const sortedGroupEntries = Object.entries(groups).sort((a, b) => {
+    const maxA = Math.max(...a[1].map((x) => x._ms || 0))
+    const maxB = Math.max(...b[1].map((x) => x._ms || 0))
+    return maxB - maxA
+  })
 
   return (
     <div className="prev-meetings-page">
-      {Object.entries(groups).map(([dateLabel, items]) => (
+      {sortedGroupEntries.map(([dateLabel, items]) => (
         <div key={dateLabel} className="prev-meetings-group">
           <h2 className="prev-meetings-date-label">{dateLabel}</h2>
           <div className="prev-meetings-list">

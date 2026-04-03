@@ -63,11 +63,11 @@ def _get_vectorstore(channel: str) -> Optional[PineconeVectorStore]:
     return _vectorstore_cache[namespace]
 
 
-def add_transcript_to_meeting(channel: str, text: str) -> None:
-    """Store one transcript chunk in the vector DB for this meeting."""
+def add_transcript_to_meeting(rag_namespace: str, text: str) -> None:
+    """Store one transcript chunk in the vector DB for this meeting session."""
     if not text.strip():
         return
-    vs = _get_vectorstore(channel)
+    vs = _get_vectorstore(rag_namespace)
     if vs is None:
         return
     try:
@@ -206,11 +206,19 @@ def _execute_tool_call(name: str, arguments: dict, uid: str, org_id: str, user_t
         return {"success": False, "error": str(e)}
 
 
-def ask_meeting(channel: str, question: str, uid: str = "", org_id: str = "", user_tz: str = "") -> dict:
+def ask_meeting(
+    channel: str,
+    question: str,
+    uid: str = "",
+    org_id: str = "",
+    user_tz: str = "",
+    session_id: str = "",
+) -> dict:
     """RAG + function calling: answer transcript questions or create meetings/tasks."""
     if not OPENAI_API_KEY or not openai_client:
         return {"answer": "OpenAI API key not configured."}
-    vs = _get_vectorstore(channel)
+    rag_key = (session_id or channel or "").strip() or "default"
+    vs = _get_vectorstore(rag_key)
     context = "(No transcript content yet.)"
     if vs is not None:
         try:
@@ -305,20 +313,21 @@ def raw_pcm_to_wav_buffer(raw_pcm: bytes) -> bytes:
     return header + raw_pcm
 
 
-def _append_transcript_to_firestore(channel: str, uid, text: str) -> None:
-    """Append a transcript chunk to the Firestore meetingTranscripts document for this channel."""
-    if not _firestore_db or not channel:
+def _append_transcript_to_firestore(session_id: str, channel: str, uid, text: str) -> None:
+    """Append a transcript chunk to Firestore meetingTranscripts/{session_id} (one doc per meeting session)."""
+    if not _firestore_db or not session_id:
         return
     try:
         from google.cloud.firestore_v1 import ArrayUnion, Increment, SERVER_TIMESTAMP
-        doc_ref = _firestore_db.collection("meetingTranscripts").document(channel)
+        doc_ref = _firestore_db.collection("meetingTranscripts").document(session_id)
         chunk = {
             "text": text,
             "uid": str(uid) if uid else "",
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
         }
         doc_ref.set({
-            "channelName": channel,
+            "sessionId": session_id,
+            "channelName": channel or "",
             "chunks": ArrayUnion([chunk]),
             "totalWordCount": Increment(len(text.split())),
             "updatedAt": SERVER_TIMESTAMP,
@@ -327,11 +336,11 @@ def _append_transcript_to_firestore(channel: str, uid, text: str) -> None:
         print(f"Firestore transcript append error: {e}")
 
 
-def on_transcript(channel: str, uid: int, text: str) -> None:
-    """Called on each Whisper segment: log, add to Pinecone for RAG, and append to Firestore for full transcript."""
-    print(f"[{channel}] Transcript (uid={uid}): {text}")
-    add_transcript_to_meeting(channel, text)
-    _append_transcript_to_firestore(channel, uid, text)
+def on_transcript(session_id: str, channel: str, uid: int, text: str) -> None:
+    """Called on each Whisper segment: Pinecone namespace = session, Firestore doc = session_id."""
+    print(f"[session={session_id} channel={channel}] Transcript (uid={uid}): {text}")
+    add_transcript_to_meeting(session_id, text)
+    _append_transcript_to_firestore(session_id, channel, uid, text)
 
 
 @asynccontextmanager
@@ -399,6 +408,7 @@ class AskBody(BaseModel):
     uid: str = ""
     orgId: str = ""
     timezone: str = ""
+    sessionId: str = ""
 
 
 @app.post("/api/ask")
@@ -406,12 +416,20 @@ def ask(body: AskBody):
     """RAG + calendar tools: ask a question, schedule meetings, or create tasks."""
     if not body.question.strip():
         return {"answer": "", "error": "Missing 'question' in body."}
-    result = ask_meeting(body.channel or "", body.question.strip(), body.uid, body.orgId, body.timezone)
+    result = ask_meeting(
+        body.channel or "",
+        body.question.strip(),
+        body.uid,
+        body.orgId,
+        body.timezone,
+        (body.sessionId or "").strip(),
+    )
     return result
 
 
 class SummarizeBody(BaseModel):
     channel: str = ""
+    sessionId: str = ""
     uid: str = ""
     orgId: str = ""
     participants: list[str] = []
@@ -420,23 +438,25 @@ class SummarizeBody(BaseModel):
 @app.post("/api/generate-summary")
 def generate_summary(body: SummarizeBody):
     """Generate a post-meeting summary from the full transcript stored in Firestore."""
-    print(f"[Summary] Request: channel={body.channel}, uid={body.uid}, orgId={body.orgId}, participants={body.participants}")
+    print(f"[Summary] Request: channel={body.channel}, sessionId={body.sessionId}, uid={body.uid}, orgId={body.orgId}")
     if not _firestore_db:
         print("[Summary] ERROR: Firestore not configured")
         return {"error": "Firestore not configured."}
     if not openai_client or not OPENAI_API_KEY:
         print("[Summary] ERROR: OpenAI not configured")
         return {"error": "OpenAI API key not configured."}
-    if not body.channel.strip():
-        print("[Summary] ERROR: Missing channel name")
-        return {"error": "Missing channel name."}
+
+    transcript_doc_id = (body.sessionId or "").strip() or (body.channel or "").strip()
+    if not transcript_doc_id:
+        print("[Summary] ERROR: Missing sessionId or channel")
+        return {"error": "Missing session id or channel."}
 
     # Read full transcript from Firestore
     try:
-        doc_ref = _firestore_db.collection("meetingTranscripts").document(body.channel.strip())
+        doc_ref = _firestore_db.collection("meetingTranscripts").document(transcript_doc_id)
         doc = doc_ref.get()
         if not doc.exists:
-            print(f"[Summary] ERROR: No transcript doc found for channel '{body.channel}'")
+            print(f"[Summary] ERROR: No transcript doc found for id '{transcript_doc_id}'")
             return {"error": "No transcript found for this meeting.", "wordCount": 0}
         data = doc.to_dict()
         chunks = data.get("chunks", [])
@@ -488,7 +508,8 @@ def generate_summary(body: SummarizeBody):
     try:
         from google.cloud.firestore_v1 import SERVER_TIMESTAMP
         summary_doc = {
-            "channelName": body.channel.strip(),
+            "channelName": (body.channel or "").strip() or transcript_doc_id,
+            "transcriptSessionId": transcript_doc_id,
             "generatedBy": body.uid,
             "orgId": body.orgId,
             "title": summary_data.get("title", "Meeting Summary"),
@@ -500,12 +521,18 @@ def generate_summary(body: SummarizeBody):
             "wordCount": word_count,
             "createdAt": SERVER_TIMESTAMP,
         }
-        doc_ref = _firestore_db.collection("meetingSummaries").document()
-        doc_ref.set(summary_doc)
-        print(f"[Summary] SUCCESS: saved as {doc_ref.id}")
+        sum_ref = _firestore_db.collection("meetingSummaries").document()
+        sum_ref.set(summary_doc)
+        print(f"[Summary] SUCCESS: saved as {sum_ref.id}")
+        # Consume transcript so leaving again does not re-summarize stale text
+        try:
+            doc_ref.delete()
+            print(f"[Summary] Deleted transcript doc '{transcript_doc_id}'")
+        except Exception as del_e:
+            print(f"[Summary] WARN: could not delete transcript doc: {del_e}")
         return {
             "success": True,
-            "summaryId": doc_ref.id,
+            "summaryId": sum_ref.id,
             "title": summary_doc["title"],
             "wordCount": word_count,
         }
@@ -519,6 +546,7 @@ async def websocket_transcription(websocket: WebSocket):
     await websocket.accept()
     channel = None
     uid = None
+    session_id = None
 
     try:
         while True:
@@ -534,22 +562,25 @@ async def websocket_transcription(websocket: WebSocket):
                     if meta.get("type") == "meta":
                         channel = meta.get("channel")
                         uid = meta.get("uid")
-                        print(f"Transcription WS: channel={channel}, uid={uid}")
-                        # Prime vectorstore for this meeting so we only push when transcripts arrive
-                        _get_vectorstore(channel)
+                        session_id = (meta.get("sessionId") or meta.get("session_id") or "").strip() or None
+                        if not session_id and channel:
+                            session_id = str(channel).strip()
+                        print(f"Transcription WS: channel={channel}, uid={uid}, sessionId={session_id}")
+                        if session_id:
+                            _get_vectorstore(session_id)
                 except json.JSONDecodeError:
                     pass
                 continue
             # Binary: raw Int16 PCM (16kHz mono)
             data = message.get("bytes", b"")
-            if not data or channel is None:
+            if not data or channel is None or not session_id:
                 continue
             if not openai_client:
                 print("OpenAI API key not set. Set OPENAI_API_KEY in .env")
                 continue
             try:
                 duration_sec = len(data) / (WHISPER_SAMPLE_RATE * 2)  # 16-bit = 2 bytes per sample
-                print(f"[{channel}] Audio chunk: {len(data)} bytes, ~{duration_sec:.1f}s")
+                print(f"[{session_id}] Audio chunk: {len(data)} bytes, ~{duration_sec:.1f}s")
                 wav_bytes = raw_pcm_to_wav_buffer(data)
                 file_like = io.BytesIO(wav_bytes)
                 file_like.name = "audio.wav"
@@ -560,7 +591,7 @@ async def websocket_transcription(websocket: WebSocket):
                 )
                 text = (transcript.text or "").strip()
                 if text:
-                    on_transcript(channel, uid, text)
+                    on_transcript(session_id, channel, uid, text)
             except Exception as e:
                 print(f"Whisper transcription error: {e}")
     except WebSocketDisconnect:
@@ -568,4 +599,4 @@ async def websocket_transcription(websocket: WebSocket):
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
-        print(f"Transcription WS closed: channel={channel}, uid={uid}")
+        print(f"Transcription WS closed: channel={channel}, uid={uid}, sessionId={session_id}")

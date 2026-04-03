@@ -1,14 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { useOutletContext, useSearchParams, useParams } from 'react-router-dom'
+import { useOutletContext, useSearchParams, useParams, useNavigate, useLocation } from 'react-router-dom'
 import { getActiveMemberships, getOrg } from '../lib/orgService'
 import { getOrgTeams, getTeamMembership } from '../lib/teamService'
 import {
-  getMeetingsInRange,
   getMeetingsInRangeForUser,
   getMeetingsInRangeForUserInOrg,
-  createMeeting,
-  deleteMeeting,
-  MEETING_SCOPES,
+  getMeetingsInRangeForUserInTeam,
 } from '../lib/meetingService'
 import { importICSFile, getImportedEventsInRange } from '../lib/calendarImportService'
 import { getTodosInRange, addTodo, toggleTodo, deleteTodo } from '../lib/todoService'
@@ -17,6 +14,8 @@ import { UploadIcon } from '../components/ui/Icons'
 import { Timestamp } from 'firebase/firestore'
 import { getTimeZone, getLocale } from '../lib/dateUtils'
 import { getApiUrl } from '../lib/apiConfig.js'
+import { CreateEventModal } from '../components/calendar/CreateEventModal'
+import { EventDetailModal } from '../components/calendar/EventDetailModal'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './CalendarPage.css'
@@ -41,6 +40,8 @@ export function CalendarPage() {
   const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const { orgId: routeOrgId } = useParams()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [activeOrgId, setActiveOrgId] = useState(routeOrgId || null)
   const [org, setOrg] = useState(null)
   const [teams, setTeams] = useState([])
@@ -52,12 +53,8 @@ export function CalendarPage() {
   const [scopeTeamId, setScopeTeamId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
-  const [showCreateMeeting, setShowCreateMeeting] = useState(false)
-  const [newMeetingTitle, setNewMeetingTitle] = useState('')
-  const [newMeetingDate, setNewMeetingDate] = useState('')
-  const [newMeetingTime, setNewMeetingTime] = useState('')
-  const [creatingMeeting, setCreatingMeeting] = useState(false)
-  const [createError, setCreateError] = useState('')
+  const [showCreateEventModal, setShowCreateEventModal] = useState(false)
+  const [selectedEventItem, setSelectedEventItem] = useState(null)
   const [view, setView] = useState('month')
   const [showImportModal, setShowImportModal] = useState(false)
   const [importFile, setImportFile] = useState(null)
@@ -70,6 +67,7 @@ export function CalendarPage() {
   const [showAddTask, setShowAddTask] = useState(false)
   const [newTaskText, setNewTaskText] = useState('')
   const [addingTask, setAddingTask] = useState(false)
+  const [calendarReloadKey, setCalendarReloadKey] = useState(0)
 
   useEffect(() => {
     const dateParam = searchParams.get('date')
@@ -117,6 +115,15 @@ export function CalendarPage() {
   }, [activeOrgId, user])
 
   useEffect(() => {
+    if (searchParams.get('create') !== '1' || !activeOrgId) return
+    setShowCreateEventModal(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('create')
+    const qs = next.toString()
+    navigate(`${location.pathname}${qs ? `?${qs}` : ''}`, { replace: true })
+  }, [searchParams, activeOrgId, navigate, location.pathname])
+
+  useEffect(() => {
     if (!user) return
     const load = async () => {
       setLoading(true)
@@ -157,17 +164,9 @@ export function CalendarPage() {
             }))
             part = [...meetingsList, ...importedList, ...todosAsEvents]
           } else if (filter === 'org' && activeOrgId) {
-            if (routeOrgId) {
-              part = await getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m)
-            } else {
-              const orgList = await getMeetingsInRange(activeOrgId, y, m, MEETING_SCOPES.org)
-              const orgData = await getOrg(activeOrgId)
-              part = orgList.map((ev) => ({ ...ev, _orgName: orgData?.name }))
-            }
+            part = await getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m)
           } else if (filter === 'team' && activeOrgId && scopeTeamId) {
-            const teamList = await getMeetingsInRange(activeOrgId, y, m, MEETING_SCOPES.team, scopeTeamId)
-            const orgData = await getOrg(activeOrgId)
-            part = teamList.map((ev) => ({ ...ev, _orgName: orgData?.name }))
+            part = await getMeetingsInRangeForUserInTeam(user.uid, activeOrgId, scopeTeamId, y, m)
           }
           list = [...list, ...part]
         }
@@ -181,7 +180,7 @@ export function CalendarPage() {
       }
     }
     load()
-  }, [user, activeOrgId, year, month, filter, scopeTeamId, view])
+  }, [user, activeOrgId, year, month, filter, scopeTeamId, view, calendarReloadKey])
 
   const goPrev = () => {
     if (view === 'day') {
@@ -277,58 +276,6 @@ export function CalendarPage() {
     setSelectedDate(new Date(year, month, day))
   }
 
-  const handleCreateMeeting = async (e) => {
-    e.preventDefault()
-    setCreateError('')
-    if (!newMeetingTitle.trim() || !activeOrgId) return
-    setCreatingMeeting(true)
-    try {
-      let startAt
-      if (newMeetingDate && newMeetingTime) {
-        const dt = new Date(`${newMeetingDate}T${newMeetingTime}:00`)
-        startAt = Timestamp.fromDate(dt)
-      } else if (selectedDate) {
-        startAt = Timestamp.fromDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0, 0))
-      }
-      await createMeeting(activeOrgId, {
-        title: newMeetingTitle.trim(),
-        scope: MEETING_SCOPES.org,
-        ...(startAt && { startAt }),
-      }, user.uid)
-      setShowCreateMeeting(false)
-      setNewMeetingTitle('')
-      setNewMeetingDate('')
-      setNewMeetingTime('')
-      if (filter === 'personal') {
-        const [meetingsList, importedList, todosList] = await Promise.all([
-          getMeetingsInRangeForUser(user.uid, year, month),
-          getImportedEventsInRange(user.uid, year, month),
-          getTodosInRange(user.uid, year, month).catch(() => []),
-        ])
-        const todosAsEvents = todosList.map((t) => ({
-          id: t.id,
-          title: t.text,
-          startAt: t.dueDate,
-          _todo: true,
-          done: t.done,
-        }))
-        setMeetings([...meetingsList, ...importedList, ...todosAsEvents])
-      } else if (filter === 'org' && activeOrgId) {
-        const list = await getMeetingsInRange(activeOrgId, year, month, MEETING_SCOPES.org)
-        const orgData = await getOrg(activeOrgId)
-        setMeetings(list.map((m) => ({ ...m, _orgName: orgData?.name })))
-      } else if (filter === 'team' && activeOrgId && scopeTeamId) {
-        const list = await getMeetingsInRange(activeOrgId, year, month, MEETING_SCOPES.team, scopeTeamId)
-        const orgData = await getOrg(activeOrgId)
-        setMeetings(list.map((m) => ({ ...m, _orgName: orgData?.name })))
-      }
-    } catch (err) {
-      setCreateError(err.message || 'Failed to create meeting.')
-    } finally {
-      setCreatingMeeting(false)
-    }
-  }
-
   useEffect(() => {
     if (typeof setNavExtra === 'function') setNavExtra(undefined)
   }, [setNavExtra])
@@ -368,16 +315,6 @@ export function CalendarPage() {
       setMeetings((prev) => prev.filter((m) => !(m.id === todoId && m._todo)))
     } catch {
       // ignore
-    }
-  }
-
-  const handleDeleteMeeting = async (meeting) => {
-    if (!user?.uid || !meeting.orgId) return
-    try {
-      await deleteMeeting(meeting.orgId, meeting.id, user.uid)
-      setMeetings((prev) => prev.filter((m) => m.id !== meeting.id))
-    } catch (err) {
-      alert(err.message || 'Failed to delete meeting.')
     }
   }
 
@@ -455,54 +392,9 @@ export function CalendarPage() {
       <div className="calendar-header-row">
         <h2 className="calendar-title">Calendar</h2>
         {activeOrgId && (
-          <>
-            {!showCreateMeeting ? (
-              <Button
-                variant="primary"
-                size="md"
-                onClick={() => {
-                  setShowCreateMeeting(true)
-                  if (selectedDate) {
-                    setNewMeetingDate(`${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`)
-                  }
-                }}
-              >
-                Create meeting
-              </Button>
-            ) : (
-              <form onSubmit={handleCreateMeeting} className="calendar-create-form">
-                <input
-                  type="text"
-                  placeholder="Meeting title"
-                  value={newMeetingTitle}
-                  onChange={(e) => setNewMeetingTitle(e.target.value)}
-                  className="auth-input calendar-create-input"
-                  disabled={creatingMeeting}
-                />
-                <input
-                  type="date"
-                  value={newMeetingDate}
-                  onChange={(e) => setNewMeetingDate(e.target.value)}
-                  className="auth-input calendar-create-date"
-                  disabled={creatingMeeting}
-                />
-                <input
-                  type="time"
-                  value={newMeetingTime}
-                  onChange={(e) => setNewMeetingTime(e.target.value)}
-                  className="auth-input calendar-create-time"
-                  disabled={creatingMeeting}
-                />
-                <Button type="submit" variant="primary" size="md" disabled={creatingMeeting || !newMeetingTitle.trim()}>
-                  {creatingMeeting ? 'Creating…' : 'Create'}
-                </Button>
-                <Button type="button" variant="ghost" size="md" onClick={() => { setShowCreateMeeting(false); setCreateError(''); }}>
-                  Cancel
-                </Button>
-                {createError && <span className="calendar-create-error">{createError}</span>}
-              </form>
-            )}
-          </>
+          <Button variant="primary" size="md" onClick={() => setShowCreateEventModal(true)}>
+            Create event
+          </Button>
         )}
       </div>
 
@@ -511,7 +403,11 @@ export function CalendarPage() {
           <Button variant="ghost" size="md" onClick={goPrev}>←</Button>
           <Button variant="ghost" size="md" onClick={goToday}>Today</Button>
           <Button variant="ghost" size="md" onClick={goNext}>→</Button>
-          <span className="calendar-month-label">{MONTHS[month]} {year}</span>
+          <span className="calendar-month-label">
+            {view === 'day'
+              ? `${MONTHS[displayDate.getMonth()]} ${displayDate.getDate()}, ${displayDate.getFullYear()}`
+              : `${MONTHS[month]} ${year}`}
+          </span>
         </div>
         <div className="calendar-view-switcher">
           {VIEWS.map((v) => (
@@ -526,6 +422,32 @@ export function CalendarPage() {
           ))}
         </div>
         <div className="calendar-filters">
+          {filter === 'personal' && (
+            <>
+              {!showAddTask ? (
+                <Button variant="outline" size="sm" onClick={() => setShowAddTask(true)}>
+                  + Add task
+                </Button>
+              ) : (
+                <form className="calendar-toolbar-task-form" onSubmit={handleAddTask}>
+                  <input
+                    type="text"
+                    placeholder="Task for selected day"
+                    value={newTaskText}
+                    onChange={(e) => setNewTaskText(e.target.value)}
+                    className="auth-input calendar-toolbar-task-input"
+                    disabled={addingTask}
+                  />
+                  <Button type="submit" variant="primary" size="sm" disabled={addingTask || !newTaskText.trim() || !selectedDate}>
+                    Add
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setShowAddTask(false); setNewTaskText(''); }}>
+                    Cancel
+                  </Button>
+                </form>
+              )}
+            </>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -558,7 +480,7 @@ export function CalendarPage() {
         </div>
       </div>
 
-      <div className="calendar-layout">
+      <div className="calendar-layout calendar-layout--full">
         <div className="calendar-grid-wrap">
           {loading ? (
             <p className="app-muted">Loading meetings…</p>
@@ -571,18 +493,45 @@ export function CalendarPage() {
                 const today = formatDateKey(new Date()) === key
                 return (
                   <div key={key} className={`calendar-week-day ${selected ? 'calendar-cell-selected' : ''} ${today ? 'calendar-cell-today' : ''}`}>
-                    <button type="button" className="calendar-week-day-header" onClick={() => setSelectedDate(d)}>
+                    <button
+                      type="button"
+                      className="calendar-week-day-header"
+                      onClick={() => setSelectedDate(d)}
+                      onDoubleClick={() => {
+                        setSelectedDate(d)
+                        setView('day')
+                      }}
+                    >
                       <span className="calendar-week-day-name">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]}</span>
                       <span className="calendar-week-day-num">{d.getDate()}</span>
                     </button>
                     <ul className="calendar-week-meetings">
                       {dayMeetings.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0)).map((m) => (
-                        <li key={m.id} className={`calendar-meeting-item ${m._todo && m.done ? 'calendar-meeting-done' : ''}`} title={m.title}>
-                          {m._todo && <input type="checkbox" checked={!!m.done} onChange={(e) => handleToggleTask(m.id, e.target.checked)} className="calendar-cell-task-check" aria-hidden />}
-                          <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
-                          <span className="calendar-meeting-title">{m.title}</span>
-                          {m._imported && <span className="calendar-meeting-imported">imported</span>}
-                          {m._todo && <span className="calendar-meeting-task">task</span>}
+                        <li key={m.id}>
+                          <button
+                            type="button"
+                            className={`calendar-meeting-item calendar-meeting-item--btn ${m._todo && m.done ? 'calendar-meeting-done' : ''}`}
+                            title={m.title}
+                            onClick={() => setSelectedEventItem(m)}
+                          >
+                            {m._todo && (
+                              <input
+                                type="checkbox"
+                                checked={!!m.done}
+                                className="calendar-cell-task-check"
+                                onChange={(e) => {
+                                  e.stopPropagation()
+                                  handleToggleTask(m.id, e.target.checked)
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label="Task done"
+                              />
+                            )}
+                            <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
+                            <span className="calendar-meeting-title">{m.title}</span>
+                            {m._imported && <span className="calendar-meeting-imported">imported</span>}
+                            {m._todo && <span className="calendar-meeting-task">task</span>}
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -593,9 +542,9 @@ export function CalendarPage() {
           ) : view === 'day' ? (
             <div className="calendar-day-view">
               <div className="calendar-day-view-header">
-                <button type="button" onClick={goPrev}>←</button>
-                <span>{`${MONTHS[displayDate.getMonth()]} ${displayDate.getDate()}, ${displayDate.getFullYear()}`}</span>
-                <button type="button" onClick={goNext}>→</button>
+                <button type="button" className="calendar-day-nav-btn" onClick={goPrev}>←</button>
+                <span className="calendar-day-view-title">{`${MONTHS[displayDate.getMonth()]} ${displayDate.getDate()}, ${displayDate.getFullYear()}`}</span>
+                <button type="button" className="calendar-day-nav-btn" onClick={goNext}>→</button>
               </div>
               <div className="calendar-day-slots">
                 {Array.from({ length: 24 }, (_, h) => (
@@ -607,12 +556,30 @@ export function CalendarPage() {
                         const ms = m.startAt?.toMillis?.() ?? m.startAt
                         return ms && new Date(ms).getHours() === h
                       }).map((m) => (
-                        <div key={m.id} className={`calendar-meeting-item ${m._todo && m.done ? 'calendar-meeting-done' : ''}`} title={m.title}>
-                          {m._todo && <input type="checkbox" checked={!!m.done} onChange={(e) => handleToggleTask(m.id, e.target.checked)} className="calendar-cell-task-check" aria-hidden />}
+                        <button
+                          key={m.id}
+                          type="button"
+                          className={`calendar-meeting-item calendar-meeting-item--btn ${m._todo && m.done ? 'calendar-meeting-done' : ''}`}
+                          title={m.title}
+                          onClick={() => setSelectedEventItem(m)}
+                        >
+                          {m._todo && (
+                            <input
+                              type="checkbox"
+                              checked={!!m.done}
+                              className="calendar-cell-task-check"
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                handleToggleTask(m.id, e.target.checked)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label="Task done"
+                            />
+                          )}
                           <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
                           <span className="calendar-meeting-title">{m.title}</span>
                           {m._todo && <span className="calendar-meeting-task">task</span>}
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -622,7 +589,7 @@ export function CalendarPage() {
           ) : (
             <div
               className="calendar-grid"
-              style={{ gridTemplateRows: `auto repeat(${rows}, minmax(80px, 110px))` }}
+              style={{ gridTemplateRows: `auto repeat(${rows}, minmax(96px, 1fr))` }}
             >
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
                 <div key={d} className="calendar-day-header">{d}</div>
@@ -638,19 +605,47 @@ export function CalendarPage() {
                     key={i}
                     className={`calendar-cell ${day ? '' : 'calendar-cell-empty'} ${day && isToday(day) ? 'calendar-cell-today' : ''} ${selected ? 'calendar-cell-selected' : ''}`}
                     onClick={() => day && handleCellClick(day)}
+                    onDoubleClick={(e) => {
+                      if (!day) return
+                      e.preventDefault()
+                      setSelectedDate(new Date(year, month, day))
+                      setView('day')
+                    }}
                     disabled={!day}
                   >
                     {day && <span className="calendar-day-num">{day}</span>}
                     {dayMeetings.length > 0 && (
                       <ul className="calendar-day-meetings">
                         {dayMeetings.slice(0, 4).map((m) => (
-                          <li key={m.id} className={`calendar-meeting-item ${m._todo && m.done ? 'calendar-meeting-done' : ''}`} title={m.title}>
-                            {m._todo && <input type="checkbox" checked={!!m.done} onChange={(e) => { e.stopPropagation(); handleToggleTask(m.id, e.target.checked); }} className="calendar-cell-task-check" aria-hidden />}
-                            <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
-                            <span className="calendar-meeting-title">{m.title}</span>
-                            {m._orgName && <span className="calendar-meeting-org">{m._orgName}</span>}
-                            {m._imported && <span className="calendar-meeting-imported">imported</span>}
-                            {m._todo && <span className="calendar-meeting-task">task</span>}
+                          <li key={m.id}>
+                            <button
+                              type="button"
+                              className={`calendar-meeting-item calendar-meeting-item--btn ${m._todo && m.done ? 'calendar-meeting-done' : ''}`}
+                              title={m.title}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedEventItem(m)
+                              }}
+                            >
+                              {m._todo && (
+                                <input
+                                  type="checkbox"
+                                  checked={!!m.done}
+                                  className="calendar-cell-task-check"
+                                  onChange={(e) => {
+                                    e.stopPropagation()
+                                    handleToggleTask(m.id, e.target.checked)
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label="Task done"
+                                />
+                              )}
+                              <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
+                              <span className="calendar-meeting-title">{m.title}</span>
+                              {m._orgName && <span className="calendar-meeting-org">{m._orgName}</span>}
+                              {m._imported && <span className="calendar-meeting-imported">imported</span>}
+                              {m._todo && <span className="calendar-meeting-task">task</span>}
+                            </button>
                           </li>
                         ))}
                         {dayMeetings.length > 4 && (
@@ -664,83 +659,30 @@ export function CalendarPage() {
             </div>
           )}
         </div>
-
-        {selectedDate && (
-          <aside className="calendar-detail-panel">
-            <h3 className="calendar-detail-title">
-              {selectedKey === formatDateKey(new Date()) ? 'Today' : MONTHS[selectedDate.getMonth()]} {selectedDate.getDate()}, {selectedDate.getFullYear()}
-            </h3>
-            {filter === 'personal' && (
-              <div className="calendar-detail-tasks">
-                {!showAddTask ? (
-                  <Button variant="outline" size="sm" onClick={() => setShowAddTask(true)} className="calendar-add-task-btn">
-                    + Add task
-                  </Button>
-                ) : (
-                  <form onSubmit={handleAddTask} className="calendar-add-task-form">
-                    <input
-                      type="text"
-                      placeholder="Task description"
-                      value={newTaskText}
-                      onChange={(e) => setNewTaskText(e.target.value)}
-                      className="auth-input calendar-add-task-input"
-                      disabled={addingTask}
-                      autoFocus
-                    />
-                    <div className="calendar-add-task-actions">
-                      <Button type="submit" variant="primary" size="sm" disabled={addingTask || !newTaskText.trim()}>
-                        Add
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => { setShowAddTask(false); setNewTaskText(''); }}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            )}
-            {selectedDayMeetings.length === 0 ? (
-              <p className="calendar-detail-empty">
-                {filter === 'personal' ? 'No meetings or tasks' : 'No meetings scheduled'}
-              </p>
-            ) : (
-              <ul className="calendar-detail-list">
-                {selectedDayMeetings.sort((a, b) => {
-                  const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
-                  const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
-                  return aT - bT
-                }).map((m) => (
-                  <li key={m.id} className={`calendar-detail-item ${m._todo ? 'calendar-detail-task' : ''} ${m._todo && m.done ? 'calendar-detail-task-done' : ''}`}>
-                    {m._todo ? (
-                      <>
-                        <input
-                          type="checkbox"
-                          checked={!!m.done}
-                          onChange={(e) => handleToggleTask(m.id, e.target.checked)}
-                          className="calendar-task-check"
-                          aria-label={m.title}
-                        />
-                        <span className="calendar-detail-title-text">{m.title}</span>
-                        <button type="button" className="calendar-task-delete" onClick={() => handleDeleteTask(m.id)} aria-label="Delete">×</button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="calendar-detail-time">{formatMeetingTime(m.startAt, userDoc) || 'All day'}</span>
-                        <span className="calendar-detail-title-text">{m.title}</span>
-                        {m._orgName && <span className="calendar-detail-org">{m._orgName}</span>}
-                        {m._imported && <span className="calendar-meeting-imported">imported</span>}
-                        {!m._imported && (
-                          <button type="button" className="calendar-task-delete" onClick={() => handleDeleteMeeting(m)} aria-label="Delete meeting">×</button>
-                        )}
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </aside>
-        )}
       </div>
+
+      {activeOrgId && user && (
+        <CreateEventModal
+          isOpen={showCreateEventModal}
+          onClose={() => setShowCreateEventModal(false)}
+          user={user}
+          activeOrgId={activeOrgId}
+          defaultDate={selectedDate}
+          onCreated={() => setCalendarReloadKey((k) => k + 1)}
+        />
+      )}
+      <EventDetailModal
+        item={selectedEventItem}
+        isOpen={!!selectedEventItem}
+        onClose={() => setSelectedEventItem(null)}
+        user={user}
+        userDoc={userDoc}
+        onUpdated={() => setCalendarReloadKey((k) => k + 1)}
+        onDeleted={(id) => {
+          setMeetings((prev) => prev.filter((m) => m.id !== id))
+          setSelectedEventItem(null)
+        }}
+      />
 
       {showImportModal && (
         <div className="calendar-import-overlay" onClick={() => !importing && setShowImportModal(false)}>

@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
 import Quill from 'quill'
+import 'quill/dist/quill.snow.css'
 import { QuillBinding } from 'y-quill'
 import * as Y from 'yjs'
 import { WebrtcProvider } from 'y-webrtc'
 import QuillCursors from 'quill-cursors'
 import QuillResize from 'quill-resize-module'
 import 'quill-resize-module/dist/resize.css'
+import '../styles/variables.css'
 import '../styles/Notepad.css'
 
 // Register Quill modules
@@ -75,12 +77,6 @@ export function Notepad() {
 
 
   useEffect(() => {
-    // Load Quill CSS from CDN
-    const link = document.createElement('link')
-    link.href = 'https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css'
-    link.rel = 'stylesheet'
-    document.head.appendChild(link)
-    
     initializeQuill()
     connectCollaboration()
 
@@ -142,7 +138,7 @@ export function Notepad() {
           },
         },
         theme: 'snow',
-        placeholder: '   Start typing...',
+        placeholder: 'Start typing…',
         bounds: containerRef.current,
       })
     }
@@ -200,7 +196,7 @@ export function Notepad() {
       <div ref={headerRef} className="notepad-header">
         <h3>Notepad</h3>
       </div>
-      <div ref={editorRef} className="notepad-editor" />
+      <div ref={editorRef} className="notepad-editor ql-snow" />
       <div className="notepad-resize-handle" />
     </div>
   )

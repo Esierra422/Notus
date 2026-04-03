@@ -35,6 +35,13 @@
   gap: 0.75rem;
 }
 
+.prev-meetings-error-text {
+  color: #e57373;
+  font-size: 0.95rem;
+  max-width: 520px;
+  line-height: 1.45;
+}
+
 .prev-meetings-empty-icon {
   color: var(--accent-dim);
   opacity: 0.5;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useOutletContext, useSearchParams, useNavigate } from 'react-router-dom'
+import { useOutletContext, useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Notepad } from '../pages/Notepad'
 import { DndContext, closestCenter } from '@dnd-kit/core'
@@ -8,21 +8,31 @@ import { CSS } from '@dnd-kit/utilities'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './VideoCallPage.css'
-import { Mic, MicOff, Video, VideoOff, MessageSquare, Bot, LogOut, NotebookPen } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, MessageSquare, Bot, LogOut, NotebookPen, Monitor, Shield } from 'lucide-react'
 
 import * as videoApp from '../lib/videoAppService.js'
+import { getUserDoc, getProfilePictureUrl } from '../lib/userService.js'
 import { getEffectiveApiBase } from '../lib/apiConfig.js'
 import { generateMeetingSummary } from '../lib/meetingSummaryService.js'
+import {
+  canAccessMeeting,
+  createInstantMeeting,
+  getMeetingTranscriptSessionId,
+  getMeetingVideoRoomId,
+} from '../lib/meetingService.js'
+import { CreateEventModal } from '../components/calendar/CreateEventModal.jsx'
 import { db } from '../lib/firebase.js'
 import {
   collection,
   doc,
+  getDoc,
   query,
   orderBy,
   limit,
   onSnapshot,
   addDoc,
   setDoc,
+  updateDoc,
   deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore'
@@ -36,7 +46,23 @@ function toFriendlyError(err) {
     return "Video server returned an invalid response." + prodHint
   if (/failed-precondition|not configured|Agora is not configured/i.test(msg))
     return "Video isn't configured for production." + prodHint
+  if (/NOT_SUPPORTED|NotSupportedError|not supported/i.test(msg))
+    return "This browser or page context does not support that action (e.g. screen sharing needs a secure site and a supported browser). Try Chrome or Edge on HTTPS."
+  if (/Permission denied|NotAllowedError|NotReadableError/i.test(msg))
+    return "Camera or microphone permission was blocked. Check browser settings and try again."
   return msg
+}
+
+function formatMeetingStart(meeting) {
+  const ms = meeting.startAt?.toMillis?.() ?? meeting.startAt
+  if (!ms) return ''
+  return new Date(ms).toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 /** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
@@ -67,32 +93,54 @@ export function VideoCallPage() {
   const { user, setNavExtra, activeOrgId } = useOutletContext() || {}
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const channelFromUrl = searchParams.get('channel') || ''
-  const [channelName, setChannelName] = useState(channelFromUrl || 'channel1')
+  const [channelName, setChannelName] = useState('')
   const [joined, setJoined] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
-  const [participantNames, setParticipantNames] = useState({})
+  /** Agora uid -> { displayName, photoUrl } from Firestore participants */
+  const [participantMeta, setParticipantMeta] = useState({})
+  const [localPhotoUrl, setLocalPhotoUrl] = useState(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [askMeetingOpen, setAskMeetingOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
   const [askLoading, setAskLoading] = useState(false)
-  const [controlsVisible, setControlsVisible] = useState(false)
   const [showNotepad, setShowNotepad] = useState(false)
   const [generatingSummary, setGeneratingSummary] = useState(false)
+  const [selectedMeeting, setSelectedMeeting] = useState(null)
+  const [preJoinOpen, setPreJoinOpen] = useState(false)
+  const [preJoinMode, setPreJoinMode] = useState('instant')
+  const [preJoinMicOn, setPreJoinMicOn] = useState(true)
+  const [preJoinCamOn, setPreJoinCamOn] = useState(true)
+  const [preJoinAllowRemoteShare, setPreJoinAllowRemoteShare] = useState(true)
+  const [preJoinPreviewStream, setPreJoinPreviewStream] = useState(null)
+  const [preJoinPreviewError, setPreJoinPreviewError] = useState('')
+  /** While in-call: host + transcript session for summary + Ask AI RAG */
+  const [joinedMeetingMeta, setJoinedMeetingMeta] = useState(null)
+  const [localPreviewTrack, setLocalPreviewTrack] = useState(null)
+  const [screenSharing, setScreenSharing] = useState(false)
+  const [showLeaveModal, setShowLeaveModal] = useState(false)
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
+  const [joinMeetingIdInput, setJoinMeetingIdInput] = useState('')
+  const [joinByIdLoading, setJoinByIdLoading] = useState(false)
+  const [roomAllowRemoteShare, setRoomAllowRemoteShare] = useState(true)
+  const [hostPanelOpen, setHostPanelOpen] = useState(false)
 
   const localVideoTrackRef = useRef(null)
+  const transcriptSessionIdRef = useRef(null)
   const localUidRef = useRef(0)
   const transcriptionWsRef = useRef(null)
   const audioContextRef = useRef(null)
   const workletNodeRef = useRef(null)
   const pcmBufferRef = useRef([])
   const transcriptionChunksSentRef = useRef(0)
-  const timeoutRef = useRef(null)
+  const remoteEndHandledRef = useRef(false)
+
+  /** Live transcription WebSocket only when AI backend URL is set (Express has no /ws/transcription). */
+  const transcriptionWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
 
   const effectiveAiBase = (() => {
     const u = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
@@ -120,6 +168,8 @@ export function VideoCallPage() {
       console.warn('Cleanup error:', e)
     }
     localVideoTrackRef.current = null
+    setLocalPreviewTrack(null)
+    setScreenSharing(false)
     setJoined(false)
   }, [])
 
@@ -139,25 +189,16 @@ export function VideoCallPage() {
     const container = document.querySelector('.video-streams')
     if (!container) return
     const count = remoteUsers.length + 1
-    var cols = 1
-    if(count > 1) cols = 2
-    if(count > 4) cols = 3
+    const narrow = typeof window !== 'undefined' && window.innerWidth < 640
+    let cols = 1
+    if (!narrow) {
+      if (count > 1) cols = 2
+      if (count > 4) cols = 3
+    }
     const rows = Math.ceil(count / cols)
-    container.style.setProperty('--cols', cols)
-    container.style.setProperty('--rows', rows)
+    container.style.setProperty('--cols', String(cols))
+    container.style.setProperty('--rows', String(rows))
   }, [remoteUsers])
-
-  const handleMouseMove = () => {
-    setControlsVisible(true)
-    if(timeoutRef.current) clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => {
-      setControlsVisible(false)
-    }, 2000)
-  }
-
-  useEffect(() => {
-    if (channelFromUrl) setChannelName(channelFromUrl)
-  }, [channelFromUrl])
 
   useEffect(() => {
     setMeetingHistory([])
@@ -165,8 +206,46 @@ export function VideoCallPage() {
   }, [channelName])
 
   useEffect(() => {
+    const orgId = searchParams.get('orgId')
+    const mid = searchParams.get('meetingId')
+    if (!orgId || !mid || !user?.uid) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const ref = doc(db, 'organizations', orgId, 'meetings', mid)
+        const snap = await getDoc(ref)
+        if (cancelled || !snap.exists()) return
+        const m = { id: snap.id, ...snap.data() }
+        const ok = await canAccessMeeting(m, user.uid, orgId)
+        if (cancelled || !ok) return
+        setSelectedMeeting(m)
+        setChannelName(getMeetingVideoRoomId(m, m.orgId || orgId))
+      } catch (e) {
+        console.warn('Could not load meeting from link:', e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, user])
+
+  useEffect(() => {
     if (setNavExtra) setNavExtra(undefined)
   }, [setNavExtra])
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setLocalPhotoUrl(null)
+      return
+    }
+    let cancelled = false
+    getUserDoc(user.uid).then((doc) => {
+      if (!cancelled) setLocalPhotoUrl(getProfilePictureUrl(doc, user))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   useEffect(() => {
     return () => {
@@ -181,9 +260,14 @@ export function VideoCallPage() {
     const unsub = onSnapshot(participantsRef, (snap) => {
       const map = {}
       snap.docs.forEach((d) => {
-        map[d.id] = d.data()?.displayName || `User ${d.id}`
+        const data = d.data() || {}
+        map[d.id] = {
+          displayName: data.displayName || `User ${d.id}`,
+          photoUrl: typeof data.photoUrl === 'string' && data.photoUrl ? data.photoUrl : null,
+          firebaseUid: typeof data.firebaseUid === 'string' ? data.firebaseUid : null,
+        }
       })
-      setParticipantNames(map)
+      setParticipantMeta(map)
     }, (err) => console.warn('Participant names listener error:', err))
     return () => unsub()
   }, [joined, channelName])
@@ -192,10 +276,105 @@ export function VideoCallPage() {
     updateGridLayout()
   }, [remoteUsers, updateGridLayout])
 
-  const joinChannel = async () => {
+  useEffect(() => {
+    const onResize = () => updateGridLayout()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [updateGridLayout])
+
+  const openPreJoinInstant = () => {
+    if (!activeOrgId || !user?.uid) return
+    setError('')
+    setPreJoinMode('instant')
+    setPreJoinMicOn(true)
+    setPreJoinCamOn(true)
+    setPreJoinAllowRemoteShare(true)
+    setPreJoinPreviewError('')
+    setPreJoinOpen(true)
+  }
+
+  const openPreJoinMeeting = () => {
+    if (!selectedMeeting) {
+      setError('Load a meeting first (paste a meeting ID), or use New meeting.')
+      return
+    }
+    setError('')
+    setPreJoinMode('meeting')
+    setPreJoinMicOn(true)
+    setPreJoinCamOn(true)
+    setPreJoinAllowRemoteShare(true)
+    setPreJoinPreviewError('')
+    setPreJoinOpen(true)
+  }
+
+  useEffect(() => {
+    if (!preJoinOpen) return
+    let disposed = false
+    let stream = null
+    ;(async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: preJoinMicOn,
+          video: preJoinCamOn ? { facingMode: 'user' } : false,
+        })
+        if (disposed) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
+        setPreJoinPreviewStream(stream)
+        setPreJoinPreviewError('')
+      } catch (e) {
+        if (!disposed) {
+          setPreJoinPreviewStream(null)
+          setPreJoinPreviewError(toFriendlyError(e) || 'Could not access camera or microphone.')
+        }
+      }
+    })()
+    return () => {
+      disposed = true
+      if (stream) stream.getTracks().forEach((t) => t.stop())
+      setPreJoinPreviewStream(null)
+    }
+  }, [preJoinOpen, preJoinMicOn, preJoinCamOn])
+
+  const executeJoin = async (meetingInput, { instantCreate, micOn, videoOn, allowRemoteScreenShare }) => {
+    remoteEndHandledRef.current = false
     setError('')
     setLoading(true)
     try {
+      let meeting = meetingInput
+      if (instantCreate) {
+        if (!activeOrgId || !user?.uid) {
+          setError('Select an organization first.')
+          return false
+        }
+        meeting = await createInstantMeeting(activeOrgId, user.uid)
+        setSelectedMeeting(meeting)
+        const orgForMeeting = meeting.orgId || activeOrgId
+        setChannelName(getMeetingVideoRoomId(meeting, orgForMeeting) || meeting.videoRoomId)
+      }
+      if (!meeting) {
+        setError('No meeting to join.')
+        return false
+      }
+      if (meeting.isVideoMeeting === false) {
+        setError('This calendar event is not a video meeting. Edit it on the calendar and enable “Video meeting”, or pick another event.')
+        return false
+      }
+      const orgForMeeting = meeting.orgId || activeOrgId
+      if (!orgForMeeting) {
+        setError('This meeting is not tied to an organization.')
+        return false
+      }
+      const room = getMeetingVideoRoomId(meeting, orgForMeeting)
+      const sessionId = getMeetingTranscriptSessionId(meeting, orgForMeeting)
+      if (!room || !sessionId) {
+        setError('This meeting is missing video room data. Try scheduling a new meeting from the calendar.')
+        return false
+      }
+      transcriptSessionIdRef.current = sessionId
+      setChannelName(room)
+
       // Wire up remote user callbacks before joining
       videoApp.setCallbacks({
         onJoined: (remoteUser) => {
@@ -206,6 +385,25 @@ export function VideoCallPage() {
         },
         onLeft: (remoteUser) => {
           setRemoteUsers((prev) => prev.filter((u) => u.uid !== remoteUser.uid))
+        },
+        onRemoteUsersRefresh: () => {
+          setRemoteUsers((prev) => {
+            const clientUsers = videoApp.getRemoteUsers()
+            const byUid = new Map(clientUsers.map((u) => [u.uid, u]))
+            const ordered = []
+            const used = new Set()
+            for (const u of prev) {
+              const fresh = byUid.get(u.uid)
+              if (fresh) {
+                ordered.push(fresh)
+                used.add(u.uid)
+              }
+            }
+            for (const u of clientUsers) {
+              if (!used.has(u.uid)) ordered.push(u)
+            }
+            return ordered
+          })
         },
         onAudioPublished: (remoteUser) => {
           // Connect remote audio to the transcription worklet so all voices are captured
@@ -226,31 +424,34 @@ export function VideoCallPage() {
       // Clear before joining so the slate is clean, but won't wipe users discovered during join
       setRemoteUsers([])
 
-      const { uid, audioTrack, videoTrack } = await videoApp.joinChannel(channelName)
+      const { uid, audioTrack, videoTrack } = await videoApp.joinChannel(room, { micOn, videoOn })
       localUidRef.current = uid
       localVideoTrackRef.current = videoTrack
+      setLocalPreviewTrack(videoTrack)
 
-      // Transcription capture
+      // Transcription capture (only if VITE_AI_WS_URL points at FastAPI /ws/transcription)
       try {
-        const CHUNK_DURATION_SEC = 15
-        let wsUrl
-        if (effectiveAiBase) {
-          const protocol = effectiveAiBase.startsWith('https') ? 'wss' : 'ws'
-          const host = new URL(effectiveAiBase).host
-          wsUrl = `${protocol}://${host}/ws/transcription`
+        if (!transcriptionWsBase) {
+          // Skip: avoids failed WS to Express (3001) and console spam
         } else {
-          const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-          wsUrl = `${wsProtocol}://${window.location.host}/ws/transcription`
-        }
+        const CHUNK_DURATION_SEC = 15
+        const protocol = transcriptionWsBase.startsWith('https') ? 'wss' : 'ws'
+        const host = new URL(transcriptionWsBase).host
+        const wsUrl = `${protocol}://${host}/ws/transcription`
         const ws = new WebSocket(wsUrl)
         transcriptionWsRef.current = ws
         ws.binaryType = 'arraybuffer'
         ws.onopen = () => {
-          ws.send(JSON.stringify({ type: 'meta', channel: channelName, uid }))
+          ws.send(
+            JSON.stringify({ type: 'meta', channel: room, uid, sessionId: transcriptSessionIdRef.current })
+          )
         }
         const stream = new MediaStream([audioTrack.getMediaStreamTrack()])
         const ctx = new (window.AudioContext || window.webkitAudioContext)()
         audioContextRef.current = ctx
+        if (ctx.state === 'suspended') {
+          await ctx.resume().catch(() => {})
+        }
         const captureRate = ctx.sampleRate
         const samplesPerChunkAtCapture = Math.floor(captureRate * CHUNK_DURATION_SEC)
 
@@ -290,7 +491,6 @@ export function VideoCallPage() {
             const isFirstChunk = transcriptionChunksSentRef.current === 0
             const chunkRms = rms(chunk)
             const aboveThreshold = chunkRms >= SPEECH_RMS_THRESHOLD
-            console.log(`[Transcription] chunk RMS: ${chunkRms.toFixed(6)}, threshold: ${SPEECH_RMS_THRESHOLD}, sending: ${isFirstChunk || aboveThreshold}`)
             if (ws.readyState === WebSocket.OPEN && (isFirstChunk || aboveThreshold)) {
               const rawPcm = downsampleAndToInt16(chunk, captureRate, TARGET_SAMPLE_RATE)
               ws.send(rawPcm)
@@ -301,66 +501,239 @@ export function VideoCallPage() {
 
         source.connect(workletNode)
         workletNode.connect(ctx.destination)
+        }
       } catch (e) {
         console.warn('Audio capture for transcription failed:', e)
       }
 
+      setJoinedMeetingMeta({
+        createdBy: meeting.createdBy || user.uid,
+        transcriptSessionId: sessionId,
+      })
+      const media = videoApp.getMediaState()
+      setMicEnabled(!media.micMuted)
+      setCamEnabled(!media.videoMuted)
       setJoined(true)
 
       try {
-        await setDoc(doc(db, 'videoChannels', channelName, 'participants', String(uid)), {
+        const userDoc = await getUserDoc(user.uid)
+        const photoUrl = getProfilePictureUrl(userDoc, user) || null
+        await setDoc(doc(db, 'videoChannels', room, 'participants', String(uid)), {
           displayName: user?.displayName || user?.email || 'Anonymous',
+          photoUrl,
+          firebaseUid: user.uid,
           joinedAt: serverTimestamp(),
         })
       } catch (e) {
         console.warn('Could not register participant name:', e)
       }
+
+      try {
+        const hostUid = meeting.createdBy || user.uid
+        const roomStatePayload = { hostUid }
+        if (user.uid === (meeting.createdBy || user.uid)) {
+          roomStatePayload.allowRemoteScreenShare = allowRemoteScreenShare !== false
+        }
+        await setDoc(doc(db, 'videoChannels', room, 'roomState', 'current'), roomStatePayload, { merge: true })
+      } catch (e) {
+        console.warn('Could not init room state:', e)
+      }
+      return true
     } catch (err) {
       setError(toFriendlyError(err) || 'Failed to join')
+      return false
     } finally {
       setLoading(false)
     }
   }
 
-  const leaveChannel = async () => {
-    setLoading(true)
+  useEffect(() => {
+    if (!joined || !channelName || !user?.uid) return
+    const ref = doc(db, 'videoChannels', channelName, 'roomState', 'current')
+    const unsub = onSnapshot(
+      ref,
+      async (snap) => {
+        const d = snap.data() || {}
+        setRoomAllowRemoteShare(d.allowRemoteScreenShare !== false)
+        if (!d.endedAt || remoteEndHandledRef.current) return
+        if (d.endedBy === user.uid) return
+        remoteEndHandledRef.current = true
+        const uidToRemove = localUidRef.current
+        const ch = channelName
+        await cleanup()
+        setJoinedMeetingMeta(null)
+        setRemoteUsers([])
+        setParticipantMeta({})
+        setShowLeaveModal(false)
+        setHostPanelOpen(false)
+        try {
+          await deleteDoc(doc(db, 'videoChannels', ch, 'participants', String(uidToRemove)))
+        } catch (e) {
+          console.warn('Could not remove participant:', e)
+        }
+      },
+      (err) => console.warn('Room state listener error:', err)
+    )
+    return () => unsub()
+  }, [joined, channelName, user?.uid, cleanup])
+
+  const collectParticipantNames = () => [
+    ...new Set(Object.values(participantMeta).map((m) => m.displayName).filter(Boolean)),
+  ]
+
+  const runSummaryIfConfigured = async (currentChannel, transcriptSessionId, currentParticipants) => {
+    if (!effectiveAiBase || !currentChannel || !user?.uid || !transcriptSessionId) return
+    setGeneratingSummary(true)
+    try {
+      const result = await generateMeetingSummary(effectiveAiBase, {
+        channel: currentChannel,
+        sessionId: transcriptSessionId,
+        uid: user.uid,
+        orgId: activeOrgId || '',
+        participants: currentParticipants,
+      })
+      if (result.success && result.summaryId) {
+        navigate(`/app/meeting-summary/${result.summaryId}`)
+        return
+      }
+      if (result.error) console.warn('[Summary] Server returned error:', result.error)
+    } catch (e) {
+      console.warn('Meeting summary generation failed:', e)
+    } finally {
+      setGeneratingSummary(false)
+    }
+  }
+
+  const teardownAfterCall = async () => {
     const uidToRemove = localUidRef.current
     const currentChannel = channelName
-    const currentParticipants = [...new Set(Object.values(participantNames))]
     await cleanup()
+    setJoinedMeetingMeta(null)
     setRemoteUsers([])
-    setParticipantNames((prev) => {
-      const next = { ...prev }
-      delete next[uidToRemove]
-      return next
-    })
+    setParticipantMeta({})
+    setHostPanelOpen(false)
     try {
       await deleteDoc(doc(db, 'videoChannels', currentChannel, 'participants', String(uidToRemove)))
     } catch (e) {
       console.warn('Could not remove participant:', e)
     }
-    setLoading(false)
+    return { currentChannel, uidToRemove }
+  }
 
-    // Generate post-meeting summary
-    if (effectiveAiBase && currentChannel && user?.uid) {
-      setGeneratingSummary(true)
-      try {
-        const result = await generateMeetingSummary(
-          effectiveAiBase, currentChannel, user.uid, activeOrgId || '', currentParticipants
-        )
-        console.log('[Summary] generate-summary response:', result)
-        if (result.success && result.summaryId) {
-          navigate(`/app/meeting-summary/${result.summaryId}`)
+  const leaveCallOnly = async () => {
+    setShowLeaveModal(false)
+    setLoading(true)
+    await teardownAfterCall()
+    setLoading(false)
+  }
+
+  const endMeetingForAll = async () => {
+    setShowLeaveModal(false)
+    setLoading(true)
+    const metaSnapshot = joinedMeetingMeta
+    const transcriptSessionId = metaSnapshot?.transcriptSessionId
+    const currentParticipants = collectParticipantNames()
+    const currentChannel = channelName
+    const isHost = Boolean(metaSnapshot?.createdBy && user?.uid && metaSnapshot.createdBy === user.uid)
+    try {
+      await setDoc(
+        doc(db, 'videoChannels', currentChannel, 'roomState', 'current'),
+        { endedAt: serverTimestamp(), endedBy: user.uid },
+        { merge: true }
+      )
+    } catch (e) {
+      console.warn('Could not signal end for all:', e)
+    }
+    await teardownAfterCall()
+    setLoading(false)
+    if (isHost) {
+      await runSummaryIfConfigured(currentChannel, transcriptSessionId, currentParticipants)
+    }
+  }
+
+  const onLeaveButtonClick = () => {
+    const isHost = Boolean(
+      joinedMeetingMeta?.createdBy && user?.uid && joinedMeetingMeta.createdBy === user.uid
+    )
+    if (isHost) setShowLeaveModal(true)
+    else leaveCallOnly()
+  }
+
+  const toggleScreenShare = async () => {
+    setError('')
+    try {
+      if (videoApp.getIsScreenSharing()) {
+        await videoApp.stopScreenShare()
+        setScreenSharing(false)
+        setLocalPreviewTrack(videoApp.getLocalVideoTrack())
+        setCamEnabled(!videoApp.getMediaState().videoMuted)
+      } else {
+        const isHost = joinedMeetingMeta?.createdBy === user.uid
+        if (!isHost && !roomAllowRemoteShare) {
+          setError('The host has turned off screen sharing for participants.')
           return
         }
-        if (result.error) {
-          console.warn('[Summary] Server returned error:', result.error)
-        }
-      } catch (e) {
-        console.warn('Meeting summary generation failed:', e)
+        const st = await videoApp.startScreenShare()
+        setScreenSharing(true)
+        setLocalPreviewTrack(st)
+        setCamEnabled(true)
       }
-      setGeneratingSummary(false)
+    } catch (e) {
+      setError(toFriendlyError(e) || 'Screen share failed.')
     }
+  }
+
+  const setRemoteScreenShareAllowed = async (allowed) => {
+    if (!channelName || joinedMeetingMeta?.createdBy !== user?.uid) return
+    try {
+      await updateDoc(doc(db, 'videoChannels', channelName, 'roomState', 'current'), {
+        allowRemoteScreenShare: allowed,
+      })
+    } catch (e) {
+      console.warn('Could not update screen share policy:', e)
+    }
+  }
+
+  const joinMeetingById = async () => {
+    const id = joinMeetingIdInput.trim()
+    if (!activeOrgId || !id || !user?.uid) return
+    setJoinByIdLoading(true)
+    setError('')
+    try {
+      const ref = doc(db, 'organizations', activeOrgId, 'meetings', id)
+      const snap = await getDoc(ref)
+      if (!snap.exists()) {
+        setError('No meeting found with that ID in this organization.')
+        return
+      }
+      const m = { id: snap.id, ...snap.data(), orgId: activeOrgId }
+      const ok = await canAccessMeeting(m, user.uid, activeOrgId)
+      if (!ok) {
+        setError('You do not have access to this meeting.')
+        return
+      }
+      if (m.isVideoMeeting === false) {
+        setError('That event is not a video meeting.')
+        return
+      }
+      setSelectedMeeting(m)
+      setChannelName(getMeetingVideoRoomId(m, activeOrgId))
+      setJoinMeetingIdInput('')
+    } catch (e) {
+      setError(e?.message || 'Could not load meeting.')
+    } finally {
+      setJoinByIdLoading(false)
+    }
+  }
+
+  const confirmPreJoin = async () => {
+    const ok = await executeJoin(preJoinMode === 'instant' ? null : selectedMeeting, {
+      instantCreate: preJoinMode === 'instant',
+      micOn: preJoinMicOn,
+      videoOn: preJoinCamOn,
+      allowRemoteScreenShare: preJoinAllowRemoteShare,
+    })
+    if (ok) setPreJoinOpen(false)
   }
 
   const toggleMic = () => {
@@ -401,7 +774,14 @@ export function VideoCallPage() {
       const res = await fetch(`${effectiveAiBase}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: channelName, question: q, uid: user.uid, orgId: activeOrgId || '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+        body: JSON.stringify({
+          channel: channelName,
+          sessionId: joinedMeetingMeta?.transcriptSessionId || '',
+          question: q,
+          uid: user.uid,
+          orgId: activeOrgId || '',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       })
       const data = await res.json().catch(() => ({}))
       const answer = data.answer ?? data.error ?? (res.ok ? 'No answer.' : `Error ${res.status}`)
@@ -415,8 +795,12 @@ export function VideoCallPage() {
 
   if (!user) return null
 
+  const localIsHost = Boolean(
+    joinedMeetingMeta?.createdBy && user?.uid && joinedMeetingMeta.createdBy === user.uid
+  )
+
   return (
-    <main className="app-main video-call-main">
+    <main className={['app-main', 'video-call-main', !joined && 'video-call-main--lobby'].filter(Boolean).join(' ')}>
       {generatingSummary ? (
         <div className="video-call-generating-summary">
           <div className="video-call-generating-spinner" />
@@ -424,64 +808,205 @@ export function VideoCallPage() {
           <p>Hang on tight, this will only take a moment...</p>
         </div>
       ) : !joined ? (
-        <div className="video-call-join">
-          <input
-            type="text"
-            placeholder="Channel name"
-            value={channelName}
-            onChange={(e) => setChannelName(e.target.value)}
-            className="auth-input video-call-input"
-            disabled={loading}
+        <>
+          <div className="video-call-lobby video-call-lobby--wide">
+            <div className="video-call-lobby-header">
+              <h2 className="video-call-lobby-title">Video meetings</h2>
+              <p className="video-call-lobby-sub">
+                Start a new call with a quick preview, schedule from the calendar, or join with a meeting ID.
+              </p>
+            </div>
+            {!activeOrgId ? (
+              <p className="video-call-lobby-muted">
+                Select an organization in the header, or{' '}
+                <Link to="/app/organizations" className="video-call-lobby-link">
+                  open Organizations
+                </Link>{' '}
+                to join one.
+              </p>
+            ) : (
+              <>
+                <div className="video-call-action-cards">
+                  <button
+                    type="button"
+                    className="video-call-action-card"
+                    onClick={openPreJoinInstant}
+                  >
+                    <span className="video-call-action-card-kicker">Start now</span>
+                    <span className="video-call-action-card-title">New meeting</span>
+                    <span className="video-call-action-card-desc">
+                      Opens a preview to turn your camera and microphone on or off, then starts an instant meeting.
+                    </span>
+                  </button>
+                  <div className="video-call-action-card video-call-action-card--static">
+                    <span className="video-call-action-card-kicker">Calendar</span>
+                    <span className="video-call-action-card-title">Schedule meeting</span>
+                    <span className="video-call-action-card-desc">Add a dated event, optional video, and invite people.</span>
+                    <div className="video-call-action-card-actions">
+                      <Button type="button" variant="primary" size="md" onClick={() => setScheduleModalOpen(true)}>
+                        Schedule here
+                      </Button>
+                      <Link to="/app/calendar?create=1" className="video-call-action-card-calendar-link">
+                        Open calendar →
+                      </Link>
+                    </div>
+                  </div>
+                  <div className="video-call-action-card video-call-action-card--static">
+                    <span className="video-call-action-card-kicker">ID</span>
+                    <span className="video-call-action-card-title">Join meeting</span>
+                    <span className="video-call-action-card-desc">Paste the meeting ID from the calendar event (Firestore document id).</span>
+                    <div className="video-call-join-id-row">
+                      <input
+                        type="text"
+                        className="auth-input video-call-join-id-input"
+                        placeholder="Meeting ID"
+                        value={joinMeetingIdInput}
+                        onChange={(e) => setJoinMeetingIdInput(e.target.value)}
+                        disabled={joinByIdLoading}
+                      />
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="md"
+                        onClick={joinMeetingById}
+                        disabled={joinByIdLoading || !joinMeetingIdInput.trim()}
+                      >
+                        {joinByIdLoading ? '…' : 'Load'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedMeeting && (
+                  <div className="video-call-lobby-ready">
+                    <p className="video-call-lobby-ready-title">
+                      Ready to join: <strong>{selectedMeeting.title || 'Meeting'}</strong>
+                      {formatMeetingStart(selectedMeeting) ? (
+                        <span className="video-call-lobby-ready-time"> · {formatMeetingStart(selectedMeeting)}</span>
+                      ) : null}
+                    </p>
+                    <Button variant="primary" type="button" onClick={openPreJoinMeeting} disabled={loading}>
+                      Join with audio &amp; video options…
+                    </Button>
+                  </div>
+                )}
+
+                {error && <p className="auth-error video-call-lobby-error">{error}</p>}
+                <p className="video-call-lobby-muted video-call-lobby-calendar-hint">
+                  Scheduled calls live on the{' '}
+                  <Link to="/app/calendar" className="video-call-lobby-link">
+                    calendar
+                  </Link>
+                  . Open an event from there to join with a link, or paste its meeting ID above.
+                </p>
+                <div className="video-call-previous-wrap">
+                  <Link to="/app/previous-meetings" className="video-call-previous-link">
+                    View previous meetings & summaries →
+                  </Link>
+                  <p className="video-call-lobby-hint">
+                    After a call, use <strong>End for everyone</strong> as host to generate notes (when the AI backend is connected).
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+          {activeOrgId && user && (
+            <CreateEventModal
+              isOpen={scheduleModalOpen}
+              onClose={() => setScheduleModalOpen(false)}
+              user={user}
+              activeOrgId={activeOrgId}
+              defaultDate={null}
+              onCreated={() => {}}
+            />
+          )}
+          <VideoPreJoinModal
+            isOpen={preJoinOpen}
+            onClose={() => !loading && setPreJoinOpen(false)}
+            title={
+              preJoinMode === 'instant'
+                ? `${user?.displayName || user?.email || 'Your'}'s meeting`
+                : selectedMeeting?.title || 'Join meeting'
+            }
+            subtitle={
+              preJoinMode === 'instant'
+                ? 'Choose your microphone and camera before you start.'
+                : 'Choose your microphone and camera before you enter the room.'
+            }
+            previewStream={preJoinPreviewStream}
+            previewError={preJoinPreviewError}
+            micOn={preJoinMicOn}
+            camOn={preJoinCamOn}
+            onToggleMic={() => setPreJoinMicOn((v) => !v)}
+            onToggleCam={() => setPreJoinCamOn((v) => !v)}
+            showHostOptions={
+              preJoinMode === 'instant' ||
+              (preJoinMode === 'meeting' && selectedMeeting && user?.uid === selectedMeeting.createdBy)
+            }
+            allowRemoteScreenShare={preJoinAllowRemoteShare}
+            onAllowRemoteScreenShareChange={setPreJoinAllowRemoteShare}
+            confirmLabel={preJoinMode === 'instant' ? 'Start meeting' : 'Join meeting'}
+            loading={loading}
+            onConfirm={confirmPreJoin}
           />
-          {error && <p className="auth-error">{error}</p>}
-          <Button variant="primary" onClick={joinChannel} disabled={loading}>
-            {loading ? 'Joining…' : 'Join call'}
-          </Button>
-        </div>
+        </>
       ) : (
-        <div className="video-call-room" onMouseMove={handleMouseMove}>
-          <div className="video-area">
-            <div className="video-streams">
-              <div className="video-player video-player-local" id="local-player">
-                <span className="video-player-label">You</span>
-                <LocalVideoTrack track={localVideoTrackRef.current} enabled={camEnabled} uid={localUidRef.current} />
-              </div>
-
-              <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext
-                  items={remoteUsers.map((u) => u.uid)}
-                  strategy={verticalListSortingStrategy}
+        <div className="video-call-room">
+          <div className="video-call-room-body">
+            <div className="video-call-main-column">
+              <div className="video-area">
+                <div
+                  className={[
+                    'video-streams',
+                    remoteUsers.length + 1 === 1 && 'video-streams--solo',
+                    remoteUsers.length + 1 === 3 && 'video-streams--triad',
+                    remoteUsers.length + 1 >= 5 && 'video-streams--many',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  data-tile-count={remoteUsers.length + 1}
                 >
-                {remoteUsers.map((u) => (
-                  <SortableRemoteVideo key={u.uid} user={u} displayName={participantNames[String(u.uid)]} />
-                ))}
-                </SortableContext>
-              </DndContext>
-            </div>
+                  <div className="video-streams__slot video-streams__slot--local">
+                    <div className="video-player video-player-local" id="local-player">
+                      <VideoParticipantLabel name="You" micOn={micEnabled} showHost={localIsHost} />
+                      <LocalVideoTrack
+                        track={localPreviewTrack}
+                        camOn={camEnabled}
+                        photoUrl={localPhotoUrl}
+                        nameHint={user?.displayName || user?.email || 'You'}
+                      />
+                    </div>
+                  </div>
 
-          </div>            
-          <div className="video-call-controls" style={{opacity: controlsVisible ? 1 : 0, pointerEvents: controlsVisible ? 'auto' : 'none'}}>
-              <Button variant={micEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleMic}>
-                {micEnabled ? <Mic size={36}/> : <MicOff size={36}/>}
-              </Button>
-              <Button variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam}>
-                {camEnabled ? <Video size={36}/> : <VideoOff size={36}/>}
-              </Button>
-            <Button variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad}>
-                <NotebookPen size={36}/>
-            </Button>        
-              <Button variant={chatOpen ? 'primary' : 'outline'} size="sm" onClick={toggleChat}>
-                <MessageSquare size={36}/>
-              </Button>
-              <Button variant={askMeetingOpen ? 'primary' : 'outline'} size="sm" onClick={toggleBot}>
-                <Bot size={36}/>
-              </Button>
-              <Button variant="primary" size="sm" onClick={leaveChannel} disabled={loading}>
-                <LogOut size={36}/>
-              </Button>
+                  <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                    <SortableContext
+                      items={remoteUsers.map((u) => u.uid)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                    {remoteUsers.map((u) => {
+                      const meta = participantMeta[String(u.uid)]
+                      const isRemoteHost = Boolean(
+                        joinedMeetingMeta?.createdBy &&
+                          meta?.firebaseUid &&
+                          meta.firebaseUid === joinedMeetingMeta.createdBy
+                      )
+                      return (
+                        <SortableRemoteVideo
+                          key={u.uid}
+                          user={u}
+                          displayName={meta?.displayName}
+                          photoUrl={meta?.photoUrl}
+                          isHost={isRemoteHost}
+                        />
+                      )
+                    })}
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              </div>
             </div>
-          {chatOpen && <VideoCallChat channelName={channelName} user={user} />}
-          {askMeetingOpen && (
+            {chatOpen && <VideoCallChat channelName={channelName} user={user} />}
+            {askMeetingOpen && (
           <div className="video-call-meeting-chat">
             <span className="video-call-meeting-chat-label">Ask about this meeting</span>
             {meetingHistory.length > 0 && (
@@ -518,17 +1043,239 @@ export function VideoCallPage() {
               <p className="video-call-meeting-chat-hint">Set VITE_API_URL or VITE_AI_WS_URL to enable meeting Q&A.</p>
             )}
           </div>
+            )}
+          </div>
+          {joinedMeetingMeta?.createdBy === user?.uid && hostPanelOpen && (
+            <div className="video-call-host-panel" role="region" aria-label="Host options">
+              <span className="video-call-host-panel-label">Participant screen share</span>
+              <label className="video-call-host-toggle">
+                <input
+                  type="checkbox"
+                  checked={roomAllowRemoteShare}
+                  onChange={(e) => setRemoteScreenShareAllowed(e.target.checked)}
+                />
+                <span>Allow others to share screen</span>
+              </label>
+              <button
+                type="button"
+                className="video-call-host-panel-dismiss"
+                onClick={() => setHostPanelOpen(false)}
+                aria-label="Close host options"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          <div className="video-call-controls-bar" role="toolbar" aria-label="Call controls">
+            <div className="video-call-controls-bar-inner">
+              <Button className="video-call-control-btn" variant={micEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleMic} aria-label={micEnabled ? 'Mute microphone' : 'Unmute microphone'}>
+                {micEnabled ? <Mic size={20} strokeWidth={2.25} /> : <MicOff size={20} strokeWidth={2.25} />}
+              </Button>
+              <Button className="video-call-control-btn" variant={camEnabled ? 'outline' : 'primary'} size="sm" onClick={toggleCam} aria-label={camEnabled ? 'Turn camera off' : 'Turn camera on'}>
+                {camEnabled ? <Video size={20} strokeWidth={2.25} /> : <VideoOff size={20} strokeWidth={2.25} />}
+              </Button>
+              <Button className="video-call-control-btn" variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad} aria-label="Notepad">
+                <NotebookPen size={20} strokeWidth={2.25} />
+              </Button>
+              <Button className="video-call-control-btn" variant={chatOpen ? 'primary' : 'outline'} size="sm" onClick={toggleChat} aria-label="Chat">
+                <MessageSquare size={20} strokeWidth={2.25} />
+              </Button>
+              <Button className="video-call-control-btn" variant={askMeetingOpen ? 'primary' : 'outline'} size="sm" onClick={toggleBot} aria-label="Ask AI">
+                <Bot size={20} strokeWidth={2.25} />
+              </Button>
+              <Button
+                className="video-call-control-btn"
+                variant={screenSharing ? 'primary' : 'outline'}
+                size="sm"
+                onClick={toggleScreenShare}
+                disabled={loading}
+                aria-label={screenSharing ? 'Stop sharing' : 'Share screen'}
+              >
+                <Monitor size={20} strokeWidth={2.25} />
+              </Button>
+              {joinedMeetingMeta?.createdBy === user?.uid && (
+                <Button
+                  className="video-call-control-btn"
+                  variant={hostPanelOpen ? 'primary' : 'outline'}
+                  size="sm"
+                  onClick={() => setHostPanelOpen((o) => !o)}
+                  aria-label="Host options"
+                  aria-expanded={hostPanelOpen}
+                >
+                  <Shield size={20} strokeWidth={2.25} />
+                </Button>
+              )}
+              <Button className="video-call-control-btn video-call-control-btn--leave" variant="primary" size="sm" onClick={onLeaveButtonClick} disabled={loading} aria-label="Leave call">
+                <LogOut size={20} strokeWidth={2.25} />
+              </Button>
+            </div>
+          </div>
+          {showLeaveModal && (
+            <div className="video-call-leave-overlay" role="dialog" aria-modal="true" aria-labelledby="video-leave-title">
+              <div className="video-call-leave-backdrop" onClick={() => !loading && setShowLeaveModal(false)} />
+              <div className="video-call-leave-modal">
+                <h3 id="video-leave-title" className="video-call-leave-title">Leave meeting</h3>
+                <p className="video-call-leave-desc">You are the host. Choose what happens for everyone else.</p>
+                <div className="video-call-leave-actions">
+                  <Button type="button" variant="ghost" onClick={() => !loading && setShowLeaveModal(false)} disabled={loading}>
+                    Cancel
+                  </Button>
+                  <Button type="button" variant="outline" onClick={leaveCallOnly} disabled={loading}>
+                    {loading ? 'Leaving…' : 'Leave (others stay)'}
+                  </Button>
+                  <Button type="button" variant="primary" onClick={endMeetingForAll} disabled={loading}>
+                    {loading ? 'Ending…' : 'End for everyone'}
+                  </Button>
+                </div>
+                <p className="video-call-leave-hint">“End for everyone” closes the room for all participants and starts meeting notes when the AI backend is configured.</p>
+              </div>
+            </div>
           )}
         </div>
       )}
-      <div style={{ display: showNotepad ? 'block' : 'none' }}>
-        <Notepad />
-      </div>
+      {showNotepad && <Notepad />}
     </main>
   )
 }
 
-function LocalVideoTrack({ track, enabled, uid }) {
+function VideoPreJoinModal({
+  isOpen,
+  onClose,
+  title,
+  subtitle,
+  previewStream,
+  previewError,
+  micOn,
+  camOn,
+  onToggleMic,
+  onToggleCam,
+  showHostOptions,
+  allowRemoteScreenShare,
+  onAllowRemoteScreenShareChange,
+  confirmLabel,
+  loading,
+  onConfirm,
+}) {
+  const videoRef = useRef(null)
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el) return
+    el.srcObject = previewStream || null
+    if (previewStream && camOn) el.play().catch(() => {})
+    return () => {
+      el.srcObject = null
+    }
+  }, [previewStream, camOn])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="video-prejoin-title">
+      <button type="button" className="video-prejoin-backdrop" onClick={onClose} aria-label="Close" disabled={loading} />
+      <div className="video-prejoin-modal">
+        <div className="video-prejoin-header">
+          <h2 id="video-prejoin-title" className="video-prejoin-title">
+            {title}
+          </h2>
+          {subtitle && <p className="video-prejoin-sub">{subtitle}</p>}
+        </div>
+        <div className="video-prejoin-preview-wrap">
+          {previewError ? (
+            <div className="video-prejoin-preview-fallback">
+              <p>{previewError}</p>
+              <p className="video-prejoin-preview-hint">You can still join with your choices below; the call may ask for permission again.</p>
+            </div>
+          ) : (
+            <video
+              ref={videoRef}
+              className={`video-prejoin-preview-video ${!camOn ? 'video-prejoin-preview-video--hidden' : ''}`}
+              autoPlay
+              playsInline
+              muted
+            />
+          )}
+          {!previewError && !camOn && (
+            <div className="video-prejoin-preview-fallback video-prejoin-preview-fallback--dim">
+              <p>Camera off</p>
+            </div>
+          )}
+          <div className="video-prejoin-preview-actions">
+            <button
+              type="button"
+              className={`video-prejoin-av-btn ${micOn ? 'video-prejoin-av-btn--on' : ''}`}
+              onClick={onToggleMic}
+              aria-pressed={micOn}
+            >
+              {micOn ? <Mic size={22} strokeWidth={2.25} /> : <MicOff size={22} strokeWidth={2.25} />}
+              <span>Audio</span>
+            </button>
+            <button
+              type="button"
+              className={`video-prejoin-av-btn ${camOn ? 'video-prejoin-av-btn--on' : ''}`}
+              onClick={onToggleCam}
+              aria-pressed={camOn}
+            >
+              {camOn ? <Video size={22} strokeWidth={2.25} /> : <VideoOff size={22} strokeWidth={2.25} />}
+              <span>Video</span>
+            </button>
+          </div>
+        </div>
+        {showHostOptions && (
+          <label className="video-prejoin-host-option">
+            <input
+              type="checkbox"
+              checked={allowRemoteScreenShare}
+              onChange={(e) => onAllowRemoteScreenShareChange(e.target.checked)}
+            />
+            <span>Allow participants to share their screen</span>
+          </label>
+        )}
+        <div className="video-prejoin-footer">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button type="button" variant="primary" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Joining…' : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function VideoParticipantLabel({ name, micOn, showHost }) {
+  return (
+    <div className="video-player-label">
+      <span className="video-player-label-text">{name}</span>
+      {showHost ? (
+        <span className="video-player-label-host" title="Meeting host">
+          Host
+        </span>
+      ) : null}
+      <span
+        className={`video-player-label-mic ${micOn ? 'video-player-label-mic--on' : 'video-player-label-mic--off'}`}
+        aria-label={micOn ? 'Microphone on' : 'Microphone muted'}
+      >
+        {micOn ? <Mic size={15} strokeWidth={2.25} /> : <MicOff size={15} strokeWidth={2.25} />}
+      </span>
+    </div>
+  )
+}
+
+function VideoParticipantAvatar({ photoUrl, nameHint, className = '' }) {
+  const initial = (nameHint || '?').trim().charAt(0).toUpperCase() || '?'
+  return (
+    <div className={['video-participant-avatar', className].filter(Boolean).join(' ')}>
+      {photoUrl ? (
+        <img src={photoUrl} alt="" className="video-participant-avatar-img" />
+      ) : (
+        <span className="video-participant-avatar-initials">{initial}</span>
+      )}
+    </div>
+  )
+}
+
+function LocalVideoTrack({ track, camOn, photoUrl, nameHint }) {
   const containerRef = useRef(null)
   useEffect(() => {
     if (!track || !containerRef.current) return
@@ -537,17 +1284,26 @@ function LocalVideoTrack({ track, enabled, uid }) {
       track.stop()
     }
   }, [track])
-  if (!track) return <div className="video-track-placeholder" />
+
+  const showAvatar = !track || !camOn
+
   return (
-    <div
-      ref={containerRef}
-      className={`video-track-container ${!enabled ? 'video-track-hidden' : ''}`}
-      style={{ width: '100%', height: '100%' }}
-    />
+    <div className="video-player-stack">
+      {track && (
+        <div
+          ref={containerRef}
+          className={`video-track-container ${!camOn ? 'video-track-hidden' : ''}`}
+          style={{ width: '100%', height: '100%' }}
+        />
+      )}
+      {showAvatar && (
+        <VideoParticipantAvatar photoUrl={photoUrl} nameHint={nameHint} className="video-participant-avatar--cover" />
+      )}
+    </div>
   )
 }
 
-function RemoteVideoPlayer({ user, displayName }) {
+function RemoteVideoPlayer({ user, displayName, photoUrl, isHost }) {
   const containerRef = useRef(null)
   useEffect(() => {
     if (!user?.videoTrack || !containerRef.current) return
@@ -555,12 +1311,27 @@ function RemoteVideoPlayer({ user, displayName }) {
     return () => {
       user.videoTrack?.stop()
     }
-  }, [user?.videoTrack])  // depend on the track itself, not the user object reference
+  }, [user?.videoTrack])
+
   const label = displayName || `User ${user.uid}`
+  const camOn = !!(user?.hasVideo && user?.videoTrack)
+  const micOn = !!(user?.hasAudio && user?.audioTrack && !user.audioTrack.muted)
+
   return (
     <div className="video-player video-player-remote">
-      <span className="video-player-label">{label}</span>
-      <div ref={containerRef} className="video-track-container" style={{ width: '100%', height: '100%' }} />
+      <VideoParticipantLabel name={label} micOn={micOn} showHost={isHost} />
+      <div className="video-player-stack">
+        {user?.videoTrack && (
+          <div
+            ref={containerRef}
+            className={`video-track-container ${!camOn ? 'video-track-hidden' : ''}`}
+            style={{ width: '100%', height: '100%' }}
+          />
+        )}
+        {!camOn && (
+          <VideoParticipantAvatar photoUrl={photoUrl} nameHint={label} className="video-participant-avatar--cover" />
+        )}
+      </div>
     </div>
   )
 }
@@ -651,7 +1422,7 @@ function VideoCallChat({ channelName, user }) {
   )
 }
 
-function SortableRemoteVideo({ user, displayName }) {
+function SortableRemoteVideo({ user, displayName, photoUrl, isHost }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: user.uid })
 
@@ -664,11 +1435,12 @@ function SortableRemoteVideo({ user, displayName }) {
   return (
     <div
       ref={setNodeRef}
+      className="video-streams__slot video-streams__slot--remote"
       style={style}
       {...attributes}
       {...listeners}
     >
-      <RemoteVideoPlayer user={user} displayName={displayName} />
+      <RemoteVideoPlayer user={user} displayName={displayName} photoUrl={photoUrl} isHost={isHost} />
     </div>
   )
 }
