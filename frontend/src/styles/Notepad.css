@@ -1,12 +1,19 @@
 .notepad-container {
   position: fixed;
+  right: 20px;
+  bottom: 100px;
+  width: 500px;
+  height: 400px;
   background: white;
   border: 1px solid #ccc;
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   z-index: 1000;
-  user-select: none;
+  resize: both;
+  overflow: hidden;
+  min-width: 300px;
+  min-height: 200px;
 }
 
 .notepad-header {
@@ -29,7 +36,6 @@
 .notepad-editor {
   flex: 1;
   overflow: auto;
-  padding: 12px;
 }
 
 /* Quill editor styles */

@@ -1,50 +1,77 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import Quill from 'quill'
 import { QuillBinding } from 'y-quill'
 import * as Y from 'yjs'
 import { WebrtcProvider } from 'y-webrtc'
 import QuillCursors from 'quill-cursors'
+import QuillResize from 'quill-resize-module'
+import 'quill-resize-module/dist/resize.css'
 import '../styles/Notepad.css'
 
-// Register QuillCursors module
+// Register Quill modules
+Quill.register('modules/resize', QuillResize)
 Quill.register('modules/cursors', QuillCursors)
+
+const toolbarOptions = [
+  ['bold', 'italic', 'underline', 'strike'],
+  ['blockquote', 'code-block'],
+  ['link', 'image', 'video'],
+
+  [{ 'header': 1 }, { 'header': 2 }],
+  [{ 'list': 'ordered'}, { 'list': 'bullet' }, { 'list': 'check' }],
+  [{ 'script': 'sub'}, { 'script': 'super' }],
+  [{ 'indent': '-1'}, { 'indent': '+1' }],
+  [{ 'direction': 'rtl' }],
+
+  [{ 'size': ['small', false, 'large', 'huge'] }],
+  [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+
+  [{ 'color': [] }, { 'background': [] }],
+  [{ 'font': [] }],
+  [{ 'align': [] }],
+
+  ['clean']
+]
+
+// Make an element draggable via a drag handle
+function makeDraggable(element, dragHandle) {
+  let currentPosX = 0, currentPosY = 0, previousPosX = 0, previousPosY = 0
+
+  dragHandle.onmousedown = dragMouseDown
+
+  function dragMouseDown(e) {
+    e.preventDefault()
+    previousPosX = e.clientX
+    previousPosY = e.clientY
+    document.onmouseup = closeDragElement
+    document.onmousemove = elementDrag
+  }
+
+  function elementDrag(e) {
+    e.preventDefault()
+    currentPosX = previousPosX - e.clientX
+    currentPosY = previousPosY - e.clientY
+    previousPosX = e.clientX
+    previousPosY = e.clientY
+    element.style.top = (element.offsetTop - currentPosY) + 'px'
+    element.style.left = (element.offsetLeft - currentPosX) + 'px'
+  }
+
+  function closeDragElement() {
+    document.onmouseup = null
+    document.onmousemove = null
+  }
+}
 
 export function Notepad() {
   const editorRef = useRef(null)
   const quillRef = useRef(null)
   const containerRef = useRef(null)
-  
-  const [position, setPosition] = useState({ x: window.innerWidth - 520, y: window.innerHeight - 500 })
-  const [size, setSize] = useState({ width: 500, height: 400 })
-  const [isDragging, setIsDragging] = useState(false)
-  const [isResizing, setIsResizing] = useState(false)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [startResize, setStartResize] = useState({ x: 0, y: 0, width: 0, height: 0 })
-  
+  const headerRef = useRef(null)
+
   const ydocRef = useRef(null)
   const providerRef = useRef(null)
   const bindingRef = useRef(null)
-
-  const toolbarOptions = [
-  ['bold', 'italic', 'underline', 'strike'],        // toggled buttons
-  ['blockquote', 'code-block'],
-  ['link', 'image', 'video'],
-
-  [{ 'header': 1 }, { 'header': 2 }],               // custom button values
-  [{ 'list': 'ordered'}, { 'list': 'bullet' }, { 'list': 'check' }],
-  [{ 'script': 'sub'}, { 'script': 'super' }],      // superscript/subscript
-  [{ 'indent': '-1'}, { 'indent': '+1' }],          // outdent/indent
-  [{ 'direction': 'rtl' }],                         // text direction
-
-  [{ 'size': ['small', false, 'large', 'huge'] }],  // custom dropdown
-  [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-
-  [{ 'color': [] }, { 'background': [] }],          // dropdown with defaults from theme
-  [{ 'font': [] }],
-  [{ 'align': [] }],
-
-  ['clean']                                         // remove formatting button
-];
 
 
   useEffect(() => {
@@ -55,12 +82,14 @@ export function Notepad() {
     document.head.appendChild(link)
     
     initializeQuill()
-    
-    // Auto-connect to collaboration
     connectCollaboration()
+
+    // Make the notepad draggable via the header
+    if (containerRef.current && headerRef.current) {
+      makeDraggable(containerRef.current, headerRef.current)
+    }
     
     return () => {
-      // Cleanup on unmount
       if (providerRef.current) {
         providerRef.current.disconnect()
         providerRef.current = null
@@ -80,10 +109,41 @@ export function Notepad() {
           toolbar: toolbarOptions,
           history: {
             userOnly: true
-          }
+          },
+          resize: {
+            modules: ['DisplaySize', 'Toolbar', 'Resize', 'Keyboard'],
+            keyboardSelect: true,
+            selectedClass: 'selected',
+            activeClass: 'active',
+            embedTags: ['VIDEO', 'IFRAME'],
+            tools: [
+              'left', 'right',
+              {
+                text: 'Alt',
+                attrs: { title: 'Set image alt', class: 'btn-alt' },
+                verify(activeEle) { return activeEle?.tagName === 'IMG' },
+                handler(evt, button, activeEle) {
+                  let alt = activeEle.alt || ''
+                  alt = window.prompt('Alt for image', alt)
+                  if (alt != null) { activeEle.setAttribute('alt', alt) }
+                }
+              }
+            ],
+            parchment: {
+              image: {
+                attribute: ['width'],
+                limit: { minWidth: 100 }
+              },
+              video: {
+                attribute: ['width', 'height'],
+                limit: { minWidth: 200, ratio: 0.5625 }
+              }
+            },
+          },
         },
         theme: 'snow',
-        placeholder: '   Start typing...'
+        placeholder: '   Start typing...',
+        bounds: containerRef.current,
       })
     }
   }
@@ -132,76 +192,16 @@ export function Notepad() {
     }
   }
 
-  const handleHeaderMouseDown = (e) => {
-    if (e.button !== 0) return // Only left click
-    setIsDragging(true)
-    setDragOffset({
-      x: e.clientX - position.x,
-      y: e.clientY - position.y,
-    })
-  }
-
-  const handleResizeMouseDown = (e) => {
-    if (e.button !== 0) return // Only left click
-    e.stopPropagation()
-    setIsResizing(true)
-    setStartResize({
-      x: e.clientX,
-      y: e.clientY,
-      width: size.width,
-      height: size.height,
-    })
-  }
-
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (isDragging) {
-        setPosition({
-          x: e.clientX - dragOffset.x,
-          y: e.clientY - dragOffset.y,
-        })
-      }
-      if (isResizing) {
-        const deltaX = e.clientX - startResize.x
-        const deltaY = e.clientY - startResize.y
-        setSize({
-          width: Math.max(300, startResize.width + deltaX),
-          height: Math.max(200, startResize.height + deltaY),
-        })
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-      setIsResizing(false)
-    }
-
-    if (isDragging || isResizing) {
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-      }
-    }
-  }, [isDragging, isResizing, dragOffset, startResize])
-
   return (
     <div
       ref={containerRef}
       className="notepad-container"
-      style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        width: `${size.width}px`,
-        height: `${size.height}px`,
-      }}
     >
-      <div className="notepad-header" onMouseDown={handleHeaderMouseDown}>
+      <div ref={headerRef} className="notepad-header">
         <h3>Notepad</h3>
       </div>
       <div ref={editorRef} className="notepad-editor" />
-      <div className="notepad-resize-handle" onMouseDown={handleResizeMouseDown} />
+      <div className="notepad-resize-handle" />
     </div>
   )
 }
