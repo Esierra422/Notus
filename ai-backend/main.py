@@ -315,7 +315,7 @@ def _append_transcript_to_firestore(channel: str, uid, text: str) -> None:
         chunk = {
             "text": text,
             "uid": str(uid) if uid else "",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
         }
         doc_ref.set({
             "channelName": channel,

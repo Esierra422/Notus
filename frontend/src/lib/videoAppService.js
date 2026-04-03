@@ -6,8 +6,8 @@ import { httpsCallable } from 'firebase/functions'
 // --- RTC state ---
 let client = null
 let isClientInitialized = false
-let micMuted = true
-let videoMuted = true
+let micMuted = false
+let videoMuted = false
 let localAudioTrack = null
 let localVideoTrack = null
 let localUid = 0
