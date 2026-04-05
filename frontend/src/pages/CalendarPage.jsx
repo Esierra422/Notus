@@ -390,7 +390,12 @@ export function CalendarPage() {
   return (
     <main className="app-main calendar-main">
       <div className="calendar-header-row">
-        <h2 className="calendar-title">Calendar</h2>
+        <div className="calendar-title-block">
+          <h2 className="calendar-title">Calendar</h2>
+          <p className="calendar-scope-hint">
+            {routeOrgId ? (org?.name ? `${org.name} only` : 'Organization calendar') : 'All your organizations'}
+          </p>
+        </div>
         {activeOrgId && (
           <Button variant="primary" size="md" onClick={() => setShowCreateEventModal(true)}>
             Create event

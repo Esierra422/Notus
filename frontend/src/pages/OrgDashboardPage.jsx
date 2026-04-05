@@ -129,10 +129,10 @@ export function OrgDashboardPage() {
             <span className="dashboard-shortcut-label">Calendar</span>
             <span className="dashboard-shortcut-hint">{org.name} meetings only</span>
           </Link>
-          <Link to="/app/video" className="dashboard-shortcut">
+          <Link to={`/app/org/${orgId}/video`} className="dashboard-shortcut">
             <span className="dashboard-shortcut-icon"><VideoIcon size={24} /></span>
             <span className="dashboard-shortcut-label">Video Call</span>
-            <span className="dashboard-shortcut-hint">Join or start a call</span>
+            <span className="dashboard-shortcut-hint">{org.name} only</span>
           </Link>
           <Link to={`/app/org/${orgId}/profile`} className="dashboard-shortcut">
             <span className="dashboard-shortcut-icon"><BuildingIcon size={24} /></span>

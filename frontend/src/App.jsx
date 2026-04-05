@@ -50,6 +50,7 @@ function App() {
           <Route path="meeting-summary/:summaryId" element={<MeetingSummaryPage />} />
           <Route path="chats" element={<ChatsRedirect />} />
           <Route path="org/:orgId/calendar" element={<CalendarPage />} />
+          <Route path="org/:orgId/video" element={<VideoCallPage />} />
           <Route path="org/:orgId/chats" element={<ChatsPage />} />
           <Route path="org/:orgId/chats/:chatId" element={<ChatsPage />} />
           <Route path="profile" element={<ProfilePage />} />

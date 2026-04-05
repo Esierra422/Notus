@@ -309,12 +309,12 @@ export function AppPage() {
               <Link to="/app/calendar" className="dashboard-shortcut">
                 <span className="dashboard-shortcut-icon"><CalendarIcon size={24} /></span>
                 <span className="dashboard-shortcut-label">Calendar</span>
-                <span className="dashboard-shortcut-hint">All meetings across orgs</span>
+                <span className="dashboard-shortcut-hint">All your organizations</span>
               </Link>
               <Link to="/app/video" className="dashboard-shortcut">
                 <span className="dashboard-shortcut-icon"><VideoIcon size={24} /></span>
                 <span className="dashboard-shortcut-label">Video Call</span>
-                <span className="dashboard-shortcut-hint">Join or start a call</span>
+                <span className="dashboard-shortcut-hint">All your organizations</span>
               </Link>
               <Link to="/app/chats" className="dashboard-shortcut">
                 <span className="dashboard-shortcut-icon"><MessageSquareIcon size={24} /></span>

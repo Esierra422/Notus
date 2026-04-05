@@ -134,17 +134,17 @@ export function getMeetingTranscriptSessionId(meeting, orgId) {
 }
 
 /**
- * Upcoming / in-progress meetings the user can join (next ~7 days window start).
+ * Future video meetings the user can join (start time not in the past).
  */
 export async function getUpcomingMeetingsForUserInOrg(userId, orgId, maxResults = 40) {
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
 
-  const windowStart = Timestamp.fromDate(new Date(Date.now() - 6 * 60 * 60 * 1000))
+  const now = Date.now()
   const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
   const q = query(
     meetingsRef,
-    where('startAt', '>=', windowStart),
+    where('startAt', '>=', Timestamp.fromMillis(now)),
     orderBy('startAt', 'asc'),
     limit(maxResults * 2)
   )
@@ -153,6 +153,8 @@ export async function getUpcomingMeetingsForUserInOrg(userId, orgId, maxResults 
   const accessible = []
   for (const m of meetings) {
     if (m.isVideoMeeting === false) continue
+    const startMs = m.startAt?.toMillis?.() ?? 0
+    if (startMs < now) continue
     if (await canAccessMeeting(m, userId, orgId)) accessible.push(m)
     if (accessible.length >= maxResults) break
   }
@@ -160,9 +162,163 @@ export async function getUpcomingMeetingsForUserInOrg(userId, orgId, maxResults 
 }
 
 /**
- * Create an ad-hoc meeting starting now (org-wide) and return ids for video + transcript.
+ * Upcoming video meetings in org: only events whose start time is still in the future (now → horizon).
+ * Past starts are excluded; use the Ongoing section for active rooms.
+ * @param {number} horizonDays - include events with startAt <= now + horizonDays
  */
-export async function createInstantMeeting(orgId, userId, title = 'Instant meeting') {
+export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, horizonDays, maxResults = 60) {
+  const orgMem = await getMembership(orgId, userId)
+  if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
+
+  const now = Date.now()
+  const horizonEndMs = now + Math.max(1, horizonDays) * 86400000
+  const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+  const q = query(
+    meetingsRef,
+    where('startAt', '>=', Timestamp.fromMillis(now)),
+    orderBy('startAt', 'asc'),
+    limit(120)
+  )
+  const snapshot = await getDocs(q)
+  const out = []
+  for (const d of snapshot.docs) {
+    const m = { id: d.id, ...d.data() }
+    if (m.isVideoMeeting === false) continue
+    const startMs = m.startAt?.toMillis?.() ?? 0
+    if (startMs < now) continue
+    if (startMs > horizonEndMs) continue
+    const calEndMs = m.endAt?.toMillis?.() ?? null
+    if (calEndMs != null && calEndMs < now) continue
+    if (!(await canAccessMeeting(m, userId, orgId))) continue
+    out.push({ ...m, orgId })
+    if (out.length >= maxResults) break
+  }
+  return out
+}
+
+/**
+ * Upcoming meetings across all active orgs for the user (merged, sorted by start).
+ */
+export async function getUpcomingMeetingsInHorizonForUser(userId, horizonDays, maxTotal = 80) {
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  const merged = []
+  for (const mem of activeOrgs) {
+    const part = await getUpcomingMeetingsInHorizonForUserInOrg(userId, mem.orgId, horizonDays, 45)
+    for (const m of part) {
+      const org = await getOrg(mem.orgId)
+      merged.push({ ...m, _orgName: org?.name })
+    }
+  }
+  merged.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0))
+  return merged.slice(0, maxTotal)
+}
+
+const ROOM_STATE_CHUNK = 12
+
+/**
+ * Video meetings in this org the user may join whose Firestore room is still open (roomState/current exists and has no endedAt).
+ * Scans recent meetings by start time, then checks room state in chunks (cheap enough for the lobby).
+ *
+ * @param {string} userId
+ * @param {string} orgId
+ * @param {{ lookbackDays?: number, maxMeetingsToCheck?: number }} [options]
+ */
+export async function getOngoingVideoMeetingsInOrg(userId, orgId, options = {}) {
+  const lookbackDays = options.lookbackDays ?? 7
+  const maxMeetingsToCheck = options.maxMeetingsToCheck ?? 80
+  const orgMem = await getMembership(orgId, userId)
+  if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
+
+  const windowStart = Timestamp.fromDate(new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000))
+  const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+  const q = query(
+    meetingsRef,
+    where('startAt', '>=', windowStart),
+    orderBy('startAt', 'desc'),
+    limit(maxMeetingsToCheck)
+  )
+  const snapshot = await getDocs(q)
+  const candidates = []
+  for (const d of snapshot.docs) {
+    const m = { id: d.id, ...d.data() }
+    if (m.isVideoMeeting === false) continue
+    if (!(await canAccessMeeting(m, userId, orgId))) continue
+    candidates.push(m)
+  }
+
+  const roomStateRef = (channel) => doc(db, 'videoChannels', channel, 'roomState', 'current')
+  const ongoing = []
+  for (let i = 0; i < candidates.length; i += ROOM_STATE_CHUNK) {
+    const slice = candidates.slice(i, i + ROOM_STATE_CHUNK)
+    const snaps = await Promise.all(slice.map((m) => getDoc(roomStateRef(getMeetingVideoRoomId(m, orgId)))))
+    slice.forEach((m, j) => {
+      const rs = snaps[j]
+      if (!rs.exists()) return
+      const data = rs.data() || {}
+      if (data.endedAt) return
+      ongoing.push({ ...m, orgId })
+    })
+  }
+
+  ongoing.sort((a, b) => {
+    const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
+    const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
+    return bT - aT
+  })
+  return ongoing
+}
+
+/**
+ * Ongoing video rooms across every org the user is active in (merged list).
+ */
+export async function getOngoingVideoMeetingsForUser(userId, options = {}) {
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  const merged = []
+  for (const mem of activeOrgs) {
+    const list = await getOngoingVideoMeetingsInOrg(userId, mem.orgId, options)
+    const org = await getOrg(mem.orgId)
+    const name = org?.name || 'Organization'
+    for (const item of list) {
+      merged.push({ ...item, _orgName: name })
+    }
+  }
+  merged.sort((a, b) => {
+    const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
+    const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
+    return bT - aT
+  })
+  return merged
+}
+
+/**
+ * Find a meeting by Firestore document id across orgs the user belongs to (first accessible match).
+ */
+export async function resolveMeetingByIdAcrossOrgs(userId, meetingId) {
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  const id = String(meetingId || '').trim()
+  if (!id) return null
+  for (const mem of activeOrgs) {
+    const ref = doc(db, 'organizations', mem.orgId, MEETINGS_SUB, id)
+    const snap = await getDoc(ref)
+    if (!snap.exists()) continue
+    const m = { id: snap.id, ...snap.data(), orgId: mem.orgId }
+    if (await canAccessMeeting(m, userId, mem.orgId)) return m
+  }
+  return null
+}
+
+/**
+ * Create an ad-hoc meeting starting now (org-wide) and return ids for video + transcript.
+ * @param {string} orgId
+ * @param {string} userId
+ * @param {string | { title?: string }} titleOrOpts - legacy string title, or { title }
+ */
+export async function createInstantMeeting(orgId, userId, titleOrOpts = 'Instant meeting') {
+  const opts = typeof titleOrOpts === 'string' ? { title: titleOrOpts } : titleOrOpts || {}
+  const title = (opts.title && String(opts.title).trim()) || 'Instant meeting'
   const endAt = Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000))
   return createMeeting(
     orgId,
@@ -280,8 +436,9 @@ export async function getTeamMeetings(orgId, teamId) {
 
 /**
  * Get meetings user can access within a specific org.
+ * @param {number} [maxResults=20]
  */
-export async function getMeetingsForUserInOrg(userId, orgId) {
+export async function getMeetingsForUserInOrg(userId, orgId, maxResults = 20) {
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
 
@@ -298,14 +455,15 @@ export async function getMeetingsForUserInOrg(userId, orgId) {
     const bTime = b.startAt?.toMillis?.() ?? b.startAt ?? 0
     return bTime - aTime
   })
-  return accessible.slice(0, 20)
+  return accessible.slice(0, maxResults)
 }
 
 /**
  * Get all meetings user can access (for personal dashboard).
  * Fetches from all orgs user is active in, filters by access.
+ * @param {number} [maxResults=20]
  */
-export async function getMeetingsForUser(userId) {
+export async function getMeetingsForUser(userId, maxResults = 20) {
   const memberships = await getUserMemberships(userId)
   const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
 
@@ -318,7 +476,7 @@ export async function getMeetingsForUser(userId) {
       const canAccess = await canAccessMeeting(m, userId, mem.orgId)
       if (canAccess) {
         const org = await getOrg(mem.orgId)
-        allMeetings.push({ ...m, _orgName: org?.name })
+        allMeetings.push({ ...m, _orgName: org?.name, _orgId: mem.orgId })
       }
     }
   }
@@ -327,7 +485,7 @@ export async function getMeetingsForUser(userId) {
     const bTime = b.startAt?.toMillis?.() ?? b.startAt ?? 0
     return bTime - aTime
   })
-  return allMeetings.slice(0, 20)
+  return allMeetings.slice(0, maxResults)
 }
 
 /**
@@ -411,7 +569,7 @@ export async function getMeetingsInRangeForUser(userId, year, month) {
       const canAccess = await canAccessMeeting(m, userId, mem.orgId)
       if (canAccess) {
         const org = await getOrg(mem.orgId)
-        allMeetings.push({ ...m, _orgName: org?.name })
+        allMeetings.push({ ...m, _orgName: org?.name, _orgId: mem.orgId })
       }
     }
   }
