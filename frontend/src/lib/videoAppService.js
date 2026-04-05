@@ -222,6 +222,16 @@ function getLocalUid() {
   return localUid
 }
 
+/** Current Agora remote users (empty if not in a channel). */
+function getRemoteUsers() {
+  if (!client) return []
+  try {
+    return client.remoteUsers?.slice() ?? []
+  } catch {
+    return []
+  }
+}
+
 function setCallbacks({ onJoined, onLeft, onAudioPublished: onAudioPub }) {
   onUserJoined = onJoined || null
   onUserLeft = onLeft || null
@@ -235,6 +245,7 @@ export {
   getLocalUid,
   getLocalVideoTrack,
   getMediaState,
+  getRemoteUsers,
   joinChannel,
   leaveChannel,
   setCallbacks,
