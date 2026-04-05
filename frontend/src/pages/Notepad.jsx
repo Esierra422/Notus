@@ -154,16 +154,37 @@ export function Notepad() {
 
     const ydoc = new Y.Doc()
     const signalingUrl = import.meta.env.VITE_SIGNALING_URL
+    const signalingServers = [signalingUrl, 'ws://localhost:4444'].filter(Boolean)
     const provider = new WebrtcProvider('quill-demo-room', ydoc, {
-      signaling: [signalingUrl, 'ws://localhost:4444'],
+      signaling: signalingServers,
       peerOpts: {
-        iceServers: [
-          { urls: 'stun:stun.relay.metered.ca:80' },
-          { urls: 'turn:standard.relay.metered.ca:80', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
-          { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
-          { urls: 'turn:standard.relay.metered.ca:443', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
-          { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: 'd7b701277bbeeaf2fa89b3d5', credential: 'cHkGLITrCu0bzSZq' },
-        ],
+        config: {
+          iceServers: [
+      {
+        urls: "stun:stun.relay.metered.ca:80",
+      },
+      {
+        urls: "turn:standard.relay.metered.ca:80",
+        username: "d7b701277bbeeaf2fa89b3d5",
+        credential: "cHkGLITrCu0bzSZq",
+      },
+      {
+        urls: "turn:standard.relay.metered.ca:80?transport=tcp",
+        username: "d7b701277bbeeaf2fa89b3d5",
+        credential: "cHkGLITrCu0bzSZq",
+      },
+      {
+        urls: "turn:standard.relay.metered.ca:443",
+        username: "d7b701277bbeeaf2fa89b3d5",
+        credential: "cHkGLITrCu0bzSZq",
+      },
+      {
+        urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+        username: "d7b701277bbeeaf2fa89b3d5",
+        credential: "cHkGLITrCu0bzSZq",
+      },
+  ],
+        },
       },
     })
 
