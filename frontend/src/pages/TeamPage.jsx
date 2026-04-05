@@ -18,7 +18,7 @@ import {
 } from '../lib/teamService'
 import { createTeamInvitation, getRejectedTeamInvitations } from '../lib/teamInvitationService'
 import { getUserDoc, getDisplayName, getMemberDisplayLine, getProfilePictureUrl } from '../lib/userService'
-import { createMeeting, getTeamMeetings, MEETING_SCOPES } from '../lib/meetingService'
+import { createMeeting, getTeamMeetings, MEETING_SCOPES, MEETING_CREATED_VIA } from '../lib/meetingService'
 import { compressImageToDataUrl } from '../lib/imageUtils'
 import { UsersIcon, PencilIcon, ArrowLeftIcon, SettingsIcon, XIcon, MoreVerticalIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
@@ -143,6 +143,7 @@ export function TeamPage() {
         title: newMeetingTitle.trim(),
         scope: MEETING_SCOPES.team,
         scopeTeamId: teamId,
+        createdVia: MEETING_CREATED_VIA.calendar,
       }, user.uid)
       setShowCreateMeeting(false)
       setNewMeetingTitle('')

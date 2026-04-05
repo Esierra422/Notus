@@ -16,6 +16,7 @@ import {
   limit,
   serverTimestamp,
   Timestamp,
+  deleteField,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { getMembership, getUserMemberships, getOrg, MEMBERSHIP_STATES } from './orgService'
@@ -24,6 +25,22 @@ import { getTeamMembership, TEAM_STATES } from './teamService'
 const MEETINGS_SUB = 'meetings'
 
 export const MEETING_SCOPES = { org: 'org', team: 'team', private: 'private' }
+
+/** How the meeting row was created — used to filter video lobby “upcoming”. */
+export const MEETING_CREATED_VIA = { calendar: 'calendar', instant: 'instant' }
+
+const VACANT_ROOM_END_MS = 5 * 60 * 1000
+/**
+ * Empty room, no vacantSince: only auto-end if the meeting row is at least this old (avoids racing a join).
+ * Dormant listings past this window should disappear on the next lobby poll.
+ */
+const EMPTY_ROOM_MIN_MEETING_AGE_MS = 5 * 60 * 1000
+/** Instant meetings: force-close after this long (stale participant docs, forgotten tabs). */
+const INSTANT_ROOM_MAX_OPEN_MS = 90 * 60 * 1000
+/**
+ * Instant meetings that never got sessionStartedAt (abandoned / old clients): close so lobby doesn’t stick on “Running —”.
+ */
+const INSTANT_NO_SESSION_END_MS = 5 * 60 * 1000
 
 function mergeInvitedUserIds(data) {
   const fromIds = Array.isArray(data.invitedUserIds) ? data.invitedUserIds : []
@@ -51,6 +68,10 @@ export async function createMeeting(orgId, data, userId) {
   const invitedUserIds = mergeInvitedUserIds(data)
   const inviteOnly = data.inviteOnly === true
   const isVideoMeeting = data.isVideoMeeting !== false
+  const createdVia =
+    data.createdVia === MEETING_CREATED_VIA.instant
+      ? MEETING_CREATED_VIA.instant
+      : MEETING_CREATED_VIA.calendar
 
   if (![MEETING_SCOPES.org, MEETING_SCOPES.team, MEETING_SCOPES.private].includes(scope)) {
     throw new Error('Invalid meeting scope.')
@@ -79,6 +100,7 @@ export async function createMeeting(orgId, data, userId) {
     videoRoomId,
     transcriptSessionId,
     isVideoMeeting,
+    createdVia,
   })
 
   return {
@@ -153,6 +175,7 @@ export async function getUpcomingMeetingsForUserInOrg(userId, orgId, maxResults 
   const accessible = []
   for (const m of meetings) {
     if (m.isVideoMeeting === false) continue
+    if (m.createdVia === MEETING_CREATED_VIA.instant) continue
     const startMs = m.startAt?.toMillis?.() ?? 0
     if (startMs < now) continue
     if (await canAccessMeeting(m, userId, orgId)) accessible.push(m)
@@ -184,6 +207,7 @@ export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, ho
   for (const d of snapshot.docs) {
     const m = { id: d.id, ...d.data() }
     if (m.isVideoMeeting === false) continue
+    if (m.createdVia === MEETING_CREATED_VIA.instant) continue
     const startMs = m.startAt?.toMillis?.() ?? 0
     if (startMs < now) continue
     if (startMs > horizonEndMs) continue
@@ -239,16 +263,18 @@ export async function getOngoingVideoMeetingsInOrg(userId, orgId, options = {}) 
     limit(maxMeetingsToCheck)
   )
   const snapshot = await getDocs(q)
-  const candidates = []
-  for (const d of snapshot.docs) {
-    const m = { id: d.id, ...d.data() }
-    if (m.isVideoMeeting === false) continue
-    if (!(await canAccessMeeting(m, userId, orgId))) continue
-    candidates.push(m)
-  }
+  const accessChecks = await Promise.all(
+    snapshot.docs.map(async (d) => {
+      const m = { id: d.id, ...d.data() }
+      if (m.isVideoMeeting === false) return null
+      if (!(await canAccessMeeting(m, userId, orgId))) return null
+      return m
+    })
+  )
+  const candidates = accessChecks.filter(Boolean)
 
   const roomStateRef = (channel) => doc(db, 'videoChannels', channel, 'roomState', 'current')
-  const ongoing = []
+  const openRooms = []
   for (let i = 0; i < candidates.length; i += ROOM_STATE_CHUNK) {
     const slice = candidates.slice(i, i + ROOM_STATE_CHUNK)
     const snaps = await Promise.all(slice.map((m) => getDoc(roomStateRef(getMeetingVideoRoomId(m, orgId)))))
@@ -257,7 +283,30 @@ export async function getOngoingVideoMeetingsInOrg(userId, orgId, options = {}) 
       if (!rs.exists()) return
       const data = rs.data() || {}
       if (data.endedAt) return
-      ongoing.push({ ...m, orgId })
+      openRooms.push({ ...m, orgId, _openRoomState: data })
+    })
+  }
+
+  const ongoing = []
+  for (let i = 0; i < openRooms.length; i += ROOM_STATE_CHUNK) {
+    const slice = openRooms.slice(i, i + ROOM_STATE_CHUNK)
+    const partSnaps = await Promise.all(
+      slice.map((m) => getDocs(collection(db, 'videoChannels', getMeetingVideoRoomId(m, orgId), 'participants')))
+    )
+    slice.forEach((m, j) => {
+      if (!partSnaps[j].empty) {
+        const rsData = m._openRoomState || {}
+        const sessionSt = rsData.sessionStartedAt ?? null
+        const startAt = m.startAt ?? null
+        const createdAt = m.createdAt ?? null
+        const runningSince = sessionSt || startAt || createdAt
+        const { _openRoomState, ...rest } = m
+        ongoing.push({
+          ...rest,
+          _sessionStartedAt: runningSince,
+          _participantCount: partSnaps[j].size,
+        })
+      }
     })
   }
 
@@ -275,21 +324,289 @@ export async function getOngoingVideoMeetingsInOrg(userId, orgId, options = {}) 
 export async function getOngoingVideoMeetingsForUser(userId, options = {}) {
   const memberships = await getUserMemberships(userId)
   const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
-  const merged = []
-  for (const mem of activeOrgs) {
-    const list = await getOngoingVideoMeetingsInOrg(userId, mem.orgId, options)
-    const org = await getOrg(mem.orgId)
-    const name = org?.name || 'Organization'
-    for (const item of list) {
-      merged.push({ ...item, _orgName: name })
-    }
-  }
+  const perOrg = await Promise.all(
+    activeOrgs.map(async (mem) => {
+      const list = await getOngoingVideoMeetingsInOrg(userId, mem.orgId, options)
+      const org = await getOrg(mem.orgId)
+      const name = org?.name || 'Organization'
+      return list.map((item) => ({ ...item, _orgName: name }))
+    })
+  )
+  const merged = perOrg.flat()
   merged.sort((a, b) => {
     const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
     const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
     return bT - aT
   })
   return merged
+}
+
+/**
+ * End rooms that have zero Firestore participants when it’s safe: either `vacantSince` is set (last
+ * person left) or the meeting is old enough that an empty room is almost certainly abandoned.
+ * Runs from the video lobby poll so “LIVE” rows don’t stick forever after everyone left.
+ */
+export async function endInstantRoomsWithoutSessionClock(userId) {
+  const now = Date.now()
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  for (const mem of activeOrgs) {
+    const orgId = mem.orgId
+    const orgMem = await getMembership(orgId, userId)
+    if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) continue
+
+    const windowStart = Timestamp.fromDate(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000))
+    const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+    const q = query(meetingsRef, where('startAt', '>=', windowStart), orderBy('startAt', 'desc'), limit(100))
+    const snapshot = await getDocs(q)
+
+    for (const d of snapshot.docs) {
+      const m = { id: d.id, ...d.data() }
+      if (m.isVideoMeeting === false) continue
+      if (m.createdVia !== MEETING_CREATED_VIA.instant) continue
+      if (!(await canAccessMeeting(m, userId, orgId))) continue
+      const channel = getMeetingVideoRoomId(m, orgId)
+      const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
+      const rs = await getDoc(roomRef)
+      if (!rs.exists()) continue
+      const rd = rs.data() || {}
+      if (rd.endedAt) continue
+      if (rd.sessionStartedAt) continue
+      const startMs = m.startAt?.toMillis?.() ?? m.createdAt?.toMillis?.() ?? 0
+      if (!startMs || now - startMs < INSTANT_NO_SESSION_END_MS) continue
+      try {
+        await updateDoc(roomRef, {
+          endedAt: serverTimestamp(),
+          endedBy: 'instant-no-session-clock',
+          vacantSince: deleteField(),
+          sessionStartedAt: deleteField(),
+        })
+      } catch (e) {
+        console.warn('[endInstantRoomsWithoutSessionClock]', channel, e?.message || e)
+      }
+    }
+  }
+}
+
+export async function endAgedInstantVideoRooms(userId) {
+  const now = Date.now()
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  for (const mem of activeOrgs) {
+    const orgId = mem.orgId
+    const orgMem = await getMembership(orgId, userId)
+    if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) continue
+
+    const windowStart = Timestamp.fromDate(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000))
+    const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+    const q = query(meetingsRef, where('startAt', '>=', windowStart), orderBy('startAt', 'desc'), limit(100))
+    const snapshot = await getDocs(q)
+
+    for (const d of snapshot.docs) {
+      const m = { id: d.id, ...d.data() }
+      if (m.isVideoMeeting === false) continue
+      if (m.createdVia !== MEETING_CREATED_VIA.instant) continue
+      if (!(await canAccessMeeting(m, userId, orgId))) continue
+      const startMs = m.startAt?.toMillis?.() ?? 0
+      if (!startMs || now - startMs < INSTANT_ROOM_MAX_OPEN_MS) continue
+      const channel = getMeetingVideoRoomId(m, orgId)
+      const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
+      const rs = await getDoc(roomRef)
+      if (!rs.exists()) continue
+      const rd = rs.data() || {}
+      if (rd.endedAt) continue
+      try {
+        await updateDoc(roomRef, {
+          endedAt: serverTimestamp(),
+          endedBy: 'instant-max-age',
+          vacantSince: deleteField(),
+          sessionStartedAt: deleteField(),
+        })
+      } catch (e) {
+        console.warn('[endAgedInstantVideoRooms]', channel, e?.message || e)
+      }
+    }
+  }
+}
+
+export async function closeStaleEmptyVideoRooms(userId) {
+  const now = Date.now()
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  for (const mem of activeOrgs) {
+    const orgId = mem.orgId
+    const orgMem = await getMembership(orgId, userId)
+    if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) continue
+
+    const windowStart = Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+    const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+    const q = query(meetingsRef, where('startAt', '>=', windowStart), orderBy('startAt', 'desc'), limit(80))
+    const snapshot = await getDocs(q)
+
+    for (const d of snapshot.docs) {
+      const m = { id: d.id, ...d.data() }
+      if (m.isVideoMeeting === false) continue
+      if (!(await canAccessMeeting(m, userId, orgId))) continue
+      const channel = getMeetingVideoRoomId(m, orgId)
+      const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
+      const rs = await getDoc(roomRef)
+      if (!rs.exists()) continue
+      const rd = rs.data() || {}
+      if (rd.endedAt) continue
+      const partSnap = await getDocs(collection(db, 'videoChannels', channel, 'participants'))
+      if (!partSnap.empty) continue
+      const startMs = m.startAt?.toMillis?.() ?? 0
+      const meetingAgeMs = startMs ? now - startMs : 0
+      const hasVacantSince = !!(rd.vacantSince?.toMillis?.() ?? 0)
+      if (!hasVacantSince && meetingAgeMs < EMPTY_ROOM_MIN_MEETING_AGE_MS) continue
+      try {
+        await updateDoc(roomRef, {
+          endedAt: serverTimestamp(),
+          endedBy: 'empty-room-sync',
+          vacantSince: deleteField(),
+          sessionStartedAt: deleteField(),
+        })
+      } catch (e) {
+        console.warn('[closeStaleEmptyVideoRooms]', channel, e?.message || e)
+      }
+    }
+  }
+}
+
+/**
+ * Remove stale participant docs when the room is already ended (fixes lobby "LIVE" after a proper end).
+ * Safe: only touches meetings the user can access; only runs when roomState.endedAt is set.
+ */
+/**
+ * For open video rooms, delete duplicate Firestore participant docs per firebaseUid (keeps newest joinedAt).
+ * Stale tabs or reconnects can leave extra Agora uid rows and inflate lobby participant counts.
+ */
+export async function dedupeOpenVideoRoomParticipants(userId) {
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  for (const mem of activeOrgs) {
+    const orgId = mem.orgId
+    const orgMem = await getMembership(orgId, userId)
+    if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) continue
+
+    const windowStart = Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+    const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+    const q = query(meetingsRef, where('startAt', '>=', windowStart), orderBy('startAt', 'desc'), limit(80))
+    const snapshot = await getDocs(q)
+
+    for (const d of snapshot.docs) {
+      const m = { id: d.id, ...d.data() }
+      if (m.isVideoMeeting === false) continue
+      if (!(await canAccessMeeting(m, userId, orgId))) continue
+      const channel = getMeetingVideoRoomId(m, orgId)
+      const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
+      const rs = await getDoc(roomRef)
+      if (!rs.exists()) continue
+      if ((rs.data() || {}).endedAt) continue
+      const partSnap = await getDocs(collection(db, 'videoChannels', channel, 'participants'))
+      if (partSnap.size < 2) continue
+
+      const byFb = new Map()
+      for (const pd of partSnap.docs) {
+        const fb = pd.data()?.firebaseUid
+        if (!fb || typeof fb !== 'string') continue
+        if (!byFb.has(fb)) byFb.set(fb, [])
+        byFb.get(fb).push(pd)
+      }
+      for (const [, docs] of byFb) {
+        if (docs.length < 2) continue
+        docs.sort(
+          (a, b) =>
+            (b.data().joinedAt?.toMillis?.() ?? 0) - (a.data().joinedAt?.toMillis?.() ?? 0)
+        )
+        for (let i = 1; i < docs.length; i++) {
+          try {
+            await deleteDoc(docs[i].ref)
+          } catch (e) {
+            console.warn('[dedupeOpenVideoRoomParticipants]', channel, e?.message || e)
+          }
+        }
+      }
+    }
+  }
+}
+
+export async function purgeParticipantsForEndedRooms(userId) {
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  for (const mem of activeOrgs) {
+    const orgId = mem.orgId
+    const orgMem = await getMembership(orgId, userId)
+    if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) continue
+
+    const windowStart = Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+    const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+    const q = query(meetingsRef, where('startAt', '>=', windowStart), orderBy('startAt', 'desc'), limit(60))
+    const snapshot = await getDocs(q)
+
+    for (const d of snapshot.docs) {
+      const m = { id: d.id, ...d.data() }
+      if (m.isVideoMeeting === false) continue
+      if (!(await canAccessMeeting(m, userId, orgId))) continue
+      const channel = getMeetingVideoRoomId(m, orgId)
+      const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
+      const rs = await getDoc(roomRef)
+      if (!rs.exists()) continue
+      const rd = rs.data() || {}
+      if (!rd.endedAt) continue
+      const partSnap = await getDocs(collection(db, 'videoChannels', channel, 'participants'))
+      if (partSnap.empty) continue
+      for (const pd of partSnap.docs) {
+        try {
+          await deleteDoc(pd.ref)
+        } catch (e) {
+          console.warn('[purgeParticipantsForEndedRooms]', channel, e?.message || e)
+        }
+      }
+    }
+  }
+}
+
+export async function sweepVacantVideoRooms(userId) {
+  const now = Date.now()
+  const memberships = await getUserMemberships(userId)
+  const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  for (const mem of activeOrgs) {
+    const orgId = mem.orgId
+    const orgMem = await getMembership(orgId, userId)
+    if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) continue
+
+    const windowStart = Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+    const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+    const q = query(meetingsRef, where('startAt', '>=', windowStart), orderBy('startAt', 'desc'), limit(60))
+    const snapshot = await getDocs(q)
+
+    for (const d of snapshot.docs) {
+      const m = { id: d.id, ...d.data() }
+      if (m.isVideoMeeting === false) continue
+      if (!(await canAccessMeeting(m, userId, orgId))) continue
+      const channel = getMeetingVideoRoomId(m, orgId)
+      const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
+      const rs = await getDoc(roomRef)
+      if (!rs.exists()) continue
+      const rd = rs.data() || {}
+      if (rd.endedAt) continue
+      const partSnap = await getDocs(collection(db, 'videoChannels', channel, 'participants'))
+      if (!partSnap.empty) continue
+      const vs = rd.vacantSince?.toMillis?.() ?? 0
+      if (!vs || now - vs < VACANT_ROOM_END_MS) continue
+      try {
+        await updateDoc(roomRef, {
+          endedAt: serverTimestamp(),
+          endedBy: 'vacant-timeout',
+          vacantSince: deleteField(),
+          sessionStartedAt: deleteField(),
+        })
+      } catch (e) {
+        console.warn('[sweepVacantVideoRooms]', channel, e?.message || e)
+      }
+    }
+  }
 }
 
 /**
@@ -328,6 +645,7 @@ export async function createInstantMeeting(orgId, userId, titleOrOpts = 'Instant
       startAt: serverTimestamp(),
       endAt,
       isVideoMeeting: true,
+      createdVia: MEETING_CREATED_VIA.instant,
     },
     userId
   )

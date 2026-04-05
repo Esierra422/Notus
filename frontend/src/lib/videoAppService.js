@@ -82,6 +82,74 @@ async function joinChannel(channelName) {
   return { uid: data.uid, audioTrack: localAudioTrack, videoTrack: localVideoTrack }
 }
 
+async function stopScreenShare() {
+  if (!client) {
+    if (localScreenTrack) {
+      try {
+        localScreenTrack.close()
+      } catch (e) {
+        console.warn('Screen track close:', e)
+      }
+      localScreenTrack = null
+    }
+    return
+  }
+  if (localScreenTrack) {
+    try {
+      await client.unpublish([localScreenTrack])
+    } catch (e) {
+      console.warn('Screen unpublish:', e)
+    }
+    try {
+      localScreenTrack.close()
+    } catch (e) {
+      console.warn('Screen track close:', e)
+    }
+    localScreenTrack = null
+  }
+  if (localVideoTrack) {
+    try {
+      await client.publish([localVideoTrack])
+    } catch (e) {
+      console.warn('Re-publish camera after screen share:', e)
+    }
+  }
+}
+
+async function startScreenShare() {
+  initializeClient()
+  if (!client || !localVideoTrack) {
+    throw new Error('Join the call with your camera before sharing your screen.')
+  }
+  if (localScreenTrack) return localScreenTrack
+  try {
+    localScreenTrack = await AgoraRTC.createScreenVideoTrack({}, 'disable')
+  } catch {
+    try {
+      localScreenTrack = await AgoraRTC.createScreenVideoTrack({ optimizationMode: 'detail' }, 'disable')
+    } catch {
+      localScreenTrack = await AgoraRTC.createScreenVideoTrack()
+    }
+  }
+  await client.unpublish([localVideoTrack])
+  await client.publish([localScreenTrack])
+  localScreenTrack.on('track-ended', () => {
+    stopScreenShare().catch(() => {})
+  })
+  return localScreenTrack
+}
+
+/** Stop current share and open the picker again (another window or display). */
+async function replaceScreenShareSource() {
+  if (!localScreenTrack) return startScreenShare()
+  await stopScreenShare()
+  return startScreenShare()
+}
+
+function getIsScreenSharing() {
+  return !!localScreenTrack
+}
+
 async function leaveChannel() {
   if (localAudioTrack) {
     localAudioTrack.close()
@@ -144,6 +212,9 @@ export {
   joinChannel,
   leaveChannel,
   setCallbacks,
+  startScreenShare,
+  stopScreenShare,
+  replaceScreenShareSource,
   toggleMic,
   toggleVideo,
 }
