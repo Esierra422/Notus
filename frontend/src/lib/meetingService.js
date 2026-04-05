@@ -134,17 +134,17 @@ export function getMeetingTranscriptSessionId(meeting, orgId) {
 }
 
 /**
- * Upcoming / in-progress meetings the user can join (next ~7 days window start).
+ * Future video meetings the user can join (start time not in the past).
  */
 export async function getUpcomingMeetingsForUserInOrg(userId, orgId, maxResults = 40) {
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
 
-  const windowStart = Timestamp.fromDate(new Date(Date.now() - 6 * 60 * 60 * 1000))
+  const now = Date.now()
   const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
   const q = query(
     meetingsRef,
-    where('startAt', '>=', windowStart),
+    where('startAt', '>=', Timestamp.fromMillis(now)),
     orderBy('startAt', 'asc'),
     limit(maxResults * 2)
   )
@@ -153,16 +153,17 @@ export async function getUpcomingMeetingsForUserInOrg(userId, orgId, maxResults 
   const accessible = []
   for (const m of meetings) {
     if (m.isVideoMeeting === false) continue
+    const startMs = m.startAt?.toMillis?.() ?? 0
+    if (startMs < now) continue
     if (await canAccessMeeting(m, userId, orgId)) accessible.push(m)
     if (accessible.length >= maxResults) break
   }
   return accessible
 }
 
-const UPCOMING_LOOKBACK_MS = 6 * 60 * 60 * 1000
-
 /**
- * Upcoming video meetings in org within a forward horizon (and up to 6h in the past).
+ * Upcoming video meetings in org: only events whose start time is still in the future (now → horizon).
+ * Past starts are excluded; use the Ongoing section for active rooms.
  * @param {number} horizonDays - include events with startAt <= now + horizonDays
  */
 export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, horizonDays, maxResults = 60) {
@@ -170,17 +171,24 @@ export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, ho
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
 
   const now = Date.now()
-  const endMs = now + Math.max(1, horizonDays) * 86400000
-  const windowStart = Timestamp.fromDate(new Date(now - UPCOMING_LOOKBACK_MS))
+  const horizonEndMs = now + Math.max(1, horizonDays) * 86400000
   const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
-  const q = query(meetingsRef, where('startAt', '>=', windowStart), orderBy('startAt', 'asc'), limit(120))
+  const q = query(
+    meetingsRef,
+    where('startAt', '>=', Timestamp.fromMillis(now)),
+    orderBy('startAt', 'asc'),
+    limit(120)
+  )
   const snapshot = await getDocs(q)
   const out = []
   for (const d of snapshot.docs) {
     const m = { id: d.id, ...d.data() }
     if (m.isVideoMeeting === false) continue
     const startMs = m.startAt?.toMillis?.() ?? 0
-    if (startMs > endMs) continue
+    if (startMs < now) continue
+    if (startMs > horizonEndMs) continue
+    const calEndMs = m.endAt?.toMillis?.() ?? null
+    if (calEndMs != null && calEndMs < now) continue
     if (!(await canAccessMeeting(m, userId, orgId))) continue
     out.push({ ...m, orgId })
     if (out.length >= maxResults) break

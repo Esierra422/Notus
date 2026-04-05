@@ -57,6 +57,7 @@ import {
   runTransaction,
   serverTimestamp,
   arrayUnion,
+  deleteField,
 } from 'firebase/firestore'
 
 function toFriendlyError(err) {
@@ -322,30 +323,6 @@ export function VideoCallPage() {
   }, [channelName])
 
   useEffect(() => {
-    const mid = searchParams.get('meetingId')
-    const orgId = videoRouteOrgId || searchParams.get('orgId')
-    if (!orgId || !mid || !user?.uid) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const ref = doc(db, 'organizations', orgId, 'meetings', mid)
-        const snap = await getDoc(ref)
-        if (cancelled || !snap.exists()) return
-        const m = { id: snap.id, ...snap.data(), orgId }
-        const ok = await canAccessMeeting(m, user.uid, orgId)
-        if (cancelled || !ok) return
-        setSelectedMeeting(m)
-        setChannelName(getMeetingVideoRoomId(m, orgId))
-      } catch (e) {
-        console.warn('Could not load meeting from link:', e)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [searchParams, user, videoRouteOrgId])
-
-  useEffect(() => {
     if (!user?.uid) return
     let cancelled = false
     setVideoOrgsLoaded(false)
@@ -590,21 +567,57 @@ export function VideoCallPage() {
     setPreJoinOpen(true)
   }
 
-  const openPreJoinForMeeting = useCallback((meeting) => {
-    if (!meeting) {
-      setError('Load a meeting first (paste a meeting ID), or use New meeting.')
-      return
+  const openPreJoinForMeeting = useCallback(
+    (meeting) => {
+      if (!meeting) {
+        setError('Load a meeting first (paste a meeting ID), or use New meeting.')
+        return
+      }
+      setError('')
+      setSelectedMeeting(meeting)
+      const oid = meeting.orgId || videoRouteOrgId || instantMeetingOrgId
+      if (oid) {
+        setChannelName(getMeetingVideoRoomId(meeting, oid))
+      }
+      setPreJoinMode('meeting')
+      setRoomPrefsDraft({ ...DEFAULT_ROOM_PREFS })
+      setPreJoinMicOn(true)
+      setPreJoinCamOn(true)
+      setPreJoinAllowRemoteShare(true)
+      setPreJoinPreviewError('')
+      setPreJoinOpen(true)
+    },
+    [videoRouteOrgId, instantMeetingOrgId]
+  )
+
+  useEffect(() => {
+    const mid = (searchParams.get('meetingId') || '').trim()
+    if (!mid || !user?.uid) return
+    const orgId = videoRouteOrgId || (searchParams.get('orgId') || '').trim() || null
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (orgId) {
+          const ref = doc(db, 'organizations', orgId, 'meetings', mid)
+          const snap = await getDoc(ref)
+          if (cancelled || !snap.exists()) return
+          const m = { id: snap.id, ...snap.data(), orgId }
+          const ok = await canAccessMeeting(m, user.uid, orgId)
+          if (cancelled || !ok) return
+          openPreJoinForMeeting(m)
+        } else {
+          const m = await resolveMeetingByIdAcrossOrgs(user.uid, mid)
+          if (cancelled || !m) return
+          openPreJoinForMeeting(m)
+        }
+      } catch (e) {
+        console.warn('Could not load meeting from link:', e)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    setError('')
-    setSelectedMeeting(meeting)
-    setPreJoinMode('meeting')
-    setRoomPrefsDraft({ ...DEFAULT_ROOM_PREFS })
-    setPreJoinMicOn(true)
-    setPreJoinCamOn(true)
-    setPreJoinAllowRemoteShare(true)
-    setPreJoinPreviewError('')
-    setPreJoinOpen(true)
-  }, [])
+  }, [searchParams, user, videoRouteOrgId, openPreJoinForMeeting])
 
   const openPreJoinMeeting = () => {
     openPreJoinForMeeting(selectedMeeting)
@@ -757,6 +770,40 @@ export function VideoCallPage() {
       localVideoTrackRef.current = videoTrack
       setLocalCameraTrack(videoTrack)
 
+      /** Open a new video session before `setJoined(true)` so the room listener does not see a stale `endedAt` from “End for everyone” and tear down immediately (non-host was especially affected). */
+      try {
+        const hostUid = meeting.createdBy || user.uid
+        const roomStatePayload = {
+          hostUid,
+          endedAt: deleteField(),
+          endedBy: deleteField(),
+          lastKick: deleteField(),
+        }
+        const isHostUser = user.uid === (meeting.createdBy || user.uid)
+        if (isHostUser) {
+          roomStatePayload.allowRemoteScreenShare = allowRemoteScreenShare !== false
+          if (roomPrefsOverride && typeof roomPrefsOverride === 'object') {
+            roomStatePayload.roomPrefs = normalizeRoomPrefs(roomPrefsOverride)
+          }
+        }
+        await setDoc(doc(db, 'videoChannels', room, 'roomState', 'current'), roomStatePayload, { merge: true })
+      } catch (e) {
+        console.warn('Could not open / reset room state:', e)
+      }
+
+      try {
+        const userDoc = await getUserDoc(user.uid)
+        const photoUrl = getProfilePictureUrl(userDoc, user) || null
+        await setDoc(doc(db, 'videoChannels', room, 'participants', String(uid)), {
+          displayName: user?.displayName || user?.email || 'Anonymous',
+          photoUrl,
+          firebaseUid: user.uid,
+          joinedAt: serverTimestamp(),
+        })
+      } catch (e) {
+        console.warn('Could not register participant name:', e)
+      }
+
       // Transcription capture (only if VITE_AI_WS_URL points at FastAPI /ws/transcription)
       try {
         if (!transcriptionWsBase) {
@@ -846,33 +893,6 @@ export function VideoCallPage() {
       setCamEnabled(!media.videoMuted)
       setJoined(true)
 
-      try {
-        const userDoc = await getUserDoc(user.uid)
-        const photoUrl = getProfilePictureUrl(userDoc, user) || null
-        await setDoc(doc(db, 'videoChannels', room, 'participants', String(uid)), {
-          displayName: user?.displayName || user?.email || 'Anonymous',
-          photoUrl,
-          firebaseUid: user.uid,
-          joinedAt: serverTimestamp(),
-        })
-      } catch (e) {
-        console.warn('Could not register participant name:', e)
-      }
-
-      try {
-        const hostUid = meeting.createdBy || user.uid
-        const roomStatePayload = { hostUid }
-        const isHostUser = user.uid === (meeting.createdBy || user.uid)
-        if (isHostUser) {
-          roomStatePayload.allowRemoteScreenShare = allowRemoteScreenShare !== false
-          if (roomPrefsOverride && typeof roomPrefsOverride === 'object') {
-            roomStatePayload.roomPrefs = normalizeRoomPrefs(roomPrefsOverride)
-          }
-        }
-        await setDoc(doc(db, 'videoChannels', room, 'roomState', 'current'), roomStatePayload, { merge: true })
-      } catch (e) {
-        console.warn('Could not init room state:', e)
-      }
       return true
     } catch (err) {
       setError(toFriendlyError(err) || 'Failed to join')
@@ -908,6 +928,9 @@ export function VideoCallPage() {
         }
         if (!d.endedAt || remoteEndHandledRef.current) return
         if (d.endedBy === user.uid) return
+        const endedMs = d.endedAt?.toMillis?.() ?? 0
+        const joinedMs = joinedAtMsRef.current || 0
+        if (endedMs && joinedMs && endedMs < joinedMs) return
         remoteEndHandledRef.current = true
         const uidToRemove = localUidRef.current
         const ch = channelName
@@ -1222,7 +1245,15 @@ export function VideoCallPage() {
   }, [joined, user?.uid, roomMediaPolicy, roomAllowRemoteShare])
 
   const joinMeetingById = async () => {
-    const id = joinMeetingIdInput.trim()
+    let id = joinMeetingIdInput.trim()
+    const fromQuery = id.match(/[?&]meetingId=([^&]+)/i)
+    if (fromQuery) {
+      try {
+        id = decodeURIComponent(fromQuery[1]).trim()
+      } catch {
+        id = fromQuery[1].trim()
+      }
+    }
     if (!id || !user?.uid) return
     setJoinByIdLoading(true)
     setError('')
@@ -1244,8 +1275,7 @@ export function VideoCallPage() {
           setError('That event is not a video meeting.')
           return
         }
-        setSelectedMeeting(m)
-        setChannelName(getMeetingVideoRoomId(m, videoRouteOrgId))
+        openPreJoinForMeeting(m)
       } else {
         const m = await resolveMeetingByIdAcrossOrgs(user.uid, id)
         if (!m) {
@@ -1256,8 +1286,7 @@ export function VideoCallPage() {
           setError('That event is not a video meeting.')
           return
         }
-        setSelectedMeeting(m)
-        setChannelName(getMeetingVideoRoomId(m, m.orgId))
+        openPreJoinForMeeting(m)
       }
       setJoinMeetingIdInput('')
     } catch (e) {
@@ -1636,6 +1665,12 @@ export function VideoCallPage() {
                         placeholder="Meeting ID"
                         value={joinMeetingIdInput}
                         onChange={(e) => setJoinMeetingIdInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && joinMeetingIdInput.trim() && !joinByIdLoading) {
+                            e.preventDefault()
+                            joinMeetingById()
+                          }
+                        }}
                         disabled={joinByIdLoading}
                       />
                       <Button
@@ -1742,7 +1777,10 @@ export function VideoCallPage() {
                     </div>
                   </div>
                   <p className="video-call-upcoming-sub">
-                    Scheduled video meetings starting within your selected range ({UPCOMING_HORIZON_OPTIONS.find((o) => o.days === upcomingHorizonDays)?.label || `${upcomingHorizonDays} days`}).
+                    Video meetings with a start time from now through the next{' '}
+                    {UPCOMING_HORIZON_OPTIONS.find((o) => o.days === upcomingHorizonDays)?.label ||
+                      `${upcomingHorizonDays} days`}
+                    . Past meetings are not listed; use Ongoing for active rooms.
                   </p>
                   {upcomingMeetingsLoading && upcomingMeetings.length === 0 ? (
                     <p className="video-call-lobby-muted">Loading upcoming…</p>
