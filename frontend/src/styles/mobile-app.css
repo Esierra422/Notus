@@ -1,0 +1,92 @@
+/**
+ * Mobile / small-tablet only (max-width: 768px).
+ * Desktop layouts at 769px+ are unchanged.
+ */
+
+@media (max-width: 768px) {
+  /* Full-height app regions: avoid iOS 100vh vs toolbar jump */
+  .app-layout-chats,
+  .app-layout-video {
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .landing {
+    min-height: 100dvh;
+  }
+
+  /* Standalone pages that are not wrapped in .app-main */
+  .summary-page,
+  .prev-meetings-page {
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(2rem, calc(1rem + env(safe-area-inset-bottom, 0px)));
+    box-sizing: border-box;
+  }
+
+  /* Auth loading shell */
+  .app-layout-auth-loading {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+
+  /* Header dropdowns: stay inside screen + notches */
+  .notifications-panel {
+    width: min(320px, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    max-width: min(320px, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    max-height: min(400px, 70dvh);
+    right: 0;
+    left: auto;
+  }
+
+  .account-menu-panel {
+    min-width: 0;
+    max-width: min(280px, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  }
+
+  .app-nav-meetings-dropdown {
+    max-width: min(260px, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  }
+
+  .app-nav-admin-dropdown {
+    max-width: min(240px, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    right: 0;
+    left: auto;
+  }
+
+  /* iOS: 16px+ on focused fields reduces unwanted zoom */
+  textarea,
+  select,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='submit']):not([type='button']):not([type='file']):not([type='image']) {
+    font-size: max(1rem, 16px);
+  }
+
+  /* Fixed overlays: respect safe area */
+  .create-event-overlay,
+  .event-detail-overlay,
+  .chats-modal-overlay,
+  .video-prejoin-overlay,
+  .video-call-leave-overlay,
+  .video-host-overlay,
+  .org-create-overlay,
+  .calendar-import-overlay {
+    padding: max(0.75rem, env(safe-area-inset-top, 0px)) max(0.75rem, env(safe-area-inset-right, 0px))
+      max(0.75rem, env(safe-area-inset-bottom, 0px)) max(0.75rem, env(safe-area-inset-left, 0px));
+    box-sizing: border-box;
+  }
+
+  .create-event-modal,
+  .event-detail-modal,
+  .chats-modal {
+    max-height: min(88dvh, 720px);
+  }
+
+  .calendar-import-modal {
+    width: 100%;
+    max-width: min(440px, calc(100vw - 1.5rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    box-sizing: border-box;
+  }
+}

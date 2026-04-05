@@ -2797,3 +2797,28 @@
   font-size: 0.78rem;
   color: var(--text-muted);
 }
+
+/* Mobile: safe horizontal insets for control dock + compact lobby rows (769px+ unchanged) */
+@media (max-width: 768px) {
+  .video-call-controls-bar {
+    padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+  }
+
+  .video-call-host-panel {
+    padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
+  }
+
+  .video-call-upcoming-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .video-host-modal,
+  .video-prejoin-modal,
+  .video-call-leave-modal {
+    max-height: min(86dvh, 640px);
+  }
+}

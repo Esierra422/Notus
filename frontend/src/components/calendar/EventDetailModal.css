@@ -154,3 +154,10 @@
   display: flex;
   gap: 0.5rem;
 }
+
+@media (max-width: 768px) {
+  .event-detail-modal {
+    max-height: min(88dvh, 560px);
+    padding: 1.15rem 1.15rem 1.25rem;
+  }
+}

@@ -69,14 +69,17 @@
 
 @media (max-width: 768px) {
   .app-header {
-    padding: 0.75rem 1rem;
+    padding: max(0.75rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px))
+      0.75rem max(1rem, env(safe-area-inset-left, 0px));
     flex-wrap: wrap;
+    row-gap: 0.5rem;
   }
 }
 
 @media (max-width: 480px) {
   .app-header {
-    padding: 0.5rem 0.75rem;
+    padding: max(0.5rem, env(safe-area-inset-top, 0px)) max(0.75rem, env(safe-area-inset-right, 0px)) 0.5rem
+      max(0.75rem, env(safe-area-inset-left, 0px));
   }
 }
 
@@ -119,7 +122,10 @@
 
 @media (max-width: 768px) {
   .app-main {
-    padding: 1rem 1rem 1.5rem;
+    padding-top: 1rem;
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(1.5rem, calc(0.75rem + env(safe-area-inset-bottom, 0px)));
   }
 }
 

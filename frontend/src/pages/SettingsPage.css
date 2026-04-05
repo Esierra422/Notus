@@ -49,6 +49,17 @@
   transition: border-color 0.2s, background 0.2s;
 }
 
+@media (max-width: 768px) {
+  .settings-card {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .settings-main {
+    max-width: 100%;
+  }
+}
+
 .settings-card-link {
   cursor: pointer;
 }

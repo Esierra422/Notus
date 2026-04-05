@@ -53,6 +53,7 @@ import {
   ChevronDownIcon,
   SearchIcon,
   SlidersHorizontalIcon,
+  ArrowLeftIcon,
 } from '../components/ui/Icons'
 import { starMessage, unstarMessage, subscribeStarredForConversation } from '../lib/starService'
 import { addToFavorites, removeFromFavorites, subscribeFavorites } from '../lib/favoritesService'
@@ -1598,7 +1599,7 @@ ${blocks.join('\n')}
 
   return (
     <div className="chats-layout">
-      <div className="chats-container">
+      <div className={`chats-container ${chatId ? 'chats-container--thread-open' : 'chats-container--list-only'}`}>
         <aside className="chats-sidebar">
           {error && (
             <p className="auth-error" style={{ padding: '0.5rem 1rem', margin: 0, fontSize: '0.85rem' }}>{error}</p>
@@ -1786,7 +1787,18 @@ ${blocks.join('\n')}
           {chatId ? (
             <>
               <header className="chats-header">
-                <div className="chats-header-info">
+                <div className="chats-header-top">
+                  {chatId && (
+                    <button
+                      type="button"
+                      className="chats-mobile-back"
+                      onClick={() => navigate(`/app/org/${orgId}/chats`)}
+                      aria-label="Back to chat list"
+                    >
+                      <ArrowLeftIcon size={22} />
+                    </button>
+                  )}
+                  <div className="chats-header-info">
                   {selectedConv?.type === CONV_TYPES.dm && (() => {
                     const other = selectedConv.members?.find((id) => id !== user?.uid)
                     const p = other ? userProfiles[other] : null
@@ -1843,6 +1855,7 @@ ${blocks.join('\n')}
                       <SettingsIcon size={20} />
                     </button>
                   )}
+                  </div>
                 </div>
                 {typers.length > 0 && (
                   <div className="chats-typing">

@@ -12,6 +12,20 @@
   position: relative;
 }
 
+@media (max-width: 768px) {
+  .auth-page {
+    min-height: 100dvh;
+    padding: max(2rem, env(safe-area-inset-top, 0px)) max(1.5rem, env(safe-area-inset-right, 0px))
+      max(2rem, env(safe-area-inset-bottom, 0px)) max(1.5rem, env(safe-area-inset-left, 0px));
+    box-sizing: border-box;
+  }
+
+  .auth-back {
+    top: max(1.5rem, env(safe-area-inset-top, 0px));
+    left: max(1.5rem, env(safe-area-inset-left, 0px));
+  }
+}
+
 .auth-back {
   position: absolute;
   top: 1.5rem;

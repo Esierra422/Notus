@@ -76,6 +76,17 @@
   margin-top: 0.2rem;
 }
 
+@media (max-width: 768px) {
+  .create-event-row {
+    grid-template-columns: 1fr;
+  }
+
+  .create-event-modal {
+    max-height: min(88dvh, 720px);
+    padding: 1.15rem 1.15rem 1.25rem;
+  }
+}
+
 .create-event-invite-section {
   border-top: 1px solid var(--border);
   padding-top: 0.75rem;
