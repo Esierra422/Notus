@@ -245,3 +245,49 @@ export async function updateMembershipRole(orgId, userId, newRole) {
 export function canManageOrg(membership) {
   return membership && (membership.role === MEMBERSHIP_ROLES.owner || membership.role === MEMBERSHIP_ROLES.admin)
 }
+
+/**
+ * Fine-grained permissions for members (owners/admins always pass).
+ * If `capabilities` is missing, allow (legacy members before caps existed).
+ * If `capabilities` exists but a key is absent, allow that key (partial docs).
+ * If a key is present and not `true`, deny.
+ *
+ * @param {'scheduleMeetings'|'orgCalendar'|'teamCalendar'} cap
+ */
+export function membershipHasCapability(membership, cap) {
+  if (!membership || membership.state !== MEMBERSHIP_STATES.active) return false
+  if (membership.role === MEMBERSHIP_ROLES.owner || membership.role === MEMBERSHIP_ROLES.admin) return true
+  const c = membership.capabilities
+  if (c == null || typeof c !== 'object') return true
+  if (!(cap in c)) return true
+  return c[cap] === true
+}
+
+/**
+ * Custom label shown on member cards (does not replace owner/admin/member access — use role for that).
+ */
+export async function updateMemberDisplayRole(orgId, targetUserId, actorUserId, displayRoleName) {
+  const actor = await getMembership(orgId, actorUserId)
+  if (!canManageOrg(actor)) throw new Error('Only owners and admins can update member labels.')
+  const ref = doc(db, MEMBERSHIPS_COLLECTION, membershipId(orgId, targetUserId))
+  await updateDoc(ref, {
+    displayRoleName: String(displayRoleName || '').trim() || null,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/** Optional capability flags for UI (org owners/admins may still override in Firestore rules later). */
+export async function updateMemberCapabilities(orgId, targetUserId, actorUserId, capabilities) {
+  const actor = await getMembership(orgId, actorUserId)
+  if (!canManageOrg(actor)) throw new Error('Only owners and admins can update capabilities.')
+  const ref = doc(db, MEMBERSHIPS_COLLECTION, membershipId(orgId, targetUserId))
+  const safe = capabilities && typeof capabilities === 'object' ? capabilities : {}
+  await updateDoc(ref, {
+    capabilities: {
+      scheduleMeetings: safe.scheduleMeetings === true,
+      orgCalendar: safe.orgCalendar === true,
+      teamCalendar: safe.teamCalendar === true,
+    },
+    updatedAt: serverTimestamp(),
+  })
+}

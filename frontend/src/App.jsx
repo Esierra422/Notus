@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { PageTransition } from './components/PageTransition'
 import { AppShell } from './components/AppShell'
 import { AuthRedirectHandler } from './components/AuthRedirectHandler'
@@ -20,7 +20,6 @@ import {
   OrganizationsPage,
   AdminSelectorPage,
   CalendarPage,
-  ChatsRedirect,
   ChatsPage,
   AdminPage,
   VideoCallPage,
@@ -47,12 +46,14 @@ function App() {
           <Route path="how-it-works" element={<AppHowItWorksPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="video" element={<VideoCallPage />} />
-          <Route path="previous-meetings" element={<PreviousMeetingsPage />} />
+          <Route path="video/meetings" element={<PreviousMeetingsPage />} />
+          <Route path="previous-meetings" element={<Navigate to="/app/video/meetings" replace />} />
           <Route path="meeting-summary/:summaryId" element={<MeetingSummaryPage />} />
           <Route path="meeting-transcript/:sessionId" element={<MeetingTranscriptPage />} />
-          <Route path="chats" element={<ChatsRedirect />} />
+          <Route path="chats" element={<ChatsPage />} />
           <Route path="org/:orgId/calendar" element={<CalendarPage />} />
           <Route path="org/:orgId/video" element={<VideoCallPage />} />
+          <Route path="org/:orgId/video/meetings" element={<PreviousMeetingsPage />} />
           <Route path="org/:orgId/chats" element={<ChatsPage />} />
           <Route path="org/:orgId/chats/:chatId" element={<ChatsPage />} />
           <Route path="profile" element={<ProfilePage />} />

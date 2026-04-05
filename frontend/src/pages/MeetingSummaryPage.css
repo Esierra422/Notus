@@ -53,6 +53,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+.summary-export-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .summary-title {
   font-family: var(--font-display);
   font-size: 1.75rem;

@@ -19,7 +19,14 @@ import {
   deleteField,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import { getMembership, getUserMemberships, getOrg, MEMBERSHIP_STATES } from './orgService'
+import {
+  getMembership,
+  getUserMemberships,
+  getOrg,
+  MEMBERSHIP_STATES,
+  membershipHasCapability,
+} from './orgService'
+import { createMeetingInviteNotifications } from './userNotificationService'
 import { getTeamMembership, TEAM_STATES } from './teamService'
 
 const MEETINGS_SUB = 'meetings'
@@ -28,6 +35,15 @@ export const MEETING_SCOPES = { org: 'org', team: 'team', private: 'private' }
 
 /** How the meeting row was created — used to filter video lobby “upcoming”. */
 export const MEETING_CREATED_VIA = { calendar: 'calendar', instant: 'instant' }
+
+/** Hide ad-hoc instant meetings from calendar grids and scheduled lists. */
+export function isInstantMeetingRow(m) {
+  return m?.createdVia === MEETING_CREATED_VIA.instant
+}
+
+export function filterOutInstantMeetings(list) {
+  return (Array.isArray(list) ? list : []).filter((m) => !isInstantMeetingRow(m))
+}
 
 const VACANT_ROOM_END_MS = 5 * 60 * 1000
 /**
@@ -41,6 +57,22 @@ const INSTANT_ROOM_MAX_OPEN_MS = 90 * 60 * 1000
  * Instant meetings that never got sessionStartedAt (abandoned / old clients): close so lobby doesn’t stick on “Running —”.
  */
 const INSTANT_NO_SESSION_END_MS = 5 * 60 * 1000
+
+function firestoreTimeToMs(ts) {
+  if (!ts) return 0
+  if (typeof ts.toMillis === 'function') return ts.toMillis()
+  if (typeof ts.seconds === 'number') return ts.seconds * 1000
+  return 0
+}
+
+/** True for ad-hoc / lobby “instant” rows; excludes explicit calendar-created meetings. */
+function isInstantStyleMeeting(m) {
+  if (m.createdVia === MEETING_CREATED_VIA.calendar) return false
+  if (m.createdVia === MEETING_CREATED_VIA.instant) return true
+  const t = String(m.title || '').trim().toLowerCase()
+  if (m.createdVia == null && (t === 'instant meeting' || t === 'quick meeting')) return true
+  return false
+}
 
 function mergeInvitedUserIds(data) {
   const fromIds = Array.isArray(data.invitedUserIds) ? data.invitedUserIds : []
@@ -72,6 +104,9 @@ export async function createMeeting(orgId, data, userId) {
     data.createdVia === MEETING_CREATED_VIA.instant
       ? MEETING_CREATED_VIA.instant
       : MEETING_CREATED_VIA.calendar
+  const description = typeof data.description === 'string' ? data.description.trim() : ''
+  const timeZone = typeof data.timeZone === 'string' && data.timeZone.trim() ? data.timeZone.trim() : null
+  const recurrence = data.recurrence && typeof data.recurrence === 'object' ? data.recurrence : null
 
   if (![MEETING_SCOPES.org, MEETING_SCOPES.team, MEETING_SCOPES.private].includes(scope)) {
     throw new Error('Invalid meeting scope.')
@@ -85,9 +120,26 @@ export async function createMeeting(orgId, data, userId) {
     }
   }
 
+  if (!membershipHasCapability(orgMem, 'scheduleMeetings')) {
+    throw new Error(
+      'You do not have permission to create meetings or calendar events. Ask an organization admin to enable this for your role.'
+    )
+  }
+  if (scope === MEETING_SCOPES.org && !inviteOnly && !membershipHasCapability(orgMem, 'orgCalendar')) {
+    throw new Error(
+      'You do not have permission to add events to the organization calendar. Use invite-only guests or ask an admin to enable org calendar access.'
+    )
+  }
+  if (scope === MEETING_SCOPES.team && !membershipHasCapability(orgMem, 'teamCalendar')) {
+    throw new Error(
+      'You do not have permission to add events to team calendars. Ask an organization admin to enable this for your role.'
+    )
+  }
+
   await setDoc(meetingRef, {
     orgId,
     title: title || 'Meeting',
+    description: description || null,
     scope,
     scopeTeamId: scope === MEETING_SCOPES.team ? scopeTeamId : null,
     scopeInviteList: scope === MEETING_SCOPES.private ? invitedUserIds : [],
@@ -95,6 +147,8 @@ export async function createMeeting(orgId, data, userId) {
     inviteOnly,
     startAt: startAt || serverTimestamp(),
     endAt: endAt || null,
+    timeZone,
+    recurrence,
     createdBy: userId,
     createdAt: serverTimestamp(),
     videoRoomId,
@@ -102,6 +156,22 @@ export async function createMeeting(orgId, data, userId) {
     isVideoMeeting,
     createdVia,
   })
+
+  if (invitedUserIds.length) {
+    const t = title || 'Meeting'
+    void createMeetingInviteNotifications({
+      fromUid: userId,
+      recipientUids: invitedUserIds,
+      orgId,
+      meetingId,
+      title: t,
+      body:
+        createdVia === MEETING_CREATED_VIA.instant
+          ? `${t}: quick meeting — open Video to join when you're ready.`
+          : `${t}: you're invited${isVideoMeeting ? ' to a video meeting' : ''}. Open Calendar or Video to join.`,
+      isInstant: createdVia === MEETING_CREATED_VIA.instant,
+    }).catch(() => {})
+  }
 
   return {
     id: meetingId,
@@ -123,21 +193,49 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
   const snap = await getDoc(ref)
   if (!snap.exists()) throw new Error('Meeting not found.')
   const m = snap.data()
-  if (m.createdBy !== userId) throw new Error('Only the organizer can update this event.')
+  const orgMem = await getMembership(orgId, userId)
+  const isAdminOrOwner =
+    orgMem?.state === MEMBERSHIP_STATES.active &&
+    (orgMem.role === 'owner' || orgMem.role === 'admin')
+  if (m.createdBy !== userId && !isAdminOrOwner) {
+    throw new Error('Only the organizer or an org admin can update this event.')
+  }
 
   const data = {}
   if (patch.title !== undefined) {
     const t = String(patch.title || '').trim()
     if (t) data.title = t
   }
+  if (patch.description !== undefined) {
+    data.description = String(patch.description || '').trim() || null
+  }
   if (patch.invitedUserIds !== undefined) {
     const ids = [...new Set((Array.isArray(patch.invitedUserIds) ? patch.invitedUserIds : []).filter(Boolean))]
     data.invitedUserIds = ids
     if (m.scope === MEETING_SCOPES.private) data.scopeInviteList = ids
   }
-  if (patch.inviteOnly !== undefined) data.inviteOnly = patch.inviteOnly === true
+  if (patch.inviteOnly !== undefined) {
+    const nextInviteOnly = patch.inviteOnly === true
+    if (
+      !nextInviteOnly &&
+      m.scope === MEETING_SCOPES.org &&
+      !membershipHasCapability(orgMem, 'orgCalendar')
+    ) {
+      throw new Error(
+        'You cannot make this event visible to the whole organization without org calendar access for your role.'
+      )
+    }
+    data.inviteOnly = nextInviteOnly
+  }
   if (patch.isVideoMeeting !== undefined) data.isVideoMeeting = patch.isVideoMeeting !== false
   if (patch.startAt !== undefined && patch.startAt != null) data.startAt = patch.startAt
+  if (patch.endAt !== undefined) data.endAt = patch.endAt
+  if (patch.timeZone !== undefined) {
+    data.timeZone = typeof patch.timeZone === 'string' && patch.timeZone.trim() ? patch.timeZone.trim() : null
+  }
+  if (patch.recurrence !== undefined) {
+    data.recurrence = patch.recurrence && typeof patch.recurrence === 'object' ? patch.recurrence : null
+  }
 
   if (Object.keys(data).length === 0) return
   await updateDoc(ref, data)
@@ -189,7 +287,11 @@ export async function getUpcomingMeetingsForUserInOrg(userId, orgId, maxResults 
  * Past starts are excluded; use the Ongoing section for active rooms.
  * @param {number} horizonDays - include events with startAt <= now + horizonDays
  */
-export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, horizonDays, maxResults = 60) {
+/**
+ * @param {{ includeNonVideo?: boolean }} [options] - If includeNonVideo, calendar-only events are included (dashboard).
+ */
+export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, horizonDays, maxResults = 60, options = {}) {
+  const includeNonVideo = options.includeNonVideo === true
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
 
@@ -206,7 +308,7 @@ export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, ho
   const out = []
   for (const d of snapshot.docs) {
     const m = { id: d.id, ...d.data() }
-    if (m.isVideoMeeting === false) continue
+    if (!includeNonVideo && m.isVideoMeeting === false) continue
     if (m.createdVia === MEETING_CREATED_VIA.instant) continue
     const startMs = m.startAt?.toMillis?.() ?? 0
     if (startMs < now) continue
@@ -222,13 +324,14 @@ export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, ho
 
 /**
  * Upcoming meetings across all active orgs for the user (merged, sorted by start).
+ * @param {{ includeNonVideo?: boolean }} [options]
  */
-export async function getUpcomingMeetingsInHorizonForUser(userId, horizonDays, maxTotal = 80) {
+export async function getUpcomingMeetingsInHorizonForUser(userId, horizonDays, maxTotal = 80, options = {}) {
   const memberships = await getUserMemberships(userId)
   const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
   const merged = []
   for (const mem of activeOrgs) {
-    const part = await getUpcomingMeetingsInHorizonForUserInOrg(userId, mem.orgId, horizonDays, 45)
+    const part = await getUpcomingMeetingsInHorizonForUserInOrg(userId, mem.orgId, horizonDays, 45, options)
     for (const m of part) {
       const org = await getOrg(mem.orgId)
       merged.push({ ...m, _orgName: org?.name })
@@ -363,7 +466,7 @@ export async function endInstantRoomsWithoutSessionClock(userId) {
     for (const d of snapshot.docs) {
       const m = { id: d.id, ...d.data() }
       if (m.isVideoMeeting === false) continue
-      if (m.createdVia !== MEETING_CREATED_VIA.instant) continue
+      if (!isInstantStyleMeeting(m)) continue
       if (!(await canAccessMeeting(m, userId, orgId))) continue
       const channel = getMeetingVideoRoomId(m, orgId)
       const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
@@ -372,7 +475,7 @@ export async function endInstantRoomsWithoutSessionClock(userId) {
       const rd = rs.data() || {}
       if (rd.endedAt) continue
       if (rd.sessionStartedAt) continue
-      const startMs = m.startAt?.toMillis?.() ?? m.createdAt?.toMillis?.() ?? 0
+      const startMs = firestoreTimeToMs(m.startAt) || firestoreTimeToMs(m.createdAt)
       if (!startMs || now - startMs < INSTANT_NO_SESSION_END_MS) continue
       try {
         await updateDoc(roomRef, {
@@ -405,16 +508,18 @@ export async function endAgedInstantVideoRooms(userId) {
     for (const d of snapshot.docs) {
       const m = { id: d.id, ...d.data() }
       if (m.isVideoMeeting === false) continue
-      if (m.createdVia !== MEETING_CREATED_VIA.instant) continue
+      if (!isInstantStyleMeeting(m)) continue
       if (!(await canAccessMeeting(m, userId, orgId))) continue
-      const startMs = m.startAt?.toMillis?.() ?? 0
-      if (!startMs || now - startMs < INSTANT_ROOM_MAX_OPEN_MS) continue
       const channel = getMeetingVideoRoomId(m, orgId)
       const roomRef = doc(db, 'videoChannels', channel, 'roomState', 'current')
       const rs = await getDoc(roomRef)
       if (!rs.exists()) continue
       const rd = rs.data() || {}
       if (rd.endedAt) continue
+      const rowStartMs = firestoreTimeToMs(m.startAt) || firestoreTimeToMs(m.createdAt)
+      const sessionMs = firestoreTimeToMs(rd.sessionStartedAt)
+      const anchorMs = Math.max(rowStartMs, sessionMs)
+      if (!anchorMs || now - anchorMs < INSTANT_ROOM_MAX_OPEN_MS) continue
       try {
         await updateDoc(roomRef, {
           endedAt: serverTimestamp(),
@@ -422,6 +527,14 @@ export async function endAgedInstantVideoRooms(userId) {
           vacantSince: deleteField(),
           sessionStartedAt: deleteField(),
         })
+        const partSnap = await getDocs(collection(db, 'videoChannels', channel, 'participants'))
+        for (const pd of partSnap.docs) {
+          try {
+            await deleteDoc(pd.ref)
+          } catch (e) {
+            console.warn('[endAgedInstantVideoRooms] participant', channel, e?.message || e)
+          }
+        }
       } catch (e) {
         console.warn('[endAgedInstantVideoRooms]', channel, e?.message || e)
       }
@@ -633,19 +746,40 @@ export async function resolveMeetingByIdAcrossOrgs(userId, meetingId) {
  * @param {string} userId
  * @param {string | { title?: string }} titleOrOpts - legacy string title, or { title }
  */
-export async function createInstantMeeting(orgId, userId, titleOrOpts = 'Instant meeting') {
+export async function createInstantMeeting(orgId, userId, titleOrOpts = 'Quick meeting') {
   const opts = typeof titleOrOpts === 'string' ? { title: titleOrOpts } : titleOrOpts || {}
-  const title = (opts.title && String(opts.title).trim()) || 'Instant meeting'
+  const title = (opts.title && String(opts.title).trim()) || 'Quick meeting'
+  const description = typeof opts.description === 'string' ? opts.description.trim() : ''
+  const rawInvites = mergeInvitedUserIds({ invitedUserIds: opts.invitedUserIds || [] })
+  const vis = opts.visibility === 'team' ? 'team' : opts.visibility === 'invited' ? 'invited' : 'org'
+  let scope = MEETING_SCOPES.org
+  let scopeTeamId = null
+  let inviteOnly = false
+  let invitedUserIds = []
+  if (vis === 'team' && opts.scopeTeamId) {
+    scope = MEETING_SCOPES.team
+    scopeTeamId = opts.scopeTeamId
+  } else if (vis === 'invited' && rawInvites.length) {
+    inviteOnly = true
+    invitedUserIds = rawInvites
+  } else {
+    invitedUserIds = rawInvites
+    inviteOnly = opts.inviteOnly === true && rawInvites.length > 0
+  }
   const endAt = Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000))
   return createMeeting(
     orgId,
     {
-      scope: MEETING_SCOPES.org,
+      scope,
+      scopeTeamId,
       title,
+      description,
       startAt: serverTimestamp(),
       endAt,
       isVideoMeeting: true,
       createdVia: MEETING_CREATED_VIA.instant,
+      invitedUserIds,
+      inviteOnly,
     },
     userId
   )
@@ -857,13 +991,17 @@ export async function getMeetingsInRange(orgId, year, month, scope, scopeTeamId)
 export async function getMeetingsInRangeForUserInOrg(userId, orgId, year, month) {
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
-  const meetings = await getMeetingsInRange(orgId, year, month, null, null)
+  const [meetings, org] = await Promise.all([
+    getMeetingsInRange(orgId, year, month, null, null),
+    getOrg(orgId),
+  ])
+  const orgName = org?.name
   const accessible = []
   for (const m of meetings) {
+    if (isInstantMeetingRow(m)) continue
     const canAccess = await canAccessMeeting(m, userId, orgId)
     if (canAccess) {
-      const org = await getOrg(orgId)
-      accessible.push({ ...m, _orgName: org?.name })
+      accessible.push({ ...m, _orgName: orgName })
     }
   }
   accessible.sort((a, b) => {
@@ -880,17 +1018,24 @@ export async function getMeetingsInRangeForUserInOrg(userId, orgId, year, month)
 export async function getMeetingsInRangeForUser(userId, year, month) {
   const memberships = await getUserMemberships(userId)
   const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
-  const allMeetings = []
-  for (const mem of activeOrgs) {
-    const meetings = await getMeetingsInRange(mem.orgId, year, month, null, null)
-    for (const m of meetings) {
-      const canAccess = await canAccessMeeting(m, userId, mem.orgId)
-      if (canAccess) {
-        const org = await getOrg(mem.orgId)
-        allMeetings.push({ ...m, _orgName: org?.name, _orgId: mem.orgId })
+  const perOrg = await Promise.all(
+    activeOrgs.map(async (mem) => {
+      const [meetings, org] = await Promise.all([
+        getMeetingsInRange(mem.orgId, year, month, null, null),
+        getOrg(mem.orgId),
+      ])
+      const orgName = org?.name
+      const out = []
+      for (const m of meetings) {
+        if (isInstantMeetingRow(m)) continue
+        if (await canAccessMeeting(m, userId, mem.orgId)) {
+          out.push({ ...m, _orgName: orgName, _orgId: mem.orgId })
+        }
       }
-    }
-  }
+      return out
+    })
+  )
+  const allMeetings = perOrg.flat()
   allMeetings.sort((a, b) => {
     const aT = a.startAt?.toMillis?.() ?? a.startAt ?? 0
     const bT = b.startAt?.toMillis?.() ?? b.startAt ?? 0
@@ -906,13 +1051,17 @@ export async function getMeetingsInRangeForUserInTeam(userId, orgId, teamId, yea
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
 
-  const meetings = await getMeetingsInRange(orgId, year, month, null, null)
+  const [meetings, org] = await Promise.all([
+    getMeetingsInRange(orgId, year, month, null, null),
+    getOrg(orgId),
+  ])
+  const orgName = org?.name
   const accessible = []
   for (const m of meetings) {
+    if (isInstantMeetingRow(m)) continue
     if (m.scope !== MEETING_SCOPES.team || m.scopeTeamId !== teamId) continue
     if (await canAccessMeeting(m, userId, orgId)) {
-      const org = await getOrg(orgId)
-      accessible.push({ ...m, _orgName: org?.name })
+      accessible.push({ ...m, _orgName: orgName })
     }
   }
   accessible.sort((a, b) => {

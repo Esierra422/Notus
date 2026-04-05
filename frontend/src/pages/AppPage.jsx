@@ -11,11 +11,12 @@ import {
   canManageOrg,
   MEMBERSHIP_STATES,
 } from '../lib/orgService'
-import { getMeetingsForUser } from '../lib/meetingService'
-import { getTodos, addTodo, toggleTodo, deleteTodo } from '../lib/todoService'
+import { getUpcomingMeetingsInHorizonForUser } from '../lib/meetingService'
 import { Button } from '../components/ui/Button'
 import { CalendarIcon, VideoIcon, MessageSquareIcon, SettingsIcon, BuildingIcon } from '../components/ui/Icons'
 import { MiniCalendarWidget } from '../components/dashboard/MiniCalendarWidget'
+import { UpcomingEventsWidget } from '../components/dashboard/UpcomingEventsWidget'
+import { getTimeZone, getLocale } from '../lib/dateUtils'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './Dashboard.css'
@@ -24,13 +25,87 @@ import './AppDashboardPage.css'
 import './OrgPage.css'
 import './OrgAdminPage.css'
 
+function pickFirstName(userDoc, authUser) {
+  const raw = (userDoc?.displayName || authUser?.displayName || '').trim()
+  if (!raw) return ''
+  return raw.split(/\s+/)[0]
+}
+
+function getLocalTimeParts(date, locale, tzOpts) {
+  const parts = new Intl.DateTimeFormat(locale || 'en-US', {
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+    ...tzOpts,
+  }).formatToParts(date)
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10)
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10)
+  return { hour, minute }
+}
+
+function getGreetingLine(hour) {
+  if (hour < 5) return 'Hi there'
+  if (hour < 12) return 'Good morning'
+  if (hour < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
+/** Visual theme for card accents by time of day */
+function getDayPhase(hour) {
+  if (hour < 5) return 'night'
+  if (hour < 12) return 'morning'
+  if (hour < 17) return 'afternoon'
+  if (hour < 21) return 'evening'
+  return 'night'
+}
+
+const DASHBOARD_QUOTES = [
+  { text: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },
+  { text: 'Done is better than perfect.', author: 'Sheryl Sandberg' },
+  { text: 'Focus is a matter of deciding what things you’re not going to do.', author: 'John Carmack' },
+  { text: 'Simplicity is the ultimate sophistication.', author: 'Leonardo da Vinci' },
+  { text: 'Well done is better than well said.', author: 'Benjamin Franklin' },
+  { text: 'Quality is not an act, it is a habit.', author: 'Aristotle' },
+  { text: 'Start where you are. Use what you have. Do what you can.', author: 'Arthur Ashe' },
+  { text: 'A year from now you may wish you had started today.', author: 'Karen Lamb' },
+  { text: 'Small deeds done are better than great deeds planned.', author: 'Peter Marshall' },
+  { text: 'Do what you can, with what you have, where you are.', author: 'Theodore Roosevelt' },
+  { text: 'He who has a why can bear almost any how.', author: 'Friedrich Nietzsche' },
+  { text: 'What you do every day matters more than what you do once in a while.', author: 'Gretchen Rubin' },
+  { text: 'The best time to plant a tree was 20 years ago. The second best time is now.', author: 'Chinese proverb' },
+  { text: 'Act as if what you do makes a difference. It does.', author: 'William James' },
+  { text: 'Focus on being productive instead of busy.', author: 'Tim Ferriss' },
+  { text: 'Efficiency is doing things right; effectiveness is doing the right things.', author: 'Peter Drucker' },
+  { text: 'Discipline is choosing between what you want now and what you want most.', author: 'Abraham Lincoln' },
+  { text: 'It always seems impossible until it’s done.', author: 'Nelson Mandela' },
+  { text: 'The future depends on what you do today.', author: 'Mahatma Gandhi' },
+  { text: 'If you want to lift yourself up, lift up someone else.', author: 'Booker T. Washington' },
+  { text: 'You miss 100% of the shots you don’t take.', author: 'Wayne Gretzky' },
+  { text: 'In the middle of difficulty lies opportunity.', author: 'Albert Einstein' },
+  { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
+  { text: 'I have not failed. I’ve just found 10,000 ways that won’t work.', author: 'Thomas Edison' },
+]
+
+/**
+ * One quote per calendar day in the user’s timezone (profile TZ or browser).
+ * Same quote all day; after local midnight the date string changes → new quote.
+ */
+function quoteForDayKey(yyyyMmDd) {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < yyyyMmDd.length; i++) {
+    h ^= yyyyMmDd.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return DASHBOARD_QUOTES[h % DASHBOARD_QUOTES.length]
+}
+
 /**
  * Main dashboard — user-specific, combines data from ALL organizations.
  * Shows Organizations selector, Calendar, Video, Chats (all orgs).
  */
 export function AppPage() {
   const navigate = useNavigate()
-  const { user, setNavExtra } = useOutletContext() || {}
+  const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const [activeOrgs, setActiveOrgs] = useState([])
   const [pendingOrg, setPendingOrg] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -81,7 +156,9 @@ export function AppPage() {
 
   useEffect(() => {
     if (!user?.uid) return
-    getMeetingsForUser(user.uid).then(setUpcomingMeetings)
+    getUpcomingMeetingsInHorizonForUser(user.uid, 14, 20, { includeNonVideo: true })
+      .then(setUpcomingMeetings)
+      .catch(() => setUpcomingMeetings([]))
   }, [user?.uid])
 
   useEffect(() => {
@@ -91,48 +168,6 @@ export function AppPage() {
       .then((results) => results.reduce((sum, p) => sum + p.length, 0))
       .then(setTotalPendingCount)
   }, [user?.uid, activeOrgs])
-
-  useEffect(() => {
-    if (!user?.uid) return
-    getTodos(user.uid).then(setTodos)
-  }, [user?.uid])
-
-  const handleAddTodo = async (e) => {
-    e.preventDefault()
-    if (!newTodoText.trim() || !user?.uid) return
-    setTodoLoading(true)
-    try {
-      const dueDate = newTodoDueDate ? new Date(newTodoDueDate + 'T00:00:00') : null
-      const t = await addTodo(user.uid, newTodoText.trim(), dueDate)
-      setTodos((prev) => [...prev, t])
-      setNewTodoText('')
-      setNewTodoDueDate('')
-    } catch {
-      // ignore
-    } finally {
-      setTodoLoading(false)
-    }
-  }
-
-  const handleToggleTodo = async (todoId, done) => {
-    if (!user?.uid) return
-    try {
-      await toggleTodo(user.uid, todoId, done)
-      setTodos((prev) => prev.map((t) => (t.id === todoId ? { ...t, done } : t)))
-    } catch {
-      // ignore
-    }
-  }
-
-  const handleDeleteTodo = async (todoId) => {
-    if (!user?.uid) return
-    try {
-      await deleteTodo(user.uid, todoId)
-      setTodos((prev) => prev.filter((t) => t.id !== todoId))
-    } catch {
-      // ignore
-    }
-  }
 
   const handleCreateOrg = async (e) => {
     e.preventDefault()
@@ -190,6 +225,26 @@ export function AppPage() {
   const needsOrg = activeOrgs.length === 0 && !pendingOrg
   const adminOrgs = activeOrgs.filter((o) => canManageOrg(o.membership))
   const isAdmin = adminOrgs.length > 0
+
+  const tz = getTimeZone(userDoc)
+  const locale = getLocale(userDoc)
+  const now = new Date()
+  const tzOpts = tz ? { timeZone: tz } : {}
+  const calDateStr = now.toLocaleDateString('en-CA', { ...tzOpts, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const todayWeekday = now.toLocaleDateString(locale, { weekday: 'long', ...tzOpts })
+  const todayLong = now.toLocaleDateString(locale, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    ...tzOpts,
+  })
+  const dailyQuote = quoteForDayKey(calDateStr)
+
+  const { hour: localHour } = getLocalTimeParts(now, locale, tzOpts)
+  const dayPhase = getDayPhase(localHour)
+  const greetingLine = getGreetingLine(localHour)
+  const firstName = pickFirstName(userDoc, user)
+  const greetingFull = firstName ? `${greetingLine}, ${firstName}` : greetingLine
 
   return (
     <main className="app-main dashboard-main">
@@ -279,17 +334,36 @@ export function AppPage() {
           <div className="dashboard-overview">
             {/* Stats row */}
             <div className="dashboard-stats">
-              <div className="dashboard-stat-card">
-                <span className="dashboard-stat-value">{todos.filter((t) => !t.done).length}</span>
-                <span className="dashboard-stat-label">Tasks</span>
-              </div>
-              <div className="dashboard-stat-card">
-                <span className="dashboard-stat-value">{upcomingMeetings.length}</span>
-                <span className="dashboard-stat-label">Upcoming</span>
-              </div>
-              <div className="dashboard-stat-card">
-                <span className="dashboard-stat-value">{activeOrgs.length}</span>
-                <span className="dashboard-stat-label">Organizations</span>
+              <div className={`dashboard-stat-card dashboard-stat-card--today dashboard-stat-card--phase-${dayPhase}`}>
+                <div className="dashboard-stat-today-date">
+                  <span className="dashboard-stat-today-greeting">{greetingFull}</span>
+                  <div className="dashboard-stat-today-date-text">
+                    <span className="dashboard-stat-today-weekday">{todayWeekday}</span>
+                    <span className="dashboard-stat-today-main">{todayLong}</span>
+                  </div>
+                  <div className="dashboard-stat-today-quote-block">
+                    <p className="dashboard-stat-today-quote-kicker">Quote of the day</p>
+                    <blockquote className="dashboard-stat-today-quote">
+                      <p>“{dailyQuote.text}”</p>
+                      <footer>— {dailyQuote.author}</footer>
+                    </blockquote>
+                  </div>
+                </div>
+                <div
+                  className={[
+                    'dashboard-stat-today-events',
+                    upcomingMeetings.length > 0 ? 'dashboard-stat-today-events--has-items' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-label={`${upcomingMeetings.length} upcoming events in the next two weeks`}
+                >
+                  <span className="dashboard-stat-today-count">{upcomingMeetings.length}</span>
+                  <div className="dashboard-stat-today-events-text">
+                    <span className="dashboard-stat-today-events-label">Upcoming</span>
+                    <span className="dashboard-stat-today-events-hint">next 2 wks</span>
+                  </div>
+                </div>
               </div>
               {isAdmin && totalPendingCount > 0 && (
                 <Link to={adminOrgs[0] ? `/app/org/${adminOrgs[0].orgId}/admin` : '/app'} className="dashboard-stat-card dashboard-stat-card-action">
@@ -332,49 +406,7 @@ export function AppPage() {
 
             {/* Compact widgets */}
             <div className="dashboard-widgets">
-              <section className="dashboard-widget dashboard-widget-tasks">
-                <div className="dashboard-widget-header">
-                  <h3 className="dashboard-widget-title">Tasks</h3>
-                  <Link to="/app/calendar" className="dashboard-widget-link">View in calendar →</Link>
-                </div>
-                <form onSubmit={handleAddTodo} className="dashboard-todo-add-form">
-                  <input
-                    type="text"
-                    placeholder="Add task…"
-                    value={newTodoText}
-                    onChange={(e) => setNewTodoText(e.target.value)}
-                    className="auth-input dashboard-todo-input"
-                    disabled={todoLoading}
-                  />
-                  <input
-                    type="date"
-                    value={newTodoDueDate}
-                    onChange={(e) => setNewTodoDueDate(e.target.value)}
-                    className="auth-input dashboard-todo-due"
-                    disabled={todoLoading}
-                    title="Due date (optional)"
-                  />
-                  <Button type="submit" variant="outline" size="sm" disabled={todoLoading || !newTodoText.trim()}>
-                    Add
-                  </Button>
-                </form>
-                <ul className="dashboard-todo-list dashboard-todo-list-compact">
-                  {todos.slice(0, 5).map((t) => (
-                    <li key={t.id} className={`dashboard-todo-item ${t.done ? 'dashboard-todo-done' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={!!t.done}
-                        onChange={(e) => handleToggleTodo(t.id, e.target.checked)}
-                        className="dashboard-todo-check"
-                      />
-                      <span className="dashboard-todo-text">{t.text}</span>
-                      <button type="button" className="dashboard-todo-delete" onClick={() => handleDeleteTodo(t.id)} aria-label="Delete">×</button>
-                    </li>
-                  ))}
-                  {todos.length === 0 && <li className="dashboard-todo-empty">No tasks yet</li>}
-                  {todos.length > 5 && <li className="dashboard-todo-more">+{todos.length - 5} more</li>}
-                </ul>
-              </section>
+              <UpcomingEventsWidget userId={user?.uid} />
 
               <section className="dashboard-widget dashboard-widget-calendar">
                 <MiniCalendarWidget userId={user?.uid} />

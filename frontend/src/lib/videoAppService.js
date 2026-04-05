@@ -25,6 +25,11 @@ function initializeClient() {
 }
 
 function setupEventListeners() {
+  /** Ensures tiles exist for remotes who join before any track is published (e.g. camera off). */
+  client.on('user-joined', (user) => {
+    onUserJoined?.(user)
+  })
+
   client.on('user-published', async (user, mediaType) => {
     await client.subscribe(user, mediaType)
     if (mediaType === 'video' || mediaType === 'audio') {

@@ -659,7 +659,14 @@ async def websocket_transcription(websocket: WebSocket):
                 if text:
                     on_transcript(session_id, channel, uid, text)
                     try:
-                        await websocket.send_json({"type": "transcript", "text": text})
+                        await websocket.send_json(
+                            {
+                                "type": "transcript",
+                                "text": text,
+                                "uid": uid,
+                                "ts": datetime.now(timezone.utc).isoformat(),
+                            }
+                        )
                     except Exception:
                         pass  # client may have disconnected
             except Exception as e:

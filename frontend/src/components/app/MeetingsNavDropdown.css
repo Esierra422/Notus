@@ -1,0 +1,65 @@
+.app-nav-meetings-wrap {
+  position: relative;
+}
+
+.app-nav-meetings-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 6px;
+  color: var(--text-muted);
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+@media (max-width: 480px) {
+  .app-nav-meetings-trigger {
+    min-width: 36px;
+    height: 36px;
+    padding: 0 4px;
+  }
+}
+
+.app-nav-meetings-trigger:hover,
+.app-nav-meetings-trigger--active {
+  color: var(--accent);
+  background: rgba(212, 168, 83, 0.08);
+}
+
+.app-nav-meetings-chevron {
+  opacity: 0.75;
+}
+
+.app-nav-meetings-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  padding: 0.35rem 0;
+  background: var(--bg-card, #1a1816);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  z-index: 200;
+}
+
+.app-nav-meetings-item {
+  display: block;
+  padding: 0.55rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.app-nav-meetings-item:hover {
+  background: rgba(212, 168, 83, 0.1);
+  color: var(--accent);
+}

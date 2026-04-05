@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { Button } from '../ui/Button'
 import { getTimeZone, getLocale } from '../../lib/dateUtils'
-import { deleteMeeting, updateMeeting } from '../../lib/meetingService'
+import { deleteMeeting, updateMeeting, getMeetingVideoRoomId } from '../../lib/meetingService'
 import { getOrgMembers, MEMBERSHIP_STATES } from '../../lib/orgService'
 import { getUserDoc, getDisplayName } from '../../lib/userService'
 import './EventDetailModal.css'
@@ -30,6 +32,7 @@ export function EventDetailModal({
   onClose,
   user,
   userDoc,
+  canManageOrg = false,
   onUpdated,
   onDeleted,
 }) {
@@ -40,10 +43,18 @@ export function EventDetailModal({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [roomOpen, setRoomOpen] = useState(null)
 
   const isOrgMeeting = item && item.orgId && !item._imported && !item._todo
   const isCreator = isOrgMeeting && user?.uid && item.createdBy === user.uid
+  const canEdit = isOrgMeeting && user?.uid && (isCreator || canManageOrg) && !item._recurrenceInstance
   const canVideo = isOrgMeeting && item.isVideoMeeting !== false
+  const realMeetingId = item?._seriesId || item?.id
+  const now = Date.now()
+  const startMs = item?.startAt?.toMillis?.() ?? 0
+  const endMs = item?.endAt?.toMillis?.() ?? null
+  const scheduledEnded = endMs != null ? endMs < now : startMs > 0 && startMs < now - 60_000
+  const showJoinVideo = canVideo && (!scheduledEnded || roomOpen === true)
 
   useEffect(() => {
     if (!isOpen || !item) return
@@ -55,7 +66,37 @@ export function EventDetailModal({
   }, [isOpen, item, isOrgMeeting])
 
   useEffect(() => {
-    if (!isOpen || !isCreator || !item?.orgId || !user?.uid) {
+    if (!isOpen || !isOrgMeeting || !canVideo || !item?.orgId || !realMeetingId) {
+      setRoomOpen(null)
+      return
+    }
+    let cancelled = false
+    const channel = getMeetingVideoRoomId({ ...item, id: realMeetingId }, item.orgId)
+    if (!channel) {
+      setRoomOpen(false)
+      return
+    }
+    ;(async () => {
+      try {
+        const rs = await getDoc(doc(db, 'videoChannels', channel, 'roomState', 'current'))
+        if (cancelled) return
+        if (!rs.exists()) {
+          setRoomOpen(false)
+          return
+        }
+        const d = rs.data() || {}
+        setRoomOpen(!d.endedAt)
+      } catch {
+        if (!cancelled) setRoomOpen(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, isOrgMeeting, canVideo, item?.orgId, realMeetingId, item])
+
+  useEffect(() => {
+    if (!isOpen || !canEdit || !item?.orgId || !user?.uid) {
       setMembers([])
       return
     }
@@ -89,17 +130,17 @@ export function EventDetailModal({
     return () => {
       cancelled = true
     }
-  }, [isOpen, isCreator, item?.orgId, user?.uid])
+  }, [isOpen, canEdit, item?.orgId, user?.uid])
 
   if (!isOpen || !item) return null
 
   const handleSaveInvites = async (e) => {
     e.preventDefault()
-    if (!isCreator || !item.orgId) return
+    if (!canEdit || !item.orgId || !realMeetingId) return
     setSaving(true)
     setError('')
     try {
-      await updateMeeting(item.orgId, item.id, user.uid, {
+      await updateMeeting(item.orgId, realMeetingId, user.uid, {
         invitedUserIds: inviteeIds,
         inviteOnly,
       })
@@ -113,13 +154,13 @@ export function EventDetailModal({
   }
 
   const handleDelete = async () => {
-    if (!isOrgMeeting || !item.orgId || !user?.uid) return
+    if (!isOrgMeeting || !item.orgId || !user?.uid || !realMeetingId) return
     if (!window.confirm('Delete this event?')) return
     setDeleting(true)
     setError('')
     try {
-      await deleteMeeting(item.orgId, item.id, user.uid)
-      onDeleted?.(item.id)
+      await deleteMeeting(item.orgId, realMeetingId, user.uid)
+      onDeleted?.(realMeetingId)
       onClose()
     } catch (err) {
       setError(err?.message || 'Could not delete.')
@@ -150,21 +191,45 @@ export function EventDetailModal({
         {isOrgMeeting && (
           <>
             <p className="event-detail-meta">{formatWhen(item.startAt, userDoc)}</p>
+            {item.description ? <p className="event-detail-description">{item.description}</p> : null}
             {item._orgName && <p className="event-detail-org">{item._orgName}</p>}
+            {item._recurrenceInstance && (
+              <p className="event-detail-muted">Repeating event — this is one occurrence.</p>
+            )}
             <div className="event-detail-badges">
               {item.isVideoMeeting === false && <span className="event-detail-badge">No video</span>}
               {item.inviteOnly && <span className="event-detail-badge">Invite only</span>}
+              {item.recurrence?.frequency && item.recurrence.frequency !== 'none' && (
+                <span className="event-detail-badge">Repeats</span>
+              )}
             </div>
-            {canVideo && (
+            {canVideo && showJoinVideo && (
               <Link
                 className="event-detail-video-link"
-                to={`/app/org/${encodeURIComponent(item.orgId)}/video?meetingId=${encodeURIComponent(item.id)}`}
+                to={`/app/org/${encodeURIComponent(item.orgId)}/video?meetingId=${encodeURIComponent(realMeetingId)}`}
                 onClick={onClose}
               >
-                Open in Video meetings
+                Join in Video meetings
               </Link>
             )}
-            {isCreator && (
+            {canVideo && scheduledEnded && roomOpen === false && (
+              <div className="event-detail-past-block">
+                <p className="event-detail-muted">
+                  This meeting has ended. You can’t join the room, but notes and transcripts may be available.
+                </p>
+                <Link
+                  className="event-detail-video-link"
+                  to="/app/video/meetings"
+                  onClick={onClose}
+                >
+                  Open past meetings & transcripts →
+                </Link>
+              </div>
+            )}
+            {canVideo && scheduledEnded && roomOpen === null && (
+              <p className="event-detail-muted">Checking room status…</p>
+            )}
+            {canEdit && (
               <form className="event-detail-edit" onSubmit={handleSaveInvites}>
                 <span className="event-detail-section-label">Invites & visibility</span>
                 <label className="event-detail-check">
@@ -217,7 +282,7 @@ export function EventDetailModal({
                 </div>
               </form>
             )}
-            {!isCreator && (
+            {!canEdit && (
               <div className="event-detail-actions event-detail-actions--single">
                 <Button type="button" variant="primary" onClick={onClose}>
                   Close

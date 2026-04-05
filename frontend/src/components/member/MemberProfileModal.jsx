@@ -26,6 +26,8 @@ export function MemberProfileModal({
   memberData,
   onClose,
   showManage = false,
+  /** When set (e.g. org admin), opens full manage dialog instead of inline menu. */
+  onOpenManage,
   onRoleChange,
   onRemoveMember,
   removeLabel = 'Remove from org',
@@ -219,7 +221,20 @@ export function MemberProfileModal({
               <CalendarIcon size={18} />
               <span>Schedule</span>
             </Link>
-            {showManage && (
+            {showManage && onOpenManage && (
+              <button
+                type="button"
+                className="member-profile-modal-btn member-profile-modal-btn-manage"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenManage()
+                }}
+              >
+                <SettingsIcon size={18} />
+                <span>Manage</span>
+              </button>
+            )}
+            {showManage && !onOpenManage && (
               <div className="member-profile-modal-manage-wrapper" ref={manageRef}>
                 <button
                   type="button"

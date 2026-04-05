@@ -119,10 +119,10 @@ export function OrgDashboardPage() {
         </div>
 
         <div className="dashboard-shortcuts">
-          <Link to={`/app/org/${orgId}/chats`} className="dashboard-shortcut">
+          <Link to={`/app/chats?org=${encodeURIComponent(orgId)}`} className="dashboard-shortcut">
             <span className="dashboard-shortcut-icon"><MessageSquareIcon size={24} /></span>
             <span className="dashboard-shortcut-label">Chats</span>
-            <span className="dashboard-shortcut-hint">{org.name} conversations</span>
+            <span className="dashboard-shortcut-hint">Main chats filtered to this org</span>
           </Link>
           <Link to={`/app/org/${orgId}/calendar`} className="dashboard-shortcut">
             <span className="dashboard-shortcut-icon"><CalendarIcon size={24} /></span>

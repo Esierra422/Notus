@@ -194,8 +194,61 @@
 
 .calendar-filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.5rem 0.75rem;
+}
+
+.calendar-source-tabs {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  gap: 2px;
+}
+
+.calendar-source-tab {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: var(--font-body);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.calendar-source-tab:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.calendar-source-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.calendar-source-tab--active {
+  color: var(--accent);
+  background: rgba(212, 168, 83, 0.12);
+}
+
+.calendar-org-pick {
+  margin: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .calendar-filter-select {

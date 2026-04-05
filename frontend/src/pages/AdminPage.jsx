@@ -20,6 +20,7 @@ import { getUserDoc, getDisplayName, getMemberDisplayLine, getProfilePictureUrl 
 import { Button } from '../components/ui/Button'
 import { MoreVerticalIcon, PlusIcon, ArrowLeftIcon, FlagIcon } from '../components/ui/Icons'
 import { MemberProfileModal } from '../components/member/MemberProfileModal'
+import { MemberManageModal } from '../components/member/MemberManageModal'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './OrgAdminPage.css'
@@ -52,8 +53,8 @@ export function AdminPage() {
   const [teamSearch, setTeamSearch] = useState('')
   const [teamMenuOpen, setTeamMenuOpen] = useState(null)
   const [memberMenuOpen, setMemberMenuOpen] = useState(null)
-  const [memberManageOpen, setMemberManageOpen] = useState(null)
   const [profileModalMember, setProfileModalMember] = useState(null)
+  const [manageModalMember, setManageModalMember] = useState(null)
   const [reports, setReports] = useState([])
 
   useEffect(() => {
@@ -207,7 +208,6 @@ export function AdminPage() {
     const handleClickOutside = (e) => {
       if (memberMenuRef.current && !memberMenuRef.current.contains(e.target)) {
         setMemberMenuOpen(null)
-        setMemberManageOpen(null)
       }
       if (teamMenuRef.current && !teamMenuRef.current.contains(e.target)) {
         setTeamMenuOpen(null)
@@ -468,15 +468,6 @@ export function AdminPage() {
             const showEmail = email && fullName !== email
             const photoUrl = getProfilePictureUrl(profile, authUserForDisplay)
             const initials = fullName ? fullName.split(/\s+/).map((n) => n[0]).join('').toUpperCase().slice(0, 2) : email?.[0]?.toUpperCase() || '?'
-            const isOwner = m.role === MEMBERSHIP_ROLES.owner
-            const isAdmin = m.role === MEMBERSHIP_ROLES.admin
-            const isMember = m.role === MEMBERSHIP_ROLES.member
-            const iAmOwner = membership?.role === MEMBERSHIP_ROLES.owner
-            const iAmAdmin = membership?.role === MEMBERSHIP_ROLES.admin
-            const canMakeAdmin = (iAmOwner && isMember) || (iAmAdmin && isMember)
-            const canMakeMember = iAmOwner && isAdmin
-            const canRemove = (iAmOwner && !isOwner) || (iAmAdmin && isMember)
-            const isSelf = m.userId === user?.uid
             return (
               <li key={m.userId} className="member-card">
                 <div className="member-card-avatar">
@@ -488,7 +479,9 @@ export function AdminPage() {
                 <div className="member-card-info">
                   <span className="member-card-name">{fullName || email}</span>
                   {showEmail && <span className="member-card-email">{email}</span>}
-                  <span className="member-card-role">{m.role}</span>
+                  <span className="member-card-role" title={m.role}>
+                    {m.displayRoleName?.trim() || m.role}
+                  </span>
                 </div>
                 <div
                   className="member-card-menu-wrapper"
@@ -509,58 +502,21 @@ export function AdminPage() {
                       <button
                         type="button"
                         className="member-card-menu-item"
-                        onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); setProfileModalMember(m) }}
+                        onClick={() => { setMemberMenuOpen(null); setProfileModalMember(m) }}
                       >
                         Profile
                       </button>
                       {canManageOrg(membership) && (
-                        <>
-                          <button
-                            type="button"
-                            className="member-card-menu-item member-card-menu-item-submenu-trigger"
-                            onClick={() => setMemberManageOpen(memberManageOpen === m.userId ? null : m.userId)}
-                          >
-                            Manage
-                          </button>
-                          {memberManageOpen === m.userId && (
-                            <div className="member-card-menu-subpanel">
-                              {canMakeAdmin && (
-                                <button
-                                  type="button"
-                                  className="member-card-menu-item"
-                                  onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleChangeRole(m.userId, MEMBERSHIP_ROLES.admin) }}
-                                >
-                                  Make admin
-                                </button>
-                              )}
-                              {canMakeMember && (
-                                <button
-                                  type="button"
-                                  className="member-card-menu-item"
-                                  onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleChangeRole(m.userId, MEMBERSHIP_ROLES.member) }}
-                                >
-                                  Make member
-                                </button>
-                              )}
-                              <Link
-                                to={`/app/org/${orgId}/admin`}
-                                className="member-card-menu-item"
-                                onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null) }}
-                              >
-                                Add to team
-                              </Link>
-                              {canRemove && !isSelf && (
-                                <button
-                                  type="button"
-                                  className="member-card-menu-item member-card-menu-item-danger"
-                                  onClick={() => { setMemberMenuOpen(null); setMemberManageOpen(null); handleRemoveMember(m.userId) }}
-                                >
-                                  Remove from org
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </>
+                        <button
+                          type="button"
+                          className="member-card-menu-item"
+                          onClick={() => {
+                            setMemberMenuOpen(null)
+                            setManageModalMember(m)
+                          }}
+                        >
+                          Manage
+                        </button>
                       )}
                     </div>
                   )}
@@ -686,9 +642,38 @@ export function AdminPage() {
           memberData={{ role: profileModalMember.role, createdAt: profileModalMember.createdAt }}
           onClose={() => setProfileModalMember(null)}
           showManage
-          onRoleChange={async (uid, newRole) => {
-            await handleChangeRole(uid, newRole)
-            setProfileModalMember((prev) => (prev && prev.userId === uid ? { ...prev, role: newRole } : prev))
+          onOpenManage={() => {
+            const m = profileModalMember
+            setProfileModalMember(null)
+            setManageModalMember(m)
+          }}
+          onRemoveMember={handleRemoveMember}
+        />
+      )}
+
+      {manageModalMember && (
+        <MemberManageModal
+          orgId={orgId}
+          org={org}
+          member={manageModalMember}
+          userDoc={userProfiles[manageModalMember.userId]}
+          currentUser={user}
+          myMembership={membership}
+          teams={teams}
+          onClose={() => setManageModalMember(null)}
+          onSaved={(patch) => {
+            setMembers((list) =>
+              list.map((x) =>
+                x.userId === patch.userId
+                  ? {
+                      ...x,
+                      role: patch.role,
+                      displayRoleName: patch.displayRoleName,
+                      capabilities: patch.capabilities,
+                    }
+                  : x
+              )
+            )
           }}
           onRemoveMember={handleRemoveMember}
         />

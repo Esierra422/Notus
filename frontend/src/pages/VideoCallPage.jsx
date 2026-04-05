@@ -26,7 +26,7 @@ import {
 } from 'lucide-react'
 
 import * as videoApp from '../lib/videoAppService.js'
-import { getUserDoc, getProfilePictureUrl } from '../lib/userService.js'
+import { getUserDoc, getProfilePictureUrl, getDisplayName } from '../lib/userService.js'
 import { getAiRestHttpBase } from '../lib/apiConfig.js'
 import { generateMeetingSummary } from '../lib/meetingSummaryService.js'
 import {
@@ -46,7 +46,15 @@ import {
   purgeParticipantsForEndedRooms,
   dedupeOpenVideoRoomParticipants,
 } from '../lib/meetingService.js'
-import { getActiveMemberships, getOrg, getMembership, MEMBERSHIP_STATES } from '../lib/orgService.js'
+import {
+  getActiveMemberships,
+  getOrg,
+  getMembership,
+  MEMBERSHIP_STATES,
+  getOrgMembers,
+  membershipHasCapability,
+} from '../lib/orgService.js'
+import { getOrgTeams, getTeamMembership, TEAM_STATES } from '../lib/teamService.js'
 import { CreateEventModal } from '../components/calendar/CreateEventModal.jsx'
 import { db } from '../lib/firebase.js'
 import {
@@ -221,8 +229,10 @@ const DEFAULT_ROOM_PREFS = {
   audioComputerOnly: true,
 }
 
-/** Lobby list refresh; sweeps run in parallel and do not block this interval. */
-const VIDEO_LOBBY_ONGOING_POLL_MS = 4000
+/** Lobby list refresh (without full Firestore sweeps each tick). */
+const VIDEO_LOBBY_ONGOING_POLL_MS = 8000
+/** Heavy cleanup (vacant rooms, stale instant meetings, etc.) — not every poll. */
+const VIDEO_LOBBY_SWEEP_INTERVAL_MS = 120000
 
 const UPCOMING_HORIZON_KEY = 'notus_video_upcoming_horizon_days'
 const UPCOMING_HORIZON_OPTIONS = [
@@ -271,13 +281,16 @@ export function VideoCallPage() {
   const [remoteUsers, setRemoteUsers] = useState([])
   /** Agora uid -> { displayName, photoUrl } from Firestore participants */
   const [participantMeta, setParticipantMeta] = useState({})
+  const participantMetaRef = useRef({})
+  const userDisplayForTranscriptRef = useRef('You')
   const [localPhotoUrl, setLocalPhotoUrl] = useState(null)
   /** null = closed; which tab is active in the right-hand panel */
   const [sidePanelTab, setSidePanelTab] = useState(null)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
   const [liveTranscriptLines, setLiveTranscriptLines] = useState([])
-  const [liveSubtitleText, setLiveSubtitleText] = useState('')
+  /** Latest caption segment for overlay */
+  const [liveSubtitleMeta, setLiveSubtitleMeta] = useState(null)
   const [showLiveSubtitles, setShowLiveSubtitles] = useState(true)
   const liveTranscriptEndRef = useRef(null)
   const [askLoading, setAskLoading] = useState(false)
@@ -305,6 +318,8 @@ export function VideoCallPage() {
   const [ongoingMeetings, setOngoingMeetings] = useState([])
   const [ongoingMeetingsLoading, setOngoingMeetingsLoading] = useState(false)
   const [ongoingMeetingsError, setOngoingMeetingsError] = useState('')
+  const ongoingHostLabelCacheRef = useRef(new Map())
+  const upcomingFirstLoadRef = useRef(true)
   const [roomAllowRemoteShare, setRoomAllowRemoteShare] = useState(true)
   const [roomMediaPolicy, setRoomMediaPolicy] = useState({})
   const [hostMenuOpen, setHostMenuOpen] = useState(false)
@@ -324,14 +339,26 @@ export function VideoCallPage() {
   const hostMenuWrapRef = useRef(null)
   const guestMenuWrapRef = useRef(null)
   const [newMeetingSettingsOpen, setNewMeetingSettingsOpen] = useState(false)
-  const [newMeetingTitleDraft, setNewMeetingTitleDraft] = useState('Instant meeting')
+  const [newMeetingTitleDraft, setNewMeetingTitleDraft] = useState('Quick meeting')
+  const [newMeetingBioDraft, setNewMeetingBioDraft] = useState('')
+  const [newMeetingVisibility, setNewMeetingVisibility] = useState('org')
+  const [newMeetingTeamId, setNewMeetingTeamId] = useState('')
+  const [newMeetingInviteeIds, setNewMeetingInviteeIds] = useState([])
+  const [newMeetingMembers, setNewMeetingMembers] = useState([])
+  const [newMeetingTeamsList, setNewMeetingTeamsList] = useState([])
+  const [newMeetingMembersLoading, setNewMeetingMembersLoading] = useState(false)
   const [newMeetingAllowShareDraft, setNewMeetingAllowShareDraft] = useState(true)
   /** Title used for instant meeting create + pre-join header after step 1. */
-  const [preJoinInstantMeetingTitle, setPreJoinInstantMeetingTitle] = useState('Instant meeting')
+  const [preJoinInstantMeetingTitle, setPreJoinInstantMeetingTitle] = useState('Quick meeting')
   /** Orgs available for video (global page) or single org when route is /app/org/:orgId/video */
   const [videoUserOrgs, setVideoUserOrgs] = useState([])
   const [videoOrgsLoaded, setVideoOrgsLoaded] = useState(false)
   const [instantMeetingOrgId, setInstantMeetingOrgId] = useState('')
+  /** Membership for the org used for instant meeting (route or selected org). */
+  const [videoLobbyMembership, setVideoLobbyMembership] = useState(null)
+  const [videoLobbyMemLoaded, setVideoLobbyMemLoaded] = useState(false)
+  /** Membership for schedule modal org (may differ on global /video when org picker changes). */
+  const [scheduleModalMembership, setScheduleModalMembership] = useState(null)
   const [videoRouteForbidden, setVideoRouteForbidden] = useState(false)
   const [roomPrefsDraft, setRoomPrefsDraft] = useState(() => ({ ...DEFAULT_ROOM_PREFS }))
   const [roomPrefsLive, setRoomPrefsLive] = useState(() => ({ ...DEFAULT_ROOM_PREFS }))
@@ -344,6 +371,7 @@ export function VideoCallPage() {
   const [hostPrefsDraft, setHostPrefsDraft] = useState(() => ({ ...DEFAULT_ROOM_PREFS }))
   const [upcomingMeetings, setUpcomingMeetings] = useState([])
   const [upcomingMeetingsLoading, setUpcomingMeetingsLoading] = useState(false)
+  const [upcomingReloadKey, setUpcomingReloadKey] = useState(0)
   const [upcomingHorizonMenuOpen, setUpcomingHorizonMenuOpen] = useState(false)
   const upcomingHorizonWrapRef = useRef(null)
   /** Which participant tile menu is open: "local" or `remote-${agoraUid}` */
@@ -356,6 +384,8 @@ export function VideoCallPage() {
       return 7
     }
   })
+
+  const scheduleOrgForModal = videoRouteOrgId || instantMeetingOrgId
 
   const localVideoTrackRef = useRef(null)
   const transcriptSessionIdRef = useRef(null)
@@ -374,9 +404,18 @@ export function VideoCallPage() {
   const aiRestBase = useMemo(() => getAiRestHttpBase(), [])
 
   useEffect(() => {
+    participantMetaRef.current = participantMeta
+  }, [participantMeta])
+
+  useEffect(() => {
+    userDisplayForTranscriptRef.current =
+      (user?.displayName || user?.email || 'You').trim() || 'You'
+  }, [user?.displayName, user?.email])
+
+  useEffect(() => {
     if (!joined) {
       setLiveTranscriptLines([])
-      setLiveSubtitleText('')
+      setLiveSubtitleMeta(null)
     }
   }, [joined])
 
@@ -481,6 +520,49 @@ export function VideoCallPage() {
   }, [user?.uid, videoRouteOrgId])
 
   useEffect(() => {
+    if (!user?.uid) {
+      setVideoLobbyMembership(null)
+      setVideoLobbyMemLoaded(false)
+      return
+    }
+    const oid = videoRouteOrgId || instantMeetingOrgId
+    if (!oid) {
+      setVideoLobbyMembership(null)
+      setVideoLobbyMemLoaded(false)
+      return
+    }
+    let cancelled = false
+    setVideoLobbyMemLoaded(false)
+    getMembership(oid, user.uid)
+      .then((m) => {
+        if (!cancelled) setVideoLobbyMembership(m)
+      })
+      .catch(() => {
+        if (!cancelled) setVideoLobbyMembership(null)
+      })
+      .finally(() => {
+        if (!cancelled) setVideoLobbyMemLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.uid, videoRouteOrgId, instantMeetingOrgId])
+
+  useEffect(() => {
+    if (!user?.uid || !scheduleOrgForModal) {
+      setScheduleModalMembership(null)
+      return
+    }
+    let cancelled = false
+    getMembership(scheduleOrgForModal, user.uid).then((m) => {
+      if (!cancelled) setScheduleModalMembership(m)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.uid, scheduleOrgForModal])
+
+  useEffect(() => {
     if (setNavExtra) setNavExtra(undefined)
   }, [setNavExtra])
 
@@ -537,27 +619,37 @@ export function VideoCallPage() {
     if (!user?.uid || joined || !videoOrgsLoaded || videoRouteForbidden || videoUserOrgs.length === 0) return
     let cancelled = false
     let firstPoll = true
-    const loadOngoing = async () => {
-      const isFirstPaint = firstPoll
-      if (firstPoll) setOngoingMeetingsLoading(true)
-      setOngoingMeetingsError('')
-      void Promise.allSettled([
+    ongoingHostLabelCacheRef.current = new Map()
+
+    const runLobbySweeps = async () => {
+      const sweepResults = await Promise.allSettled([
         sweepVacantVideoRooms(user.uid),
         closeStaleEmptyVideoRooms(user.uid),
         endInstantRoomsWithoutSessionClock(user.uid),
         endAgedInstantVideoRooms(user.uid),
         purgeParticipantsForEndedRooms(user.uid),
         dedupeOpenVideoRoomParticipants(user.uid),
-      ]).then((results) => {
-        for (const r of results) {
-          if (r.status === 'rejected') console.warn('[video lobby sweep]', r.reason)
-        }
-      })
+      ])
+      for (const r of sweepResults) {
+        if (r.status === 'rejected') console.warn('[video lobby sweep]', r.reason)
+      }
+    }
+
+    const loadOngoing = async () => {
+      const isFirstPaint = firstPoll
+      if (firstPoll) {
+        setOngoingMeetingsLoading(true)
+        await runLobbySweeps()
+      }
+      setOngoingMeetingsError('')
+      const cache = ongoingHostLabelCacheRef.current
       try {
         const list = videoRouteOrgId
           ? await getOngoingVideoMeetingsInOrg(user.uid, videoRouteOrgId)
           : await getOngoingVideoMeetingsForUser(user.uid)
-        if (isFirstPaint && !cancelled) {
+        if (cancelled) return
+
+        if (isFirstPaint) {
           const quickEnriched = list.map((m) => ({
             ...m,
             _hostLabel: !m.createdBy ? 'Organizer' : m.createdBy === user.uid ? 'You' : 'Host',
@@ -565,21 +657,24 @@ export function VideoCallPage() {
           setOngoingMeetings(quickEnriched)
           setOngoingMeetingsLoading(false)
         }
-        const enriched = await Promise.all(
-          list.map(async (m) => {
-            if (!m.createdBy) return { ...m, _hostLabel: 'Organizer' }
-            if (m.createdBy === user.uid) return { ...m, _hostLabel: 'You' }
-            try {
-              const u = await getUserDoc(m.createdBy)
-              return {
-                ...m,
-                _hostLabel: u?.displayName || u?.email || 'Organizer',
-              }
-            } catch {
-              return { ...m, _hostLabel: 'Organizer' }
-            }
-          })
-        )
+
+        const enrichOne = async (m) => {
+          if (!m.createdBy) return { ...m, _hostLabel: 'Organizer' }
+          if (m.createdBy === user.uid) return { ...m, _hostLabel: 'You' }
+          const c = m.createdBy
+          if (cache.has(c)) return { ...m, _hostLabel: cache.get(c) }
+          try {
+            const uDoc = await getUserDoc(c)
+            const label = uDoc?.displayName || uDoc?.email || 'Organizer'
+            cache.set(c, label)
+            return { ...m, _hostLabel: label }
+          } catch {
+            cache.set(c, 'Organizer')
+            return { ...m, _hostLabel: 'Organizer' }
+          }
+        }
+
+        const enriched = await Promise.all(list.map(enrichOne))
         if (!cancelled) setOngoingMeetings(enriched)
       } catch (e) {
         if (!cancelled) setOngoingMeetingsError(e?.message || 'Could not load ongoing meetings.')
@@ -588,26 +683,37 @@ export function VideoCallPage() {
         if (!cancelled) setOngoingMeetingsLoading(false)
       }
     }
+
     loadOngoing()
     const t = setInterval(loadOngoing, VIDEO_LOBBY_ONGOING_POLL_MS)
+    const sweepT = setInterval(() => {
+      if (!cancelled) runLobbySweeps()
+    }, VIDEO_LOBBY_SWEEP_INTERVAL_MS)
     return () => {
       cancelled = true
       clearInterval(t)
+      clearInterval(sweepT)
     }
   }, [user?.uid, joined, videoOrgsLoaded, videoRouteForbidden, videoUserOrgs.length, videoRouteOrgId])
 
   useEffect(() => {
     if (!user?.uid || joined || !videoOrgsLoaded || videoRouteForbidden || videoUserOrgs.length === 0) return
     let cancelled = false
+    upcomingFirstLoadRef.current = true
+
     const loadUpcoming = async () => {
-      setUpcomingMeetingsLoading(true)
+      if (upcomingFirstLoadRef.current) setUpcomingMeetingsLoading(true)
       try {
         const list = videoRouteOrgId
           ? await getUpcomingMeetingsInHorizonForUserInOrg(user.uid, videoRouteOrgId, upcomingHorizonDays)
           : await getUpcomingMeetingsInHorizonForUser(user.uid, upcomingHorizonDays)
-        if (!cancelled) setUpcomingMeetings(list)
+        if (!cancelled) {
+          setUpcomingMeetings(list)
+          upcomingFirstLoadRef.current = false
+        }
       } catch {
         if (!cancelled) setUpcomingMeetings([])
+        upcomingFirstLoadRef.current = false
       } finally {
         if (!cancelled) setUpcomingMeetingsLoading(false)
       }
@@ -626,6 +732,7 @@ export function VideoCallPage() {
     videoUserOrgs.length,
     videoRouteOrgId,
     upcomingHorizonDays,
+    upcomingReloadKey,
   ])
 
   useEffect(() => {
@@ -690,22 +797,130 @@ export function VideoCallPage() {
     }
   }, [preJoinOpen, preJoinMode, selectedMeeting, user?.uid])
 
+  const canStartInstantMeeting = useMemo(
+    () =>
+      videoLobbyMemLoaded &&
+      videoLobbyMembership &&
+      videoLobbyMembership.state === MEMBERSHIP_STATES.active &&
+      membershipHasCapability(videoLobbyMembership, 'scheduleMeetings'),
+    [videoLobbyMemLoaded, videoLobbyMembership]
+  )
+
+  const canScheduleFromVideoLobby = useMemo(
+    () =>
+      scheduleModalMembership &&
+      scheduleModalMembership.state === MEMBERSHIP_STATES.active &&
+      membershipHasCapability(scheduleModalMembership, 'scheduleMeetings'),
+    [scheduleModalMembership]
+  )
+
   const openPreJoinInstant = () => {
     if (!user?.uid || videoUserOrgs.length === 0) return
+    if (videoLobbyMemLoaded && !canStartInstantMeeting) {
+      setError('You do not have permission to start meetings. Ask an organization admin to enable scheduling for your role.')
+      return
+    }
     setError('')
     setRoomPrefsDraft({ ...DEFAULT_ROOM_PREFS })
-    setNewMeetingTitleDraft('Instant meeting')
+    setNewMeetingTitleDraft('Quick meeting')
+    setNewMeetingBioDraft('')
+    setNewMeetingVisibility('org')
+    setNewMeetingTeamId('')
+    setNewMeetingInviteeIds([])
     setNewMeetingAllowShareDraft(true)
     setNewMeetingSettingsOpen(true)
   }
 
-  const continueNewMeetingToPreJoin = () => {
+  useEffect(() => {
+    if (!newMeetingSettingsOpen || !user?.uid) return
+    const oid = videoRouteOrgId || instantMeetingOrgId
+    if (!oid) return
+    let cancelled = false
+    setNewMeetingMembersLoading(true)
+    ;(async () => {
+      try {
+        const [raw, teamsData] = await Promise.all([getOrgMembers(oid), getOrgTeams(oid)])
+        const myTeams = []
+        for (const t of teamsData) {
+          try {
+            const tm = await getTeamMembership(oid, t.id, user.uid)
+            if (tm?.state === TEAM_STATES.active) myTeams.push(t)
+          } catch {
+            /* skip */
+          }
+        }
+        const active = raw.filter(
+          (m) => m.state === MEMBERSHIP_STATES.active && m.userId && m.userId !== user.uid
+        )
+        const profiles = {}
+        await Promise.all(
+          active.map(async (m) => {
+            try {
+              profiles[m.userId] = await getUserDoc(m.userId)
+            } catch {
+              profiles[m.userId] = null
+            }
+          })
+        )
+        if (!cancelled) {
+          setNewMeetingTeamsList(myTeams)
+          setNewMeetingMembers(active.map((m) => ({ userId: m.userId, profile: profiles[m.userId] })))
+        }
+      } catch {
+        if (!cancelled) {
+          setNewMeetingTeamsList([])
+          setNewMeetingMembers([])
+        }
+      } finally {
+        if (!cancelled) setNewMeetingMembersLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [newMeetingSettingsOpen, videoRouteOrgId, instantMeetingOrgId, user?.uid])
+
+  const continueNewMeetingToPreJoin = async () => {
+    if (!user?.uid) return
     const orgPick = videoRouteOrgId || instantMeetingOrgId
     if (!orgPick) {
       setError('Select an organization for this meeting.')
       return
     }
-    const t = newMeetingTitleDraft.trim() || 'Instant meeting'
+    if (newMeetingVisibility === 'team' && !newMeetingTeamId) {
+      setError('Select a team for a team-only meeting.')
+      return
+    }
+    if (newMeetingVisibility === 'invited' && newMeetingInviteeIds.length === 0) {
+      setError('Pick at least one person to invite, or choose organization-wide visibility.')
+      return
+    }
+    setError('')
+    try {
+      const mem = await getMembership(orgPick, user.uid)
+      if (!mem || mem.state !== MEMBERSHIP_STATES.active) {
+        setError('You are not an active member of this organization.')
+        return
+      }
+      if (!membershipHasCapability(mem, 'scheduleMeetings')) {
+        setError('You do not have permission to start meetings. Ask an organization admin to enable scheduling for your role.')
+        return
+      }
+      if (newMeetingVisibility === 'org' && !membershipHasCapability(mem, 'orgCalendar')) {
+        setError(
+          'You cannot start an organization-wide meeting without org calendar access. Choose team-only or invite specific people.'
+        )
+        return
+      }
+      if (newMeetingVisibility === 'team' && !membershipHasCapability(mem, 'teamCalendar')) {
+        setError('You cannot start a team-visible meeting without team calendar access.')
+        return
+      }
+    } catch {
+      setError('Could not verify your permissions. Try again.')
+      return
+    }
+    const t = newMeetingTitleDraft.trim() || 'Quick meeting'
     setPreJoinInstantMeetingTitle(t)
     setPreJoinAllowRemoteShare(newMeetingAllowShareDraft)
     setNewMeetingSettingsOpen(false)
@@ -776,6 +991,14 @@ export function VideoCallPage() {
     if (!preJoinOpen) return
     let disposed = false
     let stream = null
+    if (!preJoinMicOn && !preJoinCamOn) {
+      setPreJoinPreviewStream(null)
+      setPreJoinPreviewError('')
+      return () => {
+        disposed = true
+        setPreJoinPreviewStream(null)
+      }
+    }
     ;(async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -808,12 +1031,13 @@ export function VideoCallPage() {
     videoOn,
     allowRemoteScreenShare,
     instantTitle,
+    instantMeetingExtra,
     roomPrefsOverride,
   }) => {
     remoteEndHandledRef.current = false
     setError('')
     setLiveTranscriptLines([])
-    setLiveSubtitleText('')
+    setLiveSubtitleMeta(null)
     setLoading(true)
     try {
       let meeting = meetingInput
@@ -824,7 +1048,12 @@ export function VideoCallPage() {
           return false
         }
         meeting = await createInstantMeeting(orgForInstant, user.uid, {
-          title: (instantTitle && String(instantTitle).trim()) || 'Instant meeting',
+          title: (instantTitle && String(instantTitle).trim()) || 'Quick meeting',
+          description: instantMeetingExtra?.description,
+          visibility: instantMeetingExtra?.visibility || 'org',
+          scopeTeamId: instantMeetingExtra?.scopeTeamId || null,
+          invitedUserIds: instantMeetingExtra?.invitedUserIds || [],
+          inviteOnly: instantMeetingExtra?.inviteOnly,
         })
         setSelectedMeeting(meeting)
         const orgForMeeting = meeting.orgId || orgForInstant
@@ -1025,7 +1254,8 @@ export function VideoCallPage() {
         if (!transcriptionWsBase) {
           // Skip: avoids failed WS to Express (3001) and console spam
         } else {
-        const CHUNK_DURATION_SEC = 15
+        /** Short windows = faster subtitles/transcript; Whisper still needs ~1–2s per request after each send. */
+        const CHUNK_DURATION_SEC = 2
         const wsUrl = /^wss?:\/\//i.test(transcriptionWsBase)
           ? `${transcriptionWsBase.replace(/\/?$/, '')}/ws/transcription`
           : (() => {
@@ -1042,11 +1272,42 @@ export function VideoCallPage() {
             const msg = JSON.parse(event.data)
             if (msg?.type === 'transcript' && typeof msg.text === 'string' && msg.text.trim()) {
               const t = msg.text.trim()
+              const agoraUid = msg.uid != null ? Number(msg.uid) : NaN
+              const meta = Number.isFinite(agoraUid)
+                ? participantMetaRef.current[String(agoraUid)]
+                : null
+              const isSelf = Number.isFinite(agoraUid) && localUidRef.current === agoraUid
+              const speaker = isSelf
+                ? userDisplayForTranscriptRef.current
+                : meta?.displayName?.trim() ||
+                  (Number.isFinite(agoraUid) ? `User ${agoraUid}` : 'Speaker')
+              let timeLabel = ''
+              try {
+                timeLabel = msg.ts
+                  ? new Date(msg.ts).toLocaleTimeString(undefined, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })
+                  : new Date().toLocaleTimeString(undefined, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })
+              } catch {
+                timeLabel = ''
+              }
               setLiveTranscriptLines((prev) => [
                 ...prev,
-                { id: `${Date.now()}-${prev.length}`, text: t },
+                {
+                  id: `${Date.now()}-${prev.length}`,
+                  text: t,
+                  speaker,
+                  timeLabel,
+                  ts: msg.ts || new Date().toISOString(),
+                },
               ])
-              setLiveSubtitleText(t)
+              setLiveSubtitleMeta({ text: t, speaker, timeLabel })
             }
           } catch {
             /* non-JSON or unexpected shape */
@@ -1663,6 +1924,16 @@ export function VideoCallPage() {
       videoOn: preJoinCamOn,
       allowRemoteScreenShare: preJoinAllowRemoteShare,
       instantTitle: preJoinMode === 'instant' ? preJoinInstantMeetingTitle : undefined,
+      instantMeetingExtra:
+        preJoinMode === 'instant'
+          ? {
+              description: newMeetingBioDraft,
+              visibility: newMeetingVisibility,
+              scopeTeamId: newMeetingVisibility === 'team' ? newMeetingTeamId || null : null,
+              invitedUserIds: newMeetingInviteeIds,
+              inviteOnly: newMeetingVisibility === 'invited',
+            }
+          : undefined,
       roomPrefsOverride: isHostForPrefs ? roomPrefsDraft : undefined,
     })
     if (ok) setPreJoinOpen(false)
@@ -1790,17 +2061,22 @@ export function VideoCallPage() {
 
   const spotlightRemoteUser = useMemo(() => {
     if (effectiveSpotlightUid == null) return null
-    return remoteUsers.find((u) => u.uid === effectiveSpotlightUid) ?? null
+    const pin = Number(effectiveSpotlightUid)
+    return remoteUsers.find((u) => Number(u.uid) === pin) ?? null
   }, [remoteUsers, effectiveSpotlightUid])
 
   const spotlightValid = useMemo(() => {
     if (effectiveSpotlightUid == null || !joined) return false
-    if (localAgoraUid != null && effectiveSpotlightUid === localAgoraUid) return true
+    if (localAgoraUid != null && Number(effectiveSpotlightUid) === Number(localAgoraUid)) return true
     return !!spotlightRemoteUser
   }, [effectiveSpotlightUid, localAgoraUid, spotlightRemoteUser, joined])
 
   const spotlightIsLocal = Boolean(
-    joined && spotlightValid && localAgoraUid != null && effectiveSpotlightUid === localAgoraUid
+    joined &&
+      spotlightValid &&
+      localAgoraUid != null &&
+      effectiveSpotlightUid != null &&
+      Number(effectiveSpotlightUid) === Number(localAgoraUid)
   )
 
   const spotlightLayoutActive = Boolean(joined && !pinnedShareActive && spotlightValid)
@@ -1831,7 +2107,6 @@ export function VideoCallPage() {
   if (!user) return null
 
   const calendarBasePath = videoRouteOrgId ? `/app/org/${videoRouteOrgId}/calendar` : '/app/calendar'
-  const scheduleOrgForModal = videoRouteOrgId || instantMeetingOrgId
 
   const buildRemoteParticipantMenuItems = (u, meta) => {
     const agoraUid = u.uid
@@ -2012,11 +2287,17 @@ export function VideoCallPage() {
                     type="button"
                     className="video-call-action-card"
                     onClick={openPreJoinInstant}
+                    disabled={!videoLobbyMemLoaded || !canStartInstantMeeting}
+                    title={
+                      videoLobbyMemLoaded && !canStartInstantMeeting
+                        ? 'You do not have permission to start meetings in this organization.'
+                        : undefined
+                    }
                   >
                     <span className="video-call-action-card-kicker">Start now</span>
                     <span className="video-call-action-card-title">New meeting</span>
                     <span className="video-call-action-card-desc">
-                      Opens a preview to turn your camera and microphone on or off, then starts an instant meeting.
+                      Opens a preview to turn your camera and microphone on or off, then starts a quick meeting.
                     </span>
                   </button>
                   <div className="video-call-action-card video-call-action-card--static">
@@ -2024,7 +2305,18 @@ export function VideoCallPage() {
                     <span className="video-call-action-card-title">Schedule meeting</span>
                     <span className="video-call-action-card-desc">Add a dated event, optional video, and invite people.</span>
                     <div className="video-call-action-card-actions">
-                      <Button type="button" variant="primary" size="md" onClick={() => setScheduleModalOpen(true)}>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="md"
+                        onClick={() => setScheduleModalOpen(true)}
+                        disabled={!scheduleOrgForModal || !canScheduleFromVideoLobby}
+                        title={
+                          scheduleOrgForModal && !canScheduleFromVideoLobby
+                            ? 'You do not have permission to schedule meetings. Ask an admin to enable scheduling for your role.'
+                            : undefined
+                        }
+                      >
                         Schedule here
                       </Button>
                       <Link to={`${calendarBasePath}?create=1`} className="video-call-action-card-calendar-link">
@@ -2173,7 +2465,7 @@ export function VideoCallPage() {
                     </div>
                   </div>
                   <p className="video-call-upcoming-sub">
-                    Calendar-scheduled video meetings only (instant meetings are not listed here), with a start time
+                    Calendar-scheduled video meetings only (quick ad-hoc meetings are not listed here), with a start time
                     from now through the next{' '}
                     {UPCOMING_HORIZON_OPTIONS.find((o) => o.days === upcomingHorizonDays)?.label ||
                       `${upcomingHorizonDays} days`}
@@ -2228,8 +2520,8 @@ export function VideoCallPage() {
                   . Open an event from there to join with a link, or paste its meeting ID above.
                 </p>
                 <div className="video-call-previous-wrap">
-                  <Link to="/app/previous-meetings" className="video-call-previous-link">
-                    View previous meetings →
+                  <Link to="/app/video/meetings" className="video-call-previous-link">
+                    Past meetings & transcripts →
                   </Link>
                   <p className="video-call-lobby-hint">
                     After a call, use <strong>End for everyone</strong> as host to generate notes (when the AI backend is connected).
@@ -2245,7 +2537,8 @@ export function VideoCallPage() {
               user={user}
               activeOrgId={scheduleOrgForModal}
               defaultDate={null}
-              onCreated={() => {}}
+              onCreated={() => setUpcomingReloadKey((k) => k + 1)}
+              myOrgMembership={scheduleModalMembership}
             />
           )}
           <NewMeetingSettingsModal
@@ -2253,6 +2546,17 @@ export function VideoCallPage() {
             onClose={() => !loading && setNewMeetingSettingsOpen(false)}
             titleValue={newMeetingTitleDraft}
             onTitleChange={setNewMeetingTitleDraft}
+            bioValue={newMeetingBioDraft}
+            onBioChange={setNewMeetingBioDraft}
+            visibility={newMeetingVisibility}
+            onVisibilityChange={setNewMeetingVisibility}
+            teams={newMeetingTeamsList}
+            teamId={newMeetingTeamId}
+            onTeamIdChange={setNewMeetingTeamId}
+            members={newMeetingMembers}
+            membersLoading={newMeetingMembersLoading}
+            inviteeIds={newMeetingInviteeIds}
+            onInviteeIdsChange={setNewMeetingInviteeIds}
             allowRemoteScreenShare={newMeetingAllowShareDraft}
             onAllowRemoteScreenShareChange={setNewMeetingAllowShareDraft}
             onContinue={continueNewMeetingToPreJoin}
@@ -2265,7 +2569,7 @@ export function VideoCallPage() {
             onClose={() => !loading && setPreJoinOpen(false)}
             title={
               preJoinMode === 'instant'
-                ? preJoinInstantMeetingTitle || 'Instant meeting'
+                ? preJoinInstantMeetingTitle || 'Quick meeting'
                 : selectedMeeting?.title || 'Join meeting'
             }
             subtitle={
@@ -2285,7 +2589,7 @@ export function VideoCallPage() {
             }
             allowRemoteScreenShare={preJoinAllowRemoteShare}
             onAllowRemoteScreenShareChange={setPreJoinAllowRemoteShare}
-            confirmLabel={preJoinMode === 'instant' ? 'Start meeting' : 'Join meeting'}
+            confirmLabel={preJoinMode === 'instant' ? 'Start quick meeting' : 'Join meeting'}
             loading={loading}
             onConfirm={confirmPreJoin}
           />
@@ -2595,14 +2899,23 @@ export function VideoCallPage() {
                 )}
                 {transcriptionWsBase &&
                   showLiveSubtitles &&
-                  liveSubtitleText && (
+                  liveSubtitleMeta && (
                     <div
                       className="video-call-live-subtitles"
                       role="status"
                       aria-live="polite"
                       aria-atomic="true"
                     >
-                      <p className="video-call-live-subtitles-text">{liveSubtitleText}</p>
+                      <p className="video-call-live-subtitles-meta">
+                        {liveSubtitleMeta.timeLabel && (
+                          <span className="video-call-live-subtitles-time">{liveSubtitleMeta.timeLabel}</span>
+                        )}
+                        {liveSubtitleMeta.timeLabel && liveSubtitleMeta.speaker ? ' · ' : null}
+                        {liveSubtitleMeta.speaker && (
+                          <span className="video-call-live-subtitles-speaker">{liveSubtitleMeta.speaker}</span>
+                        )}
+                      </p>
+                      <p className="video-call-live-subtitles-text">{liveSubtitleMeta.text}</p>
                     </div>
                   )}
               </div>
@@ -2712,15 +3025,18 @@ export function VideoCallPage() {
                         </p>
                       ) : liveTranscriptLines.length === 0 ? (
                         <p className="video-call-transcript-empty">
-                          Transcript segments appear here as the AI transcribes speech (about every 15 seconds when
-                          you’re speaking). Turn on your microphone.
+                          Transcript lines appear a few seconds after you speak (short audio windows are sent to the AI).
+                          Turn on your microphone.
                         </p>
                       ) : (
                         <div className="video-call-transcript-scroll" role="log" aria-live="polite" aria-relevant="additions">
                           {liveTranscriptLines.map((line) => (
-                            <p key={line.id} className="video-call-transcript-line">
-                              {line.text}
-                            </p>
+                            <div key={line.id} className="video-call-transcript-line">
+                              <span className="video-call-transcript-line-meta">
+                                {[line.timeLabel, line.speaker].filter(Boolean).join(' · ')}
+                              </span>
+                              <p className="video-call-transcript-line-text">{line.text}</p>
+                            </div>
                           ))}
                           <span ref={liveTranscriptEndRef} className="video-call-transcript-end" aria-hidden />
                         </div>
@@ -2742,36 +3058,6 @@ export function VideoCallPage() {
               <Button className="video-call-control-btn" variant={showNotepad ? 'primary' : 'outline'} size="sm" onClick={toggleNotepad} aria-label="Notepad">
                 <NotebookPen size={20} strokeWidth={2.25} />
               </Button>
-              {!localIsHost && (
-                <div className="video-host-more-wrap" ref={guestMenuWrapRef}>
-                  <Button
-                    className="video-call-control-btn"
-                    variant={guestMenuOpen || meetingInfoOpen ? 'primary' : 'outline'}
-                    size="sm"
-                    onClick={() => setGuestMenuOpen((o) => !o)}
-                    aria-label="Meeting menu"
-                    aria-expanded={guestMenuOpen}
-                    aria-haspopup="menu"
-                  >
-                    <MoreVertical size={20} strokeWidth={2.25} />
-                  </Button>
-                  {guestMenuOpen && (
-                    <div className="video-host-dropdown" role="menu">
-                      <button
-                        type="button"
-                        className="video-host-dropdown-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setMeetingInfoOpen(true)
-                          setGuestMenuOpen(false)
-                        }}
-                      >
-                        Meeting information
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
               <Button
                 className="video-call-control-btn"
                 variant={sidePanelTab === 'messages' ? 'primary' : 'outline'}
@@ -2894,6 +3180,36 @@ export function VideoCallPage() {
                         }}
                       >
                         Permissions
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!localIsHost && (
+                <div className="video-host-more-wrap" ref={guestMenuWrapRef}>
+                  <Button
+                    className="video-call-control-btn"
+                    variant={guestMenuOpen || meetingInfoOpen ? 'primary' : 'outline'}
+                    size="sm"
+                    onClick={() => setGuestMenuOpen((o) => !o)}
+                    aria-label="Meeting menu"
+                    aria-expanded={guestMenuOpen}
+                    aria-haspopup="menu"
+                  >
+                    <MoreVertical size={20} strokeWidth={2.25} />
+                  </Button>
+                  {guestMenuOpen && (
+                    <div className="video-host-dropdown" role="menu">
+                      <button
+                        type="button"
+                        className="video-host-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setMeetingInfoOpen(true)
+                          setGuestMenuOpen(false)
+                        }}
+                      >
+                        Meeting information
                       </button>
                     </div>
                   )}
@@ -3545,6 +3861,17 @@ function NewMeetingSettingsModal({
   onClose,
   titleValue,
   onTitleChange,
+  bioValue,
+  onBioChange,
+  visibility,
+  onVisibilityChange,
+  teams,
+  teamId,
+  onTeamIdChange,
+  members,
+  membersLoading,
+  inviteeIds,
+  onInviteeIdsChange,
   allowRemoteScreenShare,
   onAllowRemoteScreenShareChange,
   onContinue,
@@ -3556,12 +3883,14 @@ function NewMeetingSettingsModal({
   return (
     <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="new-meeting-settings-title">
       <button type="button" className="video-prejoin-backdrop" onClick={onClose} aria-label="Close" />
-      <div className="video-prejoin-modal video-new-meeting-settings-modal">
+      <div className="video-prejoin-modal video-new-meeting-settings-modal video-new-meeting-settings-modal--wide">
         <div className="video-prejoin-header">
           <h2 id="new-meeting-settings-title" className="video-prejoin-title">
             New meeting
           </h2>
-          <p className="video-prejoin-sub">Set a title and room options. Next you will choose your camera and microphone.</p>
+          <p className="video-prejoin-sub">
+            Set title, visibility, and optional invites. Invited people get a notification. Next you’ll verify camera and mic.
+          </p>
         </div>
         {orgOptions && orgOptions.length > 1 && onOrgChange ? (
           <label className="video-new-meeting-field">
@@ -3590,6 +3919,90 @@ function NewMeetingSettingsModal({
             maxLength={120}
           />
         </label>
+        <label className="video-new-meeting-field">
+          <span className="video-new-meeting-field-label">Description / agenda</span>
+          <textarea
+            className="auth-input video-new-meeting-bio"
+            value={bioValue}
+            onChange={(e) => onBioChange(e.target.value)}
+            placeholder="Optional context for people you invite…"
+            rows={3}
+          />
+        </label>
+        <fieldset className="video-new-meeting-field video-new-meeting-fieldset">
+          <legend className="video-new-meeting-field-label">Who can see &amp; join</legend>
+          <label className="video-new-meeting-radio">
+            <input
+              type="radio"
+              name="nm-vis"
+              checked={visibility === 'org'}
+              onChange={() => onVisibilityChange('org')}
+            />
+            <span>Organization — anyone in the org can see and join</span>
+          </label>
+          <label className="video-new-meeting-radio">
+            <input
+              type="radio"
+              name="nm-vis"
+              checked={visibility === 'team'}
+              onChange={() => onVisibilityChange('team')}
+              disabled={!teams?.length}
+            />
+            <span>Team only</span>
+          </label>
+          {visibility === 'team' && (
+            <select
+              className="auth-input video-new-meeting-org-select"
+              value={teamId || ''}
+              onChange={(e) => onTeamIdChange(e.target.value)}
+            >
+              <option value="">Select team</option>
+              {(teams || []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <label className="video-new-meeting-radio">
+            <input
+              type="radio"
+              name="nm-vis"
+              checked={visibility === 'invited'}
+              onChange={() => onVisibilityChange('invited')}
+            />
+            <span>Invited people only (notifications sent)</span>
+          </label>
+        </fieldset>
+        {visibility === 'invited' && (
+          <div className="video-new-meeting-invite-block">
+            <span className="video-new-meeting-field-label">Invite org members</span>
+            <div className="video-new-meeting-invite-scroll">
+              {membersLoading ? (
+                <p className="video-prejoin-sub">Loading…</p>
+              ) : (
+                <ul className="video-new-meeting-invite-list">
+                  {(members || []).map(({ userId: uid, profile }) => (
+                    <li key={uid}>
+                      <label className="video-new-meeting-invite-row">
+                        <input
+                          type="checkbox"
+                          checked={inviteeIds.includes(uid)}
+                          onChange={() =>
+                            onInviteeIdsChange((prev) =>
+                              prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+                            )
+                          }
+                        />
+                        <span>{getDisplayName(profile, uid)}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
         <label className="video-prejoin-host-option video-new-meeting-host-option">
           <input
             type="checkbox"
@@ -3669,7 +4082,7 @@ function VideoPreJoinModal({
           )}
           {!previewError && !camOn && (
             <div className="video-prejoin-preview-fallback video-prejoin-preview-fallback--dim">
-              <p>Camera off</p>
+              <p>{!micOn && !camOn ? 'Microphone and camera off' : 'Camera off'}</p>
             </div>
           )}
           <div className="video-prejoin-preview-actions">
@@ -3821,7 +4234,8 @@ function RemoteVideoPlayer({ user, displayName, photoUrl, isHost, mode = 'tile',
   }, [user?.videoTrack])
 
   const label = stageLabel || displayName || `User ${user.uid}`
-  const camOn = !!(user?.hasVideo && user?.videoTrack)
+  const hasRemoteVideo = !!(user?.videoTrack && user?.hasVideo)
+  const camOn = hasRemoteVideo
   const micOn = !!(user?.hasAudio && user?.audioTrack && !user.audioTrack.muted)
 
   const playerClass = [
@@ -3842,13 +4256,13 @@ function RemoteVideoPlayer({ user, displayName, photoUrl, isHost, mode = 'tile',
         className={mode === 'stage' ? 'video-player-label--on-stage' : mode === 'filmstrip' ? 'video-player-label--filmstrip' : undefined}
       />
       <div className="video-player-stack">
-        {user?.videoTrack && (
+        {user?.videoTrack ? (
           <div
             ref={containerRef}
             className={`video-track-container ${!camOn ? 'video-track-hidden' : ''}`}
             style={{ width: '100%', height: '100%' }}
           />
-        )}
+        ) : null}
         {!camOn && (
           <VideoParticipantAvatar photoUrl={photoUrl} nameHint={label} className="video-participant-avatar--cover" />
         )}

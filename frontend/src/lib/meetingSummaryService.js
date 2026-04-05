@@ -117,13 +117,35 @@ export async function getMeetingTranscriptBySessionId(sessionId) {
   if (!snap.exists()) return null
   const d = snap.data() || {}
   const chunks = Array.isArray(d.chunks) ? d.chunks : []
-  const text = chunks
-    .map((c) => (c && typeof c === 'object' && c.text ? String(c.text) : ''))
-    .filter(Boolean)
-    .join(' ')
+  const segments = []
+  for (const c of chunks) {
+    if (!c || typeof c !== 'object' || !c.text) continue
+    const line = String(c.text).trim()
+    if (!line) continue
+    const uid = c.uid != null ? String(c.uid) : ''
+    const speaker = uid ? `Speaker (uid ${uid})` : ''
+    let timeLabel = ''
+    if (typeof c.timestamp === 'string' && c.timestamp) {
+      try {
+        const dt = new Date(c.timestamp)
+        if (!Number.isNaN(dt.getTime())) {
+          timeLabel = dt.toLocaleTimeString(undefined, {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        }
+      } catch {
+        timeLabel = ''
+      }
+    }
+    segments.push({ text: line, speaker, timeLabel })
+  }
+  const text = segments.map((s) => s.text).join(' ')
   return {
     sessionId: sid,
     text: text.trim(),
+    segments,
     totalWordCount: d.totalWordCount ?? null,
     updatedAt: d.updatedAt ?? null,
   }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { useOutletContext, useParams, Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { getSummary } from '../lib/meetingSummaryService'
+import { downloadMeetingSummaryPdf, downloadMeetingSummaryDocx } from '../lib/exportMeetingDoc'
 import { Button } from '../components/ui/Button'
 import { ArrowLeftIcon, CalendarIcon, LayoutDashboardIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
@@ -18,10 +19,10 @@ function formatDate(ts) {
 
 export function MeetingSummaryPage() {
   const { summaryId } = useParams()
-  const { user } = useOutletContext()
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [exportBusy, setExportBusy] = useState(null)
 
   useEffect(() => {
     if (!summaryId) return
@@ -54,8 +55,8 @@ export function MeetingSummaryPage() {
       <div className="summary-page">
         <div className="summary-error">
           <p>{error}</p>
-          <Button as={Link} to="/app/previous-meetings" variant="outline" size="sm">
-            <ArrowLeftIcon size={16} /> Back to Previous Meetings
+          <Button as={Link} to="/app/video/meetings" variant="outline" size="sm">
+            <ArrowLeftIcon size={16} /> Back to past meetings
           </Button>
         </div>
       </div>
@@ -65,8 +66,8 @@ export function MeetingSummaryPage() {
   return (
     <div className="summary-page">
       <div className="summary-nav">
-        <Button as={Link} to="/app/previous-meetings" variant="ghost" size="sm">
-          <ArrowLeftIcon size={16} /> Previous Meetings
+        <Button as={Link} to="/app/video/meetings" variant="ghost" size="sm">
+          <ArrowLeftIcon size={16} /> Past meetings
         </Button>
         <div className="summary-nav-links">
           <Button as={Link} to="/app" variant="ghost" size="sm">
@@ -96,6 +97,40 @@ export function MeetingSummaryPage() {
             ))}
           </div>
         )}
+        <div className="summary-export-bar">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!!exportBusy}
+            onClick={async () => {
+              setExportBusy('pdf')
+              try {
+                await downloadMeetingSummaryPdf(summary)
+              } finally {
+                setExportBusy(null)
+              }
+            }}
+          >
+            {exportBusy === 'pdf' ? '…' : 'Download PDF'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!!exportBusy}
+            onClick={async () => {
+              setExportBusy('docx')
+              try {
+                await downloadMeetingSummaryDocx(summary)
+              } finally {
+                setExportBusy(null)
+              }
+            }}
+          >
+            {exportBusy === 'docx' ? '…' : 'Download Word'}
+          </Button>
+        </div>
       </div>
 
       <div className="summary-body">

@@ -21,6 +21,27 @@
   background: var(--bg-elevated);
 }
 
+.notifications-trigger--unread {
+  color: var(--text);
+}
+
+.notifications-unread-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e53935;
+  box-shadow: 0 0 0 2px var(--bg-card, #1a1a1a);
+}
+
+.notifications-item-sub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .notifications-badge {
   position: absolute;
   top: -2px;

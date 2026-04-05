@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate, useParams, Link, useOutletContext } from 'react-router-dom'
-import { getOrg, getMembership, getActiveMemberships } from '../lib/orgService'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useNavigate, useParams, Link, useOutletContext, useSearchParams } from 'react-router-dom'
+import { getOrg, getMembership, getActiveMemberships, membershipHasCapability, MEMBERSHIP_STATES } from '../lib/orgService'
 import { getBlockedUserIds } from '../lib/blockService'
 import {
   getOrCreateDM,
@@ -125,7 +125,7 @@ const ATTACHMENT_OPTIONS = [
   { id: 'users', label: 'Profiles / Users', Icon: UsersIcon, color: '#a78bfa' },
 ]
 
-function ChatAttachmentMenu({ onClose, onSelect, isClosing }) {
+function ChatAttachmentMenu({ onClose, onSelect, isClosing, eventDisabled }) {
   return (
     <div className={`chats-attach-popover ${isClosing ? 'chats-attach-popover-closing' : ''}`} role="menu">
       <div className="chats-attach-grid">
@@ -136,6 +136,8 @@ function ChatAttachmentMenu({ onClose, onSelect, isClosing }) {
             className="chats-attach-option"
             onClick={() => { onSelect?.(id); onClose?.() }}
             role="menuitem"
+            disabled={id === 'event' && eventDisabled}
+            title={id === 'event' && eventDisabled ? 'You do not have permission to create calendar events from chat.' : undefined}
           >
             <span className="chats-attach-icon-wrap" style={{ color }}>
               <Icon size={24} />
@@ -755,6 +757,8 @@ function EventModal({ onClose, onSubmit, sending, userDoc }) {
 
 export function ChatsPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const chatOrgFilter = (searchParams.get('org') || '').trim() || null
   const { orgId: paramOrgId, chatId } = useParams()
   const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const [orgId, setOrgId] = useState(paramOrgId || null)
@@ -833,7 +837,6 @@ export function ChatsPage() {
   const [showForwardModal, setShowForwardModal] = useState(false)
   const [forwardMessage, setForwardMessage] = useState(null)
 
-  // Sync orgId from URL (ChatsPage only renders at /app/org/:orgId/chats)
   useEffect(() => {
     if (paramOrgId) setOrgId(paramOrgId)
   }, [paramOrgId])
@@ -885,8 +888,20 @@ export function ChatsPage() {
         if (o) names[oid] = o.name
       }))
       setOrgNames(names)
+      if (!paramOrgId && ids.length) {
+        if (chatOrgFilter && ids.includes(chatOrgFilter)) {
+          setOrgId(chatOrgFilter)
+        } else {
+          setOrgId((prev) => (prev && ids.includes(prev) ? prev : ids[0]))
+        }
+      }
     })
-  }, [user])
+  }, [user, paramOrgId, chatOrgFilter])
+
+  useEffect(() => {
+    if (paramOrgId || !chatOrgFilter || !orgIds.length) return
+    if (orgIds.includes(chatOrgFilter)) setOrgId(chatOrgFilter)
+  }, [paramOrgId, chatOrgFilter, orgIds.join(',')])
 
   // Ensure a group chat exists for each team the user is in (for teams created before this feature)
   useEffect(() => {
@@ -1002,6 +1017,14 @@ export function ChatsPage() {
   }, [])
 
   const selectedConv = conversations.find((c) => c.orgId === orgId && c.id === chatId)
+
+  const canCreateChatEvent = useMemo(() => {
+    if (!membership || membership.state !== MEMBERSHIP_STATES.active) return false
+    if (!membershipHasCapability(membership, 'scheduleMeetings')) return false
+    const isTeam = selectedConv?.type === CONV_TYPES.team && selectedConv?.teamId
+    if (isTeam) return membershipHasCapability(membership, 'teamCalendar')
+    return true
+  }, [membership, selectedConv])
 
   useEffect(() => {
     if (conversations.length || selectedConv || messages.length) {
@@ -1333,9 +1356,15 @@ ${blocks.join('\n')}
     else if (id === 'camera') cameraInputRef.current?.click()
     else if (id === 'document') documentInputRef.current?.click()
     else if (id === 'poll') setShowPollModal(true)
-    else if (id === 'event') setShowEventModal(true)
+    else if (id === 'event') {
+      if (!canCreateChatEvent) {
+        setError('You do not have permission to create calendar events from this chat.')
+        return
+      }
+      setShowEventModal(true)
+    }
     else if (id === 'users') setShowNewChat(true)
-  }, [closeAttachmentMenu])
+  }, [closeAttachmentMenu, canCreateChatEvent])
 
   const handlePhotosChange = useCallback((e) => {
     const file = e.target.files?.[0]
@@ -1648,6 +1677,9 @@ ${blocks.join('\n')}
             const filterLower = chatListFilter.trim().toLowerCase()
             const applyFilter = (list) => {
               let out = list.filter((c) => !c.deletedBy?.[user?.uid])
+              if (!paramOrgId && chatOrgFilter) {
+                out = out.filter((c) => c.orgId === chatOrgFilter)
+              }
               out = out.filter((c) => {
                 if (c.type !== CONV_TYPES.dm) return true
                 const other = c.members?.find((id) => id !== user?.uid)
@@ -2194,6 +2226,7 @@ ${blocks.join('\n')}
                     onClose={closeAttachmentMenu}
                     onSelect={handleAttachmentSelect}
                     isClosing={attachmentMenuClosing}
+                    eventDisabled={!canCreateChatEvent}
                   />
                 )}
               </form>

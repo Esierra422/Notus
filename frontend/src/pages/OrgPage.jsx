@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
-import { getOrg, getMembership, canManageOrg } from '../lib/orgService'
+import { getOrg, getMembership, canManageOrg, membershipHasCapability } from '../lib/orgService'
 import {
   getOrgTeams,
   createTeam,
@@ -149,6 +149,10 @@ export function OrgPage() {
   if (!org || !membership) return null
 
   const isAdmin = canManageOrg(membership)
+  const canCreateOrgMeeting =
+    membership &&
+    membershipHasCapability(membership, 'scheduleMeetings') &&
+    membershipHasCapability(membership, 'orgCalendar')
 
   const navExtra = (
     <>
@@ -167,7 +171,17 @@ export function OrgPage() {
         <p className="app-muted">Meetings in this org. Invite-only meetings show only for people who were invited.</p>
         <div className="org-meetings-actions" style={{ marginBottom: '1rem' }}>
           {!showCreateMeeting ? (
-            <Button variant="outline" size="md" onClick={() => setShowCreateMeeting(true)}>
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => setShowCreateMeeting(true)}
+              disabled={!canCreateOrgMeeting}
+              title={
+                !canCreateOrgMeeting
+                  ? 'You do not have permission to create org-wide meetings. Ask an admin to enable scheduling and org calendar access.'
+                  : undefined
+              }
+            >
               Create meeting
             </Button>
           ) : (

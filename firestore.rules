@@ -3,6 +3,72 @@ rules_version = '2';
 // Or paste into Firebase Console → Firestore Database → Rules
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function membershipData(orgId) {
+      return get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data;
+    }
+
+    function activeOrgMember(orgId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
+        && membershipData(orgId).state == 'active';
+    }
+
+    function isOrgOwnerOrAdmin(orgId) {
+      return activeOrgMember(orgId)
+        && membershipData(orgId).role in ['owner', 'admin'];
+    }
+
+    /** Members: optional capabilities map; owners/admins bypass. */
+    function memCapSchedule(m) {
+      return m.role == 'owner' || m.role == 'admin'
+        || !('capabilities' in m)
+        || !(m.capabilities is map)
+        || !('scheduleMeetings' in m.capabilities)
+        || m.capabilities.scheduleMeetings == true;
+    }
+    function memCapOrgCal(m) {
+      return m.role == 'owner' || m.role == 'admin'
+        || !('capabilities' in m)
+        || !(m.capabilities is map)
+        || !('orgCalendar' in m.capabilities)
+        || m.capabilities.orgCalendar == true;
+    }
+    function memCapTeamCal(m) {
+      return m.role == 'owner' || m.role == 'admin'
+        || !('capabilities' in m)
+        || !(m.capabilities is map)
+        || !('teamCalendar' in m.capabilities)
+        || m.capabilities.teamCalendar == true;
+    }
+    function meetingCreateAllowed(orgId, data) {
+      return memCapSchedule(membershipData(orgId))
+        && (data.scope != 'org' || data.inviteOnly == true || memCapOrgCal(membershipData(orgId)))
+        && (data.scope != 'team' || memCapTeamCal(membershipData(orgId)));
+    }
+
+    /** Update: only organizer or org owner/admin (matches client updateMeeting). */
+    function isMeetingEditor(orgId) {
+      return resource.data.createdBy == request.auth.uid
+        || membershipData(orgId).role in ['owner', 'admin'];
+    }
+
+    /** Org event was invite-only; update makes it visible org-wide (inviteOnly cleared/false). */
+    function meetingOrgInviteWidening() {
+      return resource.data.scope == 'org'
+        && resource.data.inviteOnly == true
+        && request.resource.data.inviteOnly != true;
+    }
+
+    /** Prevent hijacking room id, transcript session, or organizer via direct SDK writes. */
+    function meetingImmutableCore() {
+      return resource.data.createdBy == request.resource.data.createdBy
+        && resource.data.scope == request.resource.data.scope
+        && (!('videoRoomId' in resource.data) || resource.data.videoRoomId == request.resource.data.videoRoomId)
+        && (!('transcriptSessionId' in resource.data)
+          || resource.data.transcriptSessionId == request.resource.data.transcriptSessionId)
+        && (!('createdVia' in resource.data) || resource.data.createdVia == request.resource.data.createdVia);
+    }
     // Users: any authenticated user can read (for org/team member display); only owner can write
     match /users/{userId} {
       allow read: if request.auth != null;
@@ -25,12 +91,21 @@ service cloud.firestore {
       match /fcmTokens/{tokenId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      // In-app notifications (meeting invites, etc.)
+      match /notifications/{notificationId} {
+        allow read, update, delete: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.read == false
+          && request.resource.data.type is string
+          && request.resource.data.keys().hasAll(['type', 'read', 'createdBy', 'title']);
+      }
     }
 
-    // Organizations: authenticated users can create (new org) and read (search, get)
+    // Organizations: any auth user can create (new org) or read; only org owner/admin may change org root doc
     match /organizations/{orgId} {
       allow create, read: if request.auth != null;
-      allow update, delete: if request.auth != null;
+      allow update, delete: if isOrgOwnerOrAdmin(orgId);
 
       // Teams: active org members only
       match /teams/{teamId} {
@@ -46,11 +121,17 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
       }
 
-      // Meetings: active org members can read/create/update; creator or admin/owner can delete
+      // Meetings: members read; create/update need capability rules; update limited to editor + org-cal when widening visibility
       match /meetings/{meetingId} {
-        allow read, create, update: if request.auth != null
+        allow read: if request.auth != null
           && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active';
+        allow update: if activeOrgMember(orgId)
+          && isMeetingEditor(orgId)
+          && meetingImmutableCore()
+          && (!meetingOrgInviteWidening() || memCapOrgCal(membershipData(orgId)));
+        allow create: if activeOrgMember(orgId)
+          && meetingCreateAllowed(orgId, request.resource.data);
         allow delete: if request.auth != null
           && exists(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid))
           && get(/databases/$(database)/documents/memberships/$(orgId + '_' + request.auth.uid)).data.state == 'active'

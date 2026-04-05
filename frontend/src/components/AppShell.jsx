@@ -29,7 +29,8 @@ export function AppShell() {
   const [userDoc, setUserDoc] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const isChatsPage = /\/org\/[^/]+\/chats/.test(location.pathname)
-  const isVideoPage =
+  /** Full-height video shell (lobby + in-call only). Past meetings uses normal scroll layout. */
+  const isVideoImmersiveLayout =
     location.pathname === '/app/video' || /^\/app\/org\/[^/]+\/video$/.test(location.pathname)
   const [activeOrg, setActiveOrg] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -113,6 +114,8 @@ export function AppShell() {
     if (p === '/app' || p === '/app/') return 'Dashboard'
     if (p === '/app/calendar') return 'Calendar'
     if (p === '/app/video' || /^\/app\/org\/[^/]+\/video$/.test(p)) return 'Video Call'
+    if (p.startsWith('/app/video/') && p !== '/app/video/meetings') return 'Video Call'
+    if (/^\/app\/org\/[^/]+\/video\//.test(p) && !/\/video\/meetings$/.test(p)) return 'Video Call'
     if (/^\/app\/org\/[^/]+\/chats/.test(p)) return 'Chats'
     if (p === '/app/profile') return 'Profile'
     if (p === '/app/settings') return 'Settings'
@@ -123,7 +126,9 @@ export function AppShell() {
     if (/^\/app\/org\/[^/]+\/admin$/.test(p)) return 'Admin'
     if (/^\/app\/org\/[^/]+\/calendar$/.test(p)) return 'Calendar'
     if (/^\/app\/org\/[^/]+\/teams\/[^/]+$/.test(p)) return 'Team'
-    if (p === '/app/previous-meetings') return 'Previous Meetings'
+    if (p === '/app/previous-meetings') return 'Past meetings'
+    if (p === '/app/video/meetings') return 'Past meetings'
+    if (/^\/app\/org\/[^/]+\/video\/meetings$/.test(p)) return 'Past meetings'
     if (/^\/app\/meeting-summary\//.test(p)) return 'Meeting Summary'
     if (/^\/app\/meeting-transcript\//.test(p)) return 'Meeting Transcript'
     if (p === '/app/features') return 'Features'
@@ -167,12 +172,14 @@ export function AppShell() {
 
   return (
     <NavExtraContext.Provider value={setNavExtraOverride}>
-      <div className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''} ${isVideoPage ? 'app-layout-video' : ''}`}>
+      <div
+        className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''} ${isVideoImmersiveLayout ? 'app-layout-video' : ''}`}
+      >
         <AppHeader user={user} orgName={displayedOrg?.name} activeOrgId={activeOrgId} isAdmin={isAdmin} navExtraOverride={navExtraOverride} currentPageTitle={currentPageTitle} />
         <PageTransition>
           <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride, activeOrgId }} />
         </PageTransition>
-        {!isChatsPage && !isVideoPage && <AppFooter />}
+        {!isChatsPage && !isVideoImmersiveLayout && <AppFooter />}
       </div>
     </NavExtraContext.Provider>
   )

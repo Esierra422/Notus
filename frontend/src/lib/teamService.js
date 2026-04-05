@@ -210,6 +210,43 @@ export async function removeTeamMember(orgId, teamId, userId, callerId) {
 }
 
 /**
+ * Org owner/admin adds an active org member to a team (active member role).
+ */
+export async function orgAdminAddUserToTeam(orgId, teamId, targetUserId, callerId) {
+  const [callerOrgMem, targetOrgMem] = await Promise.all([
+    getMembership(orgId, callerId),
+    getMembership(orgId, targetUserId),
+  ])
+  if (!callerOrgMem || callerOrgMem.state !== MEMBERSHIP_STATES.active) {
+    throw new Error('You must be an active org member.')
+  }
+  if (callerOrgMem.role !== 'owner' && callerOrgMem.role !== 'admin') {
+    throw new Error('Only organization admins can add members to teams this way.')
+  }
+  if (!targetOrgMem || targetOrgMem.state !== MEMBERSHIP_STATES.active) {
+    throw new Error('That user is not an active member of this organization.')
+  }
+  const ref = doc(db, 'organizations', orgId, TEAM_MEMBERSHIPS_SUB, teamMembershipId(teamId, targetUserId))
+  const snap = await getDoc(ref)
+  if (snap.exists()) {
+    await updateDoc(ref, {
+      state: TEAM_STATES.active,
+      role: TEAM_ROLES.member,
+      updatedAt: serverTimestamp(),
+    })
+  } else {
+    await setDoc(ref, {
+      teamId,
+      userId: targetUserId,
+      role: TEAM_ROLES.member,
+      state: TEAM_STATES.active,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  }
+}
+
+/**
  * Approve or reject a team membership request.
  */
 export async function updateTeamMembershipState(orgId, teamId, userId, newState) {

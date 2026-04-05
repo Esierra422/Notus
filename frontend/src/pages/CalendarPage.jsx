@@ -1,19 +1,24 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useOutletContext, useSearchParams, useParams, useNavigate, useLocation } from 'react-router-dom'
-import { getActiveMemberships, getOrg } from '../lib/orgService'
+import {
+  getActiveMemberships,
+  getOrg,
+  getMembership,
+  canManageOrg,
+  membershipHasCapability,
+} from '../lib/orgService'
 import { getOrgTeams, getTeamMembership } from '../lib/teamService'
 import {
   getMeetingsInRangeForUser,
   getMeetingsInRangeForUserInOrg,
   getMeetingsInRangeForUserInTeam,
 } from '../lib/meetingService'
-import { importICSFile, getImportedEventsInRange } from '../lib/calendarImportService'
+import { getImportedEventsInRange } from '../lib/calendarImportService'
+import { expandMeetingsListForMonth } from '../lib/calendarRecurrence'
 import { getTodosInRange, addTodo, toggleTodo, deleteTodo } from '../lib/todoService'
 import { Button } from '../components/ui/Button'
-import { UploadIcon } from '../components/ui/Icons'
 import { Timestamp } from 'firebase/firestore'
 import { getTimeZone, getLocale } from '../lib/dateUtils'
-import { getApiUrl } from '../lib/apiConfig.js'
 import { CreateEventModal } from '../components/calendar/CreateEventModal'
 import { EventDetailModal } from '../components/calendar/EventDetailModal'
 import '../styles/variables.css'
@@ -56,14 +61,8 @@ export function CalendarPage() {
   const [showCreateEventModal, setShowCreateEventModal] = useState(false)
   const [selectedEventItem, setSelectedEventItem] = useState(null)
   const [view, setView] = useState('month')
-  const [showImportModal, setShowImportModal] = useState(false)
-  const [importFile, setImportFile] = useState(null)
-  const [importUrl, setImportUrl] = useState('')
-  const [importSourceName, setImportSourceName] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [importError, setImportError] = useState('')
-  const [importSuccess, setImportSuccess] = useState('')
-  const fileInputRef = useRef(null)
+  const [myMembershipForCalendar, setMyMembershipForCalendar] = useState(null)
+  const [orgPickerOptions, setOrgPickerOptions] = useState([])
   const [showAddTask, setShowAddTask] = useState(false)
   const [newTaskText, setNewTaskText] = useState('')
   const [addingTask, setAddingTask] = useState(false)
@@ -96,6 +95,31 @@ export function CalendarPage() {
   }, [user, routeOrgId])
 
   useEffect(() => {
+    if (!user?.uid) return
+    let cancelled = false
+    getActiveMemberships(user.uid).then(async (mems) => {
+      const opts = await Promise.all(
+        mems.map(async (m) => {
+          const o = await getOrg(m.orgId)
+          return { orgId: m.orgId, name: o?.name || 'Organization' }
+        })
+      )
+      if (!cancelled) setOrgPickerOptions(opts)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.uid])
+
+  useEffect(() => {
+    if (!user?.uid || !activeOrgId) {
+      setMyMembershipForCalendar(null)
+      return
+    }
+    getMembership(activeOrgId, user.uid).then(setMyMembershipForCalendar)
+  }, [user?.uid, activeOrgId])
+
+  useEffect(() => {
     if (!activeOrgId || !user) return
     const load = async () => {
       const [orgData, teamsData] = await Promise.all([
@@ -104,12 +128,13 @@ export function CalendarPage() {
       ])
       setOrg(orgData)
       setTeams(teamsData)
-      const mems = {}
-      for (const t of teamsData) {
-        const m = await getTeamMembership(activeOrgId, t.id, user.uid)
-        if (m) mems[t.id] = m
-      }
-      setTeamMemberships(mems)
+      const memEntries = await Promise.all(
+        teamsData.map(async (t) => {
+          const m = await getTeamMembership(activeOrgId, t.id, user.uid)
+          return [t.id, m]
+        })
+      )
+      setTeamMemberships(Object.fromEntries(memEntries.filter(([, m]) => m)))
     }
     load()
   }, [activeOrgId, user])
@@ -144,32 +169,43 @@ export function CalendarPage() {
           }
         }
         const seen = new Set()
-        for (const { year: y, month: m } of monthsToLoad) {
+        const monthKeys = monthsToLoad.filter(({ year: y, month: m }) => {
           const key = `${y}-${m}`
-          if (seen.has(key)) continue
+          if (seen.has(key)) return false
           seen.add(key)
-          let part = []
-          if (filter === 'personal') {
-            const [meetingsList, importedList, todosList] = await Promise.all([
-              getMeetingsInRangeForUser(user.uid, y, m),
-              getImportedEventsInRange(user.uid, y, m),
-              getTodosInRange(user.uid, y, m).catch(() => []),
-            ])
-            const todosAsEvents = todosList.map((t) => ({
-              id: t.id,
-              title: t.text,
-              startAt: t.dueDate,
-              _todo: true,
-              done: t.done,
-            }))
-            part = [...meetingsList, ...importedList, ...todosAsEvents]
-          } else if (filter === 'org' && activeOrgId) {
-            part = await getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m)
-          } else if (filter === 'team' && activeOrgId && scopeTeamId) {
-            part = await getMeetingsInRangeForUserInTeam(user.uid, activeOrgId, scopeTeamId, y, m)
-          }
-          list = [...list, ...part]
-        }
+          return true
+        })
+        const monthParts = await Promise.all(
+          monthKeys.map(async ({ year: y, month: m }) => {
+            if (filter === 'personal') {
+              const [meetingsList, importedList, todosList] = await Promise.all([
+                getMeetingsInRangeForUser(user.uid, y, m),
+                getImportedEventsInRange(user.uid, y, m),
+                getTodosInRange(user.uid, y, m).catch(() => []),
+              ])
+              const todosAsEvents = todosList.map((t) => ({
+                id: t.id,
+                title: t.text,
+                startAt: t.dueDate,
+                _todo: true,
+                done: t.done,
+              }))
+              return [...meetingsList, ...importedList, ...todosAsEvents]
+            }
+            if (filter === 'org' && activeOrgId) {
+              return getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m)
+            }
+            if (filter === 'team' && activeOrgId && scopeTeamId) {
+              return getMeetingsInRangeForUserInTeam(user.uid, activeOrgId, scopeTeamId, y, m)
+            }
+            return []
+          })
+        )
+        list = monthParts.flat()
+        const meetingRows = list.filter((x) => !x._todo && !x._imported)
+        const otherRows = list.filter((x) => x._todo || x._imported)
+        const expandedMeetings = expandMeetingsListForMonth(meetingRows, year, month)
+        list = [...expandedMeetings, ...otherRows]
         list.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0))
         setMeetings(list)
       } catch (err) {
@@ -318,71 +354,6 @@ export function CalendarPage() {
     }
   }
 
-  const handleImportSubmit = async (e) => {
-    e.preventDefault()
-    setImportError('')
-    setImportSuccess('')
-    if (!user?.uid) return
-    let icsString = ''
-    let sourceName = importSourceName.trim() || 'Imported calendar'
-    if (importFile) {
-      icsString = await importFile.text()
-      sourceName = importSourceName.trim() || importFile.name || 'Imported calendar'
-    } else if (importUrl.trim()) {
-      const url = importUrl.trim()
-      try {
-        const proxyUrl = `${getApiUrl('/api/calendar/fetch-ics')}?url=${encodeURIComponent(url)}`
-        const res = await fetch(proxyUrl)
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          throw new Error(body.error || `Failed to fetch calendar (${res.status})`)
-        }
-        icsString = await res.text()
-        sourceName = importSourceName.trim() || new URL(url).hostname || 'Imported calendar'
-      } catch (err) {
-        setImportError(err.message || 'Could not fetch calendar URL. Ensure the backend is running and the URL is valid.')
-        return
-      }
-    } else {
-      setImportError('Select an ICS file or enter a calendar URL.')
-      return
-    }
-    setImporting(true)
-    try {
-      const { total, saved } = await importICSFile(user.uid, icsString, sourceName)
-      setImportSuccess(`Imported ${saved} events (${total} total).`)
-      setImportFile(null)
-      setImportUrl('')
-      setImportSourceName('')
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      if (filter === 'personal') {
-        const [meetingsList, importedList, todosList] = await Promise.all([
-          getMeetingsInRangeForUser(user.uid, year, month),
-          getImportedEventsInRange(user.uid, year, month),
-          getTodosInRange(user.uid, year, month).catch(() => []),
-        ])
-        const todosAsEvents = todosList.map((t) => ({
-          id: t.id,
-          title: t.text,
-          startAt: t.dueDate,
-          _todo: true,
-          done: t.done,
-        }))
-        setMeetings([...meetingsList, ...importedList, ...todosAsEvents])
-      }
-    } catch (err) {
-      setImportError(err.message || 'Import failed.')
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  const handleImportFileChange = (e) => {
-    const f = e.target.files?.[0]
-    setImportFile(f || null)
-    if (f) setImportUrl('')
-  }
-
   if (loading && !user) {
     return <p className="app-muted">Loading…</p>
   }
@@ -393,11 +364,31 @@ export function CalendarPage() {
         <div className="calendar-title-block">
           <h2 className="calendar-title">Calendar</h2>
           <p className="calendar-scope-hint">
-            {routeOrgId ? (org?.name ? `${org.name} only` : 'Organization calendar') : 'All your organizations'}
+            {routeOrgId
+              ? org?.name
+                ? `${org.name} — scheduled meetings & events`
+                : 'Organization calendar'
+              : filter === 'personal'
+                ? 'All organizations you can access (quick ad-hoc meetings are hidden)'
+                : filter === 'team'
+                  ? 'Team calendar — scheduled items only'
+                  : org?.name
+                    ? `${org.name} — organization calendar`
+                    : 'Pick an organization below'}
           </p>
         </div>
         {activeOrgId && (
-          <Button variant="primary" size="md" onClick={() => setShowCreateEventModal(true)}>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => setShowCreateEventModal(true)}
+            disabled={myMembershipForCalendar && !membershipHasCapability(myMembershipForCalendar, 'scheduleMeetings')}
+            title={
+              myMembershipForCalendar && !membershipHasCapability(myMembershipForCalendar, 'scheduleMeetings')
+                ? 'You do not have permission to create events. Ask an org admin to enable scheduling for your role.'
+                : undefined
+            }
+          >
             Create event
           </Button>
         )}
@@ -453,28 +444,62 @@ export function CalendarPage() {
               )}
             </>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowImportModal(true)}
-            title="Import calendar (ICS)"
-          >
-            <UploadIcon size={16} /> Import
-          </Button>
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="calendar-filter-select"
-          >
-            <option value="personal">Personal</option>
-            <option value="org" disabled={!activeOrgId}>Org</option>
-            <option value="team" disabled={!activeOrgId}>Team</option>
-          </select>
+          <div className="calendar-source-tabs" role="tablist" aria-label="Calendar scope">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filter === 'personal'}
+              className={`calendar-source-tab ${filter === 'personal' ? 'calendar-source-tab--active' : ''}`}
+              onClick={() => setFilter('personal')}
+            >
+              All calendars
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filter === 'org'}
+              className={`calendar-source-tab ${filter === 'org' ? 'calendar-source-tab--active' : ''}`}
+              onClick={() => setFilter('org')}
+              disabled={!activeOrgId && orgPickerOptions.length === 0}
+            >
+              Organization
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filter === 'team'}
+              className={`calendar-source-tab ${filter === 'team' ? 'calendar-source-tab--active' : ''}`}
+              onClick={() => setFilter('team')}
+              disabled={!activeOrgId || teams.length === 0}
+            >
+              Team
+            </button>
+          </div>
+          {!routeOrgId && (filter === 'org' || filter === 'team') && orgPickerOptions.length > 1 && (
+            <label className="calendar-org-pick">
+              <span className="visually-hidden">Organization</span>
+              <select
+                className="calendar-filter-select"
+                value={activeOrgId || ''}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setActiveOrgId(id || null)
+                }}
+              >
+                {orgPickerOptions.map((o) => (
+                  <option key={o.orgId} value={o.orgId}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {filter === 'team' && (
             <select
               value={scopeTeamId || ''}
               onChange={(e) => setScopeTeamId(e.target.value || null)}
               className="calendar-filter-select"
+              aria-label="Team"
             >
               <option value="">Select team</option>
               {teams.filter((t) => teamMemberships[t.id]?.state === 'active').map((t) => (
@@ -674,6 +699,7 @@ export function CalendarPage() {
           activeOrgId={activeOrgId}
           defaultDate={selectedDate}
           onCreated={() => setCalendarReloadKey((k) => k + 1)}
+          myOrgMembership={myMembershipForCalendar}
         />
       )}
       <EventDetailModal
@@ -682,64 +708,13 @@ export function CalendarPage() {
         onClose={() => setSelectedEventItem(null)}
         user={user}
         userDoc={userDoc}
+        canManageOrg={canManageOrg(myMembershipForCalendar)}
         onUpdated={() => setCalendarReloadKey((k) => k + 1)}
         onDeleted={(id) => {
-          setMeetings((prev) => prev.filter((m) => m.id !== id))
+          setMeetings((prev) => prev.filter((m) => m.id !== id && m._seriesId !== id))
           setSelectedEventItem(null)
         }}
       />
-
-      {showImportModal && (
-        <div className="calendar-import-overlay" onClick={() => !importing && setShowImportModal(false)}>
-          <div className="calendar-import-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="calendar-import-title">Import calendar</h3>
-            <p className="calendar-import-desc">Import events from an ICS file or public calendar URL (Google Calendar, Outlook, etc.).</p>
-            <form onSubmit={handleImportSubmit} className="calendar-import-form">
-              <div className="calendar-import-field">
-                <label>ICS file</label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".ics,.ical"
-                  onChange={handleImportFileChange}
-                  className="auth-input"
-                />
-              </div>
-              <div className="calendar-import-divider">or</div>
-              <div className="calendar-import-field">
-                <label>Calendar URL</label>
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={importUrl}
-                  onChange={(e) => { setImportUrl(e.target.value); if (e.target.value) setImportFile(null); }}
-                  className="auth-input"
-                />
-              </div>
-              <div className="calendar-import-field">
-                <label>Source name (optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Work calendar"
-                  value={importSourceName}
-                  onChange={(e) => setImportSourceName(e.target.value)}
-                  className="auth-input"
-                />
-              </div>
-              {importError && <p className="calendar-import-error">{importError}</p>}
-              {importSuccess && <p className="calendar-import-success">{importSuccess}</p>}
-              <div className="calendar-import-actions">
-                <Button type="submit" variant="primary" disabled={importing || (!importFile && !importUrl.trim())}>
-                  {importing ? 'Importing…' : 'Import'}
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => { setShowImportModal(false); setImportError(''); setImportSuccess(''); }} disabled={importing}>
-                  Close
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </main>
   )
 }

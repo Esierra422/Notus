@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
-import { getOrg, getMembership } from '../lib/orgService'
+import { getOrg, getMembership, membershipHasCapability } from '../lib/orgService'
 import {
   getTeam,
   getTeamMembership,
@@ -354,6 +354,10 @@ export function TeamPage() {
   if (!org || !team) return null
 
   const isAdmin = canManageTeam(teamMembership, orgMembership)
+  const canCreateTeamMeeting =
+    orgMembership &&
+    membershipHasCapability(orgMembership, 'scheduleMeetings') &&
+    membershipHasCapability(orgMembership, 'teamCalendar')
 
   return (
     <main className="app-main org-admin-main profile-main team-profile-main">
@@ -546,6 +550,12 @@ export function TeamPage() {
                 type="button"
                 className="org-admin-btn"
                 onClick={() => setShowCreateMeeting(true)}
+                disabled={!canCreateTeamMeeting}
+                title={
+                  !canCreateTeamMeeting
+                    ? 'You do not have permission to create team meetings. Ask an admin to enable scheduling and team calendar access.'
+                    : undefined
+                }
               >
                 Create meeting
               </button>

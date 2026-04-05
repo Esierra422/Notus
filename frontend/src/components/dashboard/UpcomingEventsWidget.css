@@ -1,0 +1,61 @@
+.dashboard-widget-upcoming {
+  min-height: 120px;
+}
+
+.upcoming-events-muted {
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.upcoming-events-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.upcoming-events-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.35rem 1rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.upcoming-events-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.upcoming-events-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.upcoming-events-org {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.upcoming-events-time {
+  font-size: 0.82rem;
+  color: var(--accent-dim, var(--accent));
+  white-space: nowrap;
+}
+
+.upcoming-events-badge {
+  font-weight: 500;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-left: 0.35rem;
+}

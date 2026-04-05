@@ -1581,6 +1581,11 @@
   background: var(--bg-elevated);
 }
 
+.chats-attach-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .chats-attach-icon-wrap {
   width: 52px;
   height: 52px;
