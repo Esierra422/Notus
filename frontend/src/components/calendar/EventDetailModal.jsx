@@ -158,7 +158,7 @@ export function EventDetailModal({
             {canVideo && (
               <Link
                 className="event-detail-video-link"
-                to={`/app/video?orgId=${encodeURIComponent(item.orgId)}&meetingId=${encodeURIComponent(item.id)}`}
+                to={`/app/org/${encodeURIComponent(item.orgId)}/video?meetingId=${encodeURIComponent(item.id)}`}
                 onClick={onClose}
               >
                 Open in Video meetings

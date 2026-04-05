@@ -141,6 +141,102 @@
   color: var(--accent-dim);
 }
 
+.prev-meetings-org-hint {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0 0 1.25rem;
+  max-width: 640px;
+}
+
+.prev-meetings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+}
+
+.prev-meetings-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.prev-meetings-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.prev-meetings-meeting-id-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+}
+
+.prev-meetings-meeting-id-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.prev-meetings-meeting-id-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+}
+
+.prev-meetings-copy-btn {
+  font-size: 0.78rem !important;
+  padding: 0.2rem 0.5rem !important;
+  min-height: auto !important;
+}
+
+.prev-meetings-org-badge {
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.prev-meetings-summary-only-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.prev-meetings-row-actions {
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
+.prev-meetings-summary-link {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.prev-meetings-summary-link:hover {
+  text-decoration: underline;
+}
+
+.prev-meetings-no-summary {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 @media (max-width: 600px) {
   .prev-meetings-page {
     padding: 1rem 1rem 3rem;
@@ -153,5 +249,10 @@
   .prev-meetings-card-header {
     flex-direction: column;
     gap: 0.25rem;
+  }
+
+  .prev-meetings-row-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

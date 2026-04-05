@@ -13,12 +13,27 @@
   margin-bottom: 1.25rem;
 }
 
+.calendar-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
 .calendar-title {
   font-family: var(--font-display);
   font-size: 1.6rem;
   font-weight: 700;
   margin: 0;
   letter-spacing: -0.02em;
+}
+
+.calendar-scope-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
 }
 
 .calendar-create-form {

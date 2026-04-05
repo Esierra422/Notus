@@ -1146,9 +1146,13 @@ ${blocks.join('\n')}
     }
   }, [orgId, chatId, user?.uid, selectedConv, userProfiles])
 
-  const handleStartVideoCall = useCallback((channel) => {
-    navigate(`/app/video?channel=${encodeURIComponent(channel)}`)
-  }, [navigate])
+  const handleStartVideoCall = useCallback(
+    (channel) => {
+      const base = orgId ? `/app/org/${orgId}/video` : '/app/video'
+      navigate(`${base}?channel=${encodeURIComponent(channel)}`)
+    },
+    [navigate, orgId]
+  )
 
   const handleChatMenuAction = useCallback(async (conv, action) => {
     if (!user?.uid) return

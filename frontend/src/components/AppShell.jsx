@@ -29,7 +29,8 @@ export function AppShell() {
   const [userDoc, setUserDoc] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const isChatsPage = /\/org\/[^/]+\/chats/.test(location.pathname)
-  const isVideoPage = location.pathname === '/app/video'
+  const isVideoPage =
+    location.pathname === '/app/video' || /^\/app\/org\/[^/]+\/video$/.test(location.pathname)
   const [activeOrg, setActiveOrg] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [navExtraOverride, setNavExtraOverride] = useState(undefined)
@@ -111,7 +112,7 @@ export function AppShell() {
     const p = location.pathname
     if (p === '/app' || p === '/app/') return 'Dashboard'
     if (p === '/app/calendar') return 'Calendar'
-    if (p === '/app/video') return 'Video Call'
+    if (p === '/app/video' || /^\/app\/org\/[^/]+\/video$/.test(p)) return 'Video Call'
     if (/^\/app\/org\/[^/]+\/chats/.test(p)) return 'Chats'
     if (p === '/app/profile') return 'Profile'
     if (p === '/app/settings') return 'Settings'
