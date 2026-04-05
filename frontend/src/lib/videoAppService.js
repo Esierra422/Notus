@@ -152,6 +152,13 @@ async function startScreenShare() {
   return localScreenTrack
 }
 
+/** Stop current share and open the picker again (another window or display). */
+async function replaceScreenShareSource() {
+  if (!localScreenTrack) return startScreenShare()
+  await stopScreenShare()
+  return startScreenShare()
+}
+
 function getIsScreenSharing() {
   return !!localScreenTrack
 }
@@ -243,6 +250,7 @@ export {
   setCallbacks,
   startScreenShare,
   stopScreenShare,
+  replaceScreenShareSource,
   toggleMic,
   toggleVideo,
 }

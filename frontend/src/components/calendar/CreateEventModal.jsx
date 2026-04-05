@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Timestamp } from 'firebase/firestore'
 import { Button } from '../ui/Button'
 import { getOrgMembers, MEMBERSHIP_STATES } from '../../lib/orgService'
-import { createMeeting, MEETING_SCOPES } from '../../lib/meetingService'
+import { createMeeting, MEETING_SCOPES, MEETING_CREATED_VIA } from '../../lib/meetingService'
 import { getUserDoc, getDisplayName } from '../../lib/userService'
 import './CreateEventModal.css'
 
@@ -110,6 +110,7 @@ export function CreateEventModal({
           invitedUserIds: inviteeIds,
           inviteOnly,
           isVideoMeeting,
+          createdVia: MEETING_CREATED_VIA.calendar,
         },
         user.uid
       )

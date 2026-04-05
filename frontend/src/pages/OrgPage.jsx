@@ -10,7 +10,7 @@ import {
   requestToJoinTeam,
 } from '../lib/teamService'
 import { getOrCreateTeamChat } from '../lib/conversationService'
-import { createMeeting, getOrgMeetingsForUser, MEETING_SCOPES } from '../lib/meetingService'
+import { createMeeting, getOrgMeetingsForUser, MEETING_SCOPES, MEETING_CREATED_VIA } from '../lib/meetingService'
 import { AppHeader, AppFooter } from '../components/app'
 import { Button } from '../components/ui/Button'
 import '../styles/variables.css'
@@ -101,6 +101,7 @@ export function OrgPage() {
       await createMeeting(orgId, {
         title: newMeetingTitle.trim(),
         scope: MEETING_SCOPES.org,
+        createdVia: MEETING_CREATED_VIA.calendar,
       }, user.uid)
       setShowCreateMeeting(false)
       setNewMeetingTitle('')

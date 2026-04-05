@@ -30,7 +30,7 @@ import {
   CONV_TYPES,
   MESSAGE_STATUS,
 } from '../lib/conversationService'
-import { createMeeting, MEETING_SCOPES } from '../lib/meetingService'
+import { createMeeting, MEETING_SCOPES, MEETING_CREATED_VIA } from '../lib/meetingService'
 import { Timestamp } from 'firebase/firestore'
 import { getOrgTeams, getTeamMembership, TEAM_STATES } from '../lib/teamService'
 import { getUserDoc, getDisplayName, getProfilePictureUrl } from '../lib/userService'
@@ -1524,6 +1524,7 @@ ${blocks.join('\n')}
         startAt,
         scope: isTeam ? MEETING_SCOPES.team : MEETING_SCOPES.private,
         ...(isTeam ? { scopeTeamId: selectedConv.teamId } : { scopeInviteList: selectedConv.members || [] }),
+        createdVia: MEETING_CREATED_VIA.calendar,
       }
       await createMeeting(orgId, meetingData, user.uid)
     } catch (err) {
