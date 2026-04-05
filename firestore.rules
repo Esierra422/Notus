@@ -134,9 +134,10 @@ service cloud.firestore {
       }
     }
 
-    // Meeting transcripts: Admin SDK only (ai-backend writes during transcription)
+    // Meeting transcripts: Admin SDK writes (bypasses rules); authenticated users can read
     match /meetingTranscripts/{channelName} {
-      allow read, write: if false;
+      allow read: if request.auth != null;
+      allow write: if false;
     }
 
     // Meeting summaries: authenticated user can read their own; Admin SDK creates

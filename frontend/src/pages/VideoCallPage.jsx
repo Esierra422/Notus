@@ -8,7 +8,7 @@ import { CSS } from '@dnd-kit/utilities'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './VideoCallPage.css'
-import { Mic, MicOff, Video, VideoOff, MessageSquare, Bot, LogOut, NotebookPen, Monitor, Shield } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, MessageSquare, Bot, LogOut, NotebookPen, Monitor, Shield, Captions } from 'lucide-react'
 
 import * as videoApp from '../lib/videoAppService.js'
 import { getUserDoc, getProfilePictureUrl } from '../lib/userService.js'
@@ -104,6 +104,7 @@ export function VideoCallPage() {
   const [participantMeta, setParticipantMeta] = useState({})
   const [localPhotoUrl, setLocalPhotoUrl] = useState(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [transcriptOpen, setTranscriptOpen] = useState(false)
   const [askMeetingOpen, setAskMeetingOpen] = useState(false)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
@@ -752,12 +753,20 @@ export function VideoCallPage() {
 
   const toggleChat = () => {
     setChatOpen(o => !o)
-    if(askMeetingOpen) setAskMeetingOpen(o => !o)
+    if(askMeetingOpen) setAskMeetingOpen(false)
+    if(transcriptOpen) setTranscriptOpen(false)
+  }
+
+  const toggleTranscript = () => {
+    setTranscriptOpen(o => !o)
+    if(chatOpen) setChatOpen(false)
+    if(askMeetingOpen) setAskMeetingOpen(false)
   }
 
   const toggleBot = () => {
     setAskMeetingOpen(o => !o)
-    if(chatOpen) setChatOpen(o => !o)
+    if(chatOpen) setChatOpen(false)
+    if(transcriptOpen) setTranscriptOpen(false)
   }
 
   const askMeeting = async () => {
@@ -1006,6 +1015,7 @@ export function VideoCallPage() {
               </div>
             </div>
             {chatOpen && <VideoCallChat channelName={channelName} user={user} />}
+            {transcriptOpen && <VideoCallTranscript channelName={channelName} />}
             {askMeetingOpen && (
           <div className="video-call-meeting-chat">
             <span className="video-call-meeting-chat-label">Ask about this meeting</span>
@@ -1079,6 +1089,9 @@ export function VideoCallPage() {
               </Button>
               <Button className="video-call-control-btn" variant={chatOpen ? 'primary' : 'outline'} size="sm" onClick={toggleChat} aria-label="Chat">
                 <MessageSquare size={20} strokeWidth={2.25} />
+              </Button>
+              <Button className="video-call-control-btn" variant={transcriptOpen ? 'primary' : 'outline'} size="sm" onClick={toggleTranscript} aria-label="Transcript">
+                <Captions size={20} strokeWidth={2.25} />
               </Button>
               <Button className="video-call-control-btn" variant={askMeetingOpen ? 'primary' : 'outline'} size="sm" onClick={toggleBot} aria-label="Ask AI">
                 <Bot size={20} strokeWidth={2.25} />
@@ -1418,6 +1431,40 @@ function VideoCallChat({ channelName, user }) {
           Send
         </button>
       </form>
+    </div>
+  )
+}
+
+function VideoCallTranscript({ channelName }) {
+  const [chunks, setChunks] = useState([])
+  const bottomRef = useRef(null)
+
+  useEffect(() => {
+    if (!channelName) return
+    return onSnapshot(
+      doc(db, 'meetingTranscripts', channelName),
+      (snap) => {
+        setChunks(snap.data()?.chunks ?? [])
+      },
+      (err) => console.error('Transcript listener error:', err)
+    )
+  }, [channelName])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chunks])
+
+  return (
+    <div className="video-chat-panel">
+      <div className="video-chat-header">Live Transcript</div>
+      <div className="video-chat-messages">
+        {chunks.map((chunk, i) => (
+          <div key={i} className="video-chat-msg">
+            <span className="video-chat-bubble">{chunk.text}</span>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
     </div>
   )
 }
