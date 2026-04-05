@@ -10,6 +10,7 @@ let micMuted = false
 let videoMuted = false
 let localAudioTrack = null
 let localVideoTrack = null
+let localScreenTrack = null
 let localUid = 0
 // Delay (ms) before joining; accounts for token generation.
 const JOIN_BUFFER_MS = 7000
@@ -28,7 +29,8 @@ function initializeClient() {
 function setupEventListeners() {
   client.on('user-published', async (user, mediaType) => {
     await client.subscribe(user, mediaType)
-    if (mediaType === 'video') {
+    if (mediaType === 'video' || mediaType === 'audio') {
+      // Audio-only (camera off) must still add the remote user; video-off must not remove them.
       onUserJoined?.(user)
     }
     if (mediaType === 'audio') {
@@ -39,8 +41,12 @@ function setupEventListeners() {
 
   client.on('user-unpublished', (user, mediaType) => {
     if (mediaType === 'video') {
-      onUserLeft?.(user)
+      onUserJoined?.(user)
     }
+  })
+
+  client.on('user-left', (user) => {
+    onUserLeft?.(user)
   })
 }
 
@@ -63,8 +69,12 @@ async function fetchToken(channelName, uid) {
   return data
 }
 
-async function joinChannel(channelName) {
+async function joinChannel(channelName, options = {}) {
   initializeClient()
+  const micOn = options.micOn !== false
+  const videoOn = options.videoOn !== false
+  micMuted = !micOn
+  videoMuted = !videoOn
   await new Promise((resolve) => setTimeout(resolve, JOIN_BUFFER_MS))
   const uid = Math.floor(Math.random() * 100000)
   localUid = uid
@@ -151,6 +161,21 @@ function getIsScreenSharing() {
 }
 
 async function leaveChannel() {
+  if (localScreenTrack && client) {
+    try {
+      await client.unpublish([localScreenTrack])
+    } catch (e) {
+      console.warn('Screen unpublish on leave:', e)
+    }
+  }
+  if (localScreenTrack) {
+    try {
+      localScreenTrack.close()
+    } catch (e) {
+      console.warn('Screen track close on leave:', e)
+    }
+    localScreenTrack = null
+  }
   if (localAudioTrack) {
     localAudioTrack.close()
     localAudioTrack = null
@@ -205,6 +230,7 @@ function setCallbacks({ onJoined, onLeft, onAudioPublished: onAudioPub }) {
 
 export {
   fetchToken,
+  getIsScreenSharing,
   getLocalAudioTrack,
   getLocalUid,
   getLocalVideoTrack,

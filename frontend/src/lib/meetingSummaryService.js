@@ -1,5 +1,6 @@
 import { collection, query, where, getDocs, getDoc, doc, orderBy } from 'firebase/firestore'
 import { db } from './firebase'
+import { getAiRestHttpBase } from './apiConfig.js'
 
 /**
  * Trigger summary generation on the ai-backend.
@@ -13,7 +14,12 @@ import { db } from './firebase'
  * @returns {Promise<{success?: boolean, summaryId?: string, error?: string}>}
  */
 export async function generateMeetingSummary(aiBaseUrl, { channel, sessionId, uid, orgId, participants }) {
-  const res = await fetch(`${aiBaseUrl}/api/generate-summary`, {
+  let base = typeof aiBaseUrl === 'string' ? aiBaseUrl.replace(/\/$/, '') : ''
+  if (base.startsWith('wss://')) base = `https://${base.slice(6)}`
+  else if (base.startsWith('ws://')) base = `http://${base.slice(5)}`
+  if (!base) base = getAiRestHttpBase()
+  if (!base) return { success: false, error: 'AI backend URL not configured.' }
+  const res = await fetch(`${base}/api/generate-summary`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ channel, sessionId, uid, orgId, participants }),

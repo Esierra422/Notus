@@ -10,9 +10,9 @@ import 'quill-resize-module/dist/resize.css'
 import '../styles/variables.css'
 import '../styles/Notepad.css'
 
-//register quill modules
-Quill.register('modules/resize', QuillResize);
-Quill.register('modules/cursors', QuillCursors);
+// Register once (suppress warning on HMR / strict mode double init)
+Quill.register('modules/resize', QuillResize, true)
+Quill.register('modules/cursors', QuillCursors, true)
 
 //quill tools
 const toolbarOptions = [

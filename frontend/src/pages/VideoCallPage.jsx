@@ -25,7 +25,7 @@ import {
 
 import * as videoApp from '../lib/videoAppService.js'
 import { getUserDoc, getProfilePictureUrl } from '../lib/userService.js'
-import { getEffectiveApiBase } from '../lib/apiConfig.js'
+import { getAiRestHttpBase } from '../lib/apiConfig.js'
 import { generateMeetingSummary } from '../lib/meetingSummaryService.js'
 import {
   canAccessMeeting,
@@ -364,11 +364,8 @@ export function VideoCallPage() {
   /** Live transcription WebSocket only when AI backend URL is set (Express has no /ws/transcription). */
   const transcriptionWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
 
-  const effectiveAiBase = (() => {
-    const u = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
-    if (u) return u
-    return getEffectiveApiBase()
-  })()
+  /** HTTP(S) base for /api/ask and /api/generate-summary (wss:// from env is mapped to https). */
+  const aiRestBase = useMemo(() => getAiRestHttpBase(), [])
 
 
 
@@ -995,9 +992,13 @@ export function VideoCallPage() {
           // Skip: avoids failed WS to Express (3001) and console spam
         } else {
         const CHUNK_DURATION_SEC = 15
-        const protocol = transcriptionWsBase.startsWith('https') ? 'wss' : 'ws'
-        const host = new URL(transcriptionWsBase).host
-        const wsUrl = `${protocol}://${host}/ws/transcription`
+        const wsUrl = /^wss?:\/\//i.test(transcriptionWsBase)
+          ? `${transcriptionWsBase.replace(/\/?$/, '')}/ws/transcription`
+          : (() => {
+              const protocol = transcriptionWsBase.startsWith('https') ? 'wss' : 'ws'
+              const host = new URL(transcriptionWsBase).host
+              return `${protocol}://${host}/ws/transcription`
+            })()
         const ws = new WebSocket(wsUrl)
         transcriptionWsRef.current = ws
         ws.binaryType = 'arraybuffer'
@@ -1182,10 +1183,10 @@ export function VideoCallPage() {
   ]
 
   const runSummaryIfConfigured = async (currentChannel, transcriptSessionId, currentParticipants, summaryOrgId) => {
-    if (!effectiveAiBase || !currentChannel || !user?.uid || !transcriptSessionId) return
+    if (!aiRestBase || !currentChannel || !user?.uid || !transcriptSessionId) return
     setGeneratingSummary(true)
     try {
-      const result = await generateMeetingSummary(effectiveAiBase, {
+      const result = await generateMeetingSummary(aiRestBase, {
         channel: currentChannel,
         sessionId: transcriptSessionId,
         uid: user.uid,
@@ -1648,7 +1649,7 @@ export function VideoCallPage() {
   const askMeeting = async () => {
     const q = meetingQuestion.trim()
     if (!q || askLoading) return
-    if (!effectiveAiBase) {
+    if (!aiRestBase) {
       setMeetingHistory(h => [...h, { role: 'ai', text: 'No API URL configured for meeting Q&A (set VITE_API_URL or VITE_AI_WS_URL).' }])
       return
     }
@@ -1656,7 +1657,7 @@ export function VideoCallPage() {
     setMeetingQuestion('')
     setAskLoading(true)
     try {
-      const res = await fetch(`${effectiveAiBase}/api/ask`, {
+      const res = await fetch(`${aiRestBase}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2584,18 +2585,18 @@ export function VideoCallPage() {
                           value={meetingQuestion}
                           onChange={(e) => setMeetingQuestion(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && askMeeting()}
-                          disabled={askLoading || !effectiveAiBase}
+                          disabled={askLoading || !aiRestBase}
                         />
                         <Button
                           variant="primary"
                           size="sm"
                           onClick={askMeeting}
-                          disabled={askLoading || !meetingQuestion.trim() || !effectiveAiBase}
+                          disabled={askLoading || !meetingQuestion.trim() || !aiRestBase}
                         >
                           {askLoading ? '…' : 'Ask'}
                         </Button>
                       </div>
-                      {!effectiveAiBase && (
+                      {!aiRestBase && (
                         <p className="video-call-meeting-chat-hint">Set VITE_API_URL or VITE_AI_WS_URL to enable meeting Q&A.</p>
                       )}
                     </div>
