@@ -120,6 +120,7 @@ Set env vars via `-e`, a `.env` file, or your platform’s “Environment” / �
 ### Option B: PaaS (Railway, Render, Fly.io, etc.)
 
 - Connect the repo (or the `ai-backend` folder) to the platform.
+- **Render:** New services default to **Python 3.14**, which is too new for `langchain-pinecone`. Either set environment variable **`PYTHON_VERSION=3.12.8`** (recommended), or rely on this folder’s **`.python-version`** file after deploy. See [Render: Python version](https://render.com/docs/python-version).
 - Set **build command** to install deps (e.g. `pip install -r requirements.txt`) and **start command** to `uvicorn main:app --host 0.0.0.0 --port $PORT`.
 - Add **environment variables**: `OPENAI_API_KEY`, `CORS_ORIGIN` (your production frontend URL, e.g. `https://app.notus.com`). The platform usually sets `PORT`.
 - Deploy. The service URL is your “AI backend” base URL.

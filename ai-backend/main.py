@@ -348,7 +348,7 @@ async def lifespan(app: FastAPI):
     global _pinecone_client, _pinecone_index, _firestore_db
 
     # Firebase Admin SDK for Firestore (calendar meetings & tasks)
-    firebase_sa_key = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
+    firebase_sa_key = (os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY") or "").strip()
     if firebase_sa_key:
         try:
             import firebase_admin
@@ -357,6 +357,12 @@ async def lifespan(app: FastAPI):
             firebase_admin.initialize_app(credentials.Certificate(creds))
             _firestore_db = firestore.client()
             print("Firebase Admin SDK initialized (Firestore ready).")
+        except json.JSONDecodeError as e:
+            print(
+                f"Firebase Admin JSON parse error: {e}. "
+                "Use one line of minified JSON (jq -c . serviceAccount.json). "
+                "On Render, paste the entire value with no leading # or label."
+            )
         except Exception as e:
             print(f"Firebase Admin initialization error: {e}")
     else:
