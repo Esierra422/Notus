@@ -13,18 +13,56 @@ import { getAiRestHttpBase } from './apiConfig.js'
  * @param {string[]} opts.participants - Display names of meeting participants
  * @returns {Promise<{success?: boolean, summaryId?: string, error?: string}>}
  */
+const SUMMARY_FETCH_TIMEOUT_MS = 120_000
+
 export async function generateMeetingSummary(aiBaseUrl, { channel, sessionId, uid, orgId, participants }) {
   let base = typeof aiBaseUrl === 'string' ? aiBaseUrl.replace(/\/$/, '') : ''
   if (base.startsWith('wss://')) base = `https://${base.slice(6)}`
   else if (base.startsWith('ws://')) base = `http://${base.slice(5)}`
   if (!base) base = getAiRestHttpBase()
   if (!base) return { success: false, error: 'AI backend URL not configured.' }
-  const res = await fetch(`${base}/api/generate-summary`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ channel, sessionId, uid, orgId, participants }),
-  })
-  return res.json()
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), SUMMARY_FETCH_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${base}/api/generate-summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel, sessionId, uid, orgId, participants }),
+      signal: controller.signal,
+    })
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    if (!ct.includes('application/json')) {
+      return {
+        success: false,
+        error: res.ok
+          ? 'AI server returned a non-JSON response.'
+          : `AI server returned HTTP ${res.status}. If this URL is your Express API, set VITE_AI_WS_URL to your FastAPI (ai-backend) URL and redeploy the frontend.`,
+      }
+    }
+    const data = await res.json()
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.error || `Request failed (${res.status})`,
+        wordCount: data.wordCount,
+      }
+    }
+    return data
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      return {
+        success: false,
+        error:
+          'Summary request timed out. The AI service may be waking from sleep — wait a minute and try “Previous meetings” or end again.',
+      }
+    }
+    return {
+      success: false,
+      error: e?.message || 'Could not reach the AI server (network or CORS).',
+    }
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 /**

@@ -840,7 +840,18 @@ export function VideoCallPage() {
         return false
       }
       const meetingFirestoreRef = doc(db, 'organizations', orgForMeeting, 'meetings', meeting.id)
-      const meetingSnap = await getDoc(meetingFirestoreRef)
+      const roomStateDoc = doc(db, 'videoChannels', room, 'roomState', 'current')
+      const [meetingResult, roomResult] = await Promise.allSettled([
+        getDoc(meetingFirestoreRef),
+        getDoc(roomStateDoc),
+      ])
+      if (meetingResult.status !== 'fulfilled') {
+        console.warn('Meeting read failed:', meetingResult.reason)
+        setError('Could not load meeting. Check your connection and try again.')
+        setLoading(false)
+        return false
+      }
+      const meetingSnap = meetingResult.value
       if (!meetingSnap.exists()) {
         setError('This meeting could not be found.')
         setLoading(false)
@@ -848,11 +859,10 @@ export function VideoCallPage() {
       }
       meeting = { id: meetingSnap.id, ...meetingSnap.data(), orgId: orgForMeeting }
 
-      const roomStateDoc = doc(db, 'videoChannels', room, 'roomState', 'current')
       let preJoinRoomState = {}
       try {
-        const preSnap = await getDoc(roomStateDoc)
-        preJoinRoomState = preSnap.data() || {}
+        const preSnap = roomResult.status === 'fulfilled' ? roomResult.value : null
+        preJoinRoomState = preSnap?.data?.() || {}
         const banned = Array.isArray(preJoinRoomState.bannedFirebaseUids)
           ? preJoinRoomState.bannedFirebaseUids
           : []
@@ -939,8 +949,15 @@ export function VideoCallPage() {
       setLocalCameraTrack(videoTrack)
 
       /** Room state: only the organizer clears endedAt; anyone can clear vacantSince / lastKick. Session clock starts once per “open” period. */
+      let userDocForParticipant = null
+      const [postSnapResult, userDocResult] = await Promise.allSettled([
+        getDoc(roomStateDoc),
+        getUserDoc(user.uid),
+      ])
+      if (userDocResult.status === 'fulfilled') userDocForParticipant = userDocResult.value
       try {
-        const postSnap = await getDoc(roomStateDoc)
+        const postSnap =
+          postSnapResult.status === 'fulfilled' ? postSnapResult.value : { data: () => ({}) }
         const rsExisting = postSnap.data() || {}
         const organizerUid = meeting.createdBy || rsExisting.hostUid || user.uid
         resolvedOrganizerUid = organizerUid
@@ -974,8 +991,7 @@ export function VideoCallPage() {
       }
 
       try {
-        const userDoc = await getUserDoc(user.uid)
-        const photoUrl = getProfilePictureUrl(userDoc, user) || null
+        const photoUrl = getProfilePictureUrl(userDocForParticipant, user) || null
         await setDoc(doc(db, 'videoChannels', room, 'participants', String(uid)), {
           displayName: user?.displayName || user?.email || 'Anonymous',
           photoUrl,
@@ -1183,8 +1199,18 @@ export function VideoCallPage() {
   ]
 
   const runSummaryIfConfigured = async (currentChannel, transcriptSessionId, currentParticipants, summaryOrgId) => {
-    if (!aiRestBase || !currentChannel || !user?.uid || !transcriptSessionId) return
+    if (!aiRestBase) {
+      setError(
+        'AI summary needs the FastAPI service URL. Set VITE_AI_WS_URL (or VITE_AI_HTTP_URL) in frontend env, rebuild, and redeploy hosting.'
+      )
+      return
+    }
+    if (!currentChannel || !user?.uid || !transcriptSessionId) {
+      setError('Could not start summary: missing room or transcript session.')
+      return
+    }
     setGeneratingSummary(true)
+    setError('')
     try {
       const result = await generateMeetingSummary(aiRestBase, {
         channel: currentChannel,
@@ -1197,8 +1223,16 @@ export function VideoCallPage() {
         navigate(`/app/meeting-summary/${result.summaryId}`)
         return
       }
-      if (result.error) console.warn('[Summary] Server returned error:', result.error)
+      const detail = result.error || 'Summary was not created.'
+      const hint =
+        result.wordCount != null && result.wordCount < 100
+          ? ' Speak longer next time (about 100+ words of transcript) or check the microphone was on.'
+          : ''
+      setError(`${detail}${hint}`)
+      console.warn('[Summary]', detail, result)
     } catch (e) {
+      const msg = toFriendlyError(e) || 'Meeting summary failed.'
+      setError(msg)
       console.warn('Meeting summary generation failed:', e)
     } finally {
       setGeneratingSummary(false)

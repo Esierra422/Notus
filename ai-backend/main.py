@@ -394,10 +394,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+# Browser calls /api/* from Firebase Hosting or localhost. This API does not rely on cookies;
+# allow_origins=* avoids broken summaries when CORS_ORIGIN is not set on Render.
+# Set CORS_ORIGIN=https://yourapp.web.app,https://yourdomain.com for an explicit allow list (no spaces after commas).
+_cors_raw = (os.getenv("CORS_ORIGIN") or "*").strip()
+_cors_list = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not _cors_list:
+    _cors_list = ["*"]
+_cors_credentials = "*" not in _cors_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGIN", "http://localhost:5173").split(","),
-    allow_credentials=True,
+    allow_origins=_cors_list,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

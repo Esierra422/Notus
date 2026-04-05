@@ -12,8 +12,6 @@ let localAudioTrack = null
 let localVideoTrack = null
 let localScreenTrack = null
 let localUid = 0
-// Delay (ms) before joining; accounts for token generation.
-const JOIN_BUFFER_MS = 7000
 // Callbacks the page sets to react to remote user changes
 let onUserJoined = null
 let onUserLeft = null
@@ -75,7 +73,6 @@ async function joinChannel(channelName, options = {}) {
   const videoOn = options.videoOn !== false
   micMuted = !micOn
   videoMuted = !videoOn
-  await new Promise((resolve) => setTimeout(resolve, JOIN_BUFFER_MS))
   const uid = Math.floor(Math.random() * 100000)
   localUid = uid
   const data = await fetchToken(channelName, uid)
