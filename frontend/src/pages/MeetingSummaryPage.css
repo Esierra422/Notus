@@ -195,6 +195,13 @@
   overflow-y: auto;
 }
 
+.summary-section--transcript .summary-transcript-text--open {
+  margin-top: 0.5rem;
+  padding-top: 0;
+  border-top: none;
+  max-height: min(55vh, 520px);
+}
+
 @media (max-width: 600px) {
   .summary-page {
     padding: 1rem 1rem 3rem;

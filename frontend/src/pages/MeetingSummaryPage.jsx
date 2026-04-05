@@ -129,10 +129,12 @@ export function MeetingSummaryPage() {
           </section>
         )}
 
-        <details className="summary-transcript-details">
-          <summary>View Full Transcript</summary>
-          <div className="summary-transcript-text">{summary.transcript}</div>
-        </details>
+        {summary.transcript && String(summary.transcript).trim() && (
+          <section className="summary-section summary-section--transcript" id="meeting-transcript">
+            <h2>Full transcript</h2>
+            <div className="summary-transcript-text summary-transcript-text--open">{summary.transcript}</div>
+          </section>
+        )}
       </div>
     </div>
   )

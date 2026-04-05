@@ -1,0 +1,29 @@
+.meeting-transcript-page .meeting-transcript-header {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.meeting-transcript-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.meeting-transcript-meta code {
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.meeting-transcript-body {
+  margin-top: 1rem;
+}
+
+.meeting-transcript-text {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

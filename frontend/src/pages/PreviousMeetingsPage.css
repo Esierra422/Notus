@@ -219,12 +219,43 @@
   border-top: 1px solid var(--border);
 }
 
+.prev-meetings-transcript-snippet {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.prev-meetings-action-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.65rem 1rem;
+}
+
 .prev-meetings-summary-link {
   display: inline-block;
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--accent);
   text-decoration: none;
+}
+
+.prev-meetings-transcript-link {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--accent-dim, var(--accent));
+  text-decoration: none;
+}
+
+.prev-meetings-transcript-link:hover {
+  text-decoration: underline;
+}
+
+.prev-meetings-no-summary--inline {
+  display: inline;
+  max-width: 100%;
 }
 
 .prev-meetings-summary-link:hover {

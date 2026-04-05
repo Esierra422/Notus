@@ -105,3 +105,26 @@ export async function getSummary(summaryId) {
   if (!snap.exists()) return null
   return { id: snap.id, ...snap.data() }
 }
+
+/**
+ * Full transcript text saved during the call (Firestore), keyed by transcript session id.
+ * May be empty after a summary run deletes the doc. Requires auth (Firestore rules).
+ */
+export async function getMeetingTranscriptBySessionId(sessionId) {
+  const sid = (sessionId || '').trim()
+  if (!sid) return null
+  const snap = await getDoc(doc(db, 'meetingTranscripts', sid))
+  if (!snap.exists()) return null
+  const d = snap.data() || {}
+  const chunks = Array.isArray(d.chunks) ? d.chunks : []
+  const text = chunks
+    .map((c) => (c && typeof c === 'object' && c.text ? String(c.text) : ''))
+    .filter(Boolean)
+    .join(' ')
+  return {
+    sessionId: sid,
+    text: text.trim(),
+    totalWordCount: d.totalWordCount ?? null,
+    updatedAt: d.updatedAt ?? null,
+  }
+}

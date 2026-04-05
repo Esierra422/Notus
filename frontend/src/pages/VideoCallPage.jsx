@@ -21,6 +21,8 @@ import {
   RefreshCw,
   Users,
   Clock,
+  Captions,
+  FileText,
 } from 'lucide-react'
 
 import * as videoApp from '../lib/videoAppService.js'
@@ -274,6 +276,10 @@ export function VideoCallPage() {
   const [sidePanelTab, setSidePanelTab] = useState(null)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
+  const [liveTranscriptLines, setLiveTranscriptLines] = useState([])
+  const [liveSubtitleText, setLiveSubtitleText] = useState('')
+  const [showLiveSubtitles, setShowLiveSubtitles] = useState(true)
+  const liveTranscriptEndRef = useRef(null)
   const [askLoading, setAskLoading] = useState(false)
   const [showNotepad, setShowNotepad] = useState(false)
   const [generatingSummary, setGeneratingSummary] = useState(false)
@@ -367,7 +373,17 @@ export function VideoCallPage() {
   /** HTTP(S) base for /api/ask and /api/generate-summary (wss:// from env is mapped to https). */
   const aiRestBase = useMemo(() => getAiRestHttpBase(), [])
 
+  useEffect(() => {
+    if (!joined) {
+      setLiveTranscriptLines([])
+      setLiveSubtitleText('')
+    }
+  }, [joined])
 
+  useEffect(() => {
+    if (sidePanelTab !== 'transcript') return
+    liveTranscriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [liveTranscriptLines, sidePanelTab])
 
   const cleanup = useCallback(async () => {
     if (transcriptionWsRef.current) {
@@ -796,6 +812,8 @@ export function VideoCallPage() {
   }) => {
     remoteEndHandledRef.current = false
     setError('')
+    setLiveTranscriptLines([])
+    setLiveSubtitleText('')
     setLoading(true)
     try {
       let meeting = meetingInput
@@ -1018,6 +1036,22 @@ export function VideoCallPage() {
         const ws = new WebSocket(wsUrl)
         transcriptionWsRef.current = ws
         ws.binaryType = 'arraybuffer'
+        ws.onmessage = (event) => {
+          if (typeof event.data !== 'string') return
+          try {
+            const msg = JSON.parse(event.data)
+            if (msg?.type === 'transcript' && typeof msg.text === 'string' && msg.text.trim()) {
+              const t = msg.text.trim()
+              setLiveTranscriptLines((prev) => [
+                ...prev,
+                { id: `${Date.now()}-${prev.length}`, text: t },
+              ])
+              setLiveSubtitleText(t)
+            }
+          } catch {
+            /* non-JSON or unexpected shape */
+          }
+        }
         ws.onopen = () => {
           ws.send(
             JSON.stringify({ type: 'meta', channel: room, uid, sessionId: transcriptSessionIdRef.current })
@@ -1225,8 +1259,8 @@ export function VideoCallPage() {
       }
       const detail = result.error || 'Summary was not created.'
       const hint =
-        result.wordCount != null && result.wordCount < 100
-          ? ' Speak longer next time (about 100+ words of transcript) or check the microphone was on.'
+        result.wordCount != null && result.wordCount < 70
+          ? ' Speak longer next time (~1–2 minutes with the mic on) or use End for everyone as host so notes can run.'
           : ''
       setError(`${detail}${hint}`)
       console.warn('[Summary]', detail, result)
@@ -1678,6 +1712,14 @@ export function VideoCallPage() {
 
   const toggleBot = () => {
     setSidePanelTab((t) => (t === 'ai' ? null : 'ai'))
+  }
+
+  const toggleTranscriptPanel = () => {
+    setSidePanelTab((t) => (t === 'transcript' ? null : 'transcript'))
+  }
+
+  const toggleLiveSubtitles = () => {
+    setShowLiveSubtitles((v) => !v)
   }
 
   const askMeeting = async () => {
@@ -2551,10 +2593,22 @@ export function VideoCallPage() {
                     </div>
                   </div>
                 )}
+                {transcriptionWsBase &&
+                  showLiveSubtitles &&
+                  liveSubtitleText && (
+                    <div
+                      className="video-call-live-subtitles"
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
+                      <p className="video-call-live-subtitles-text">{liveSubtitleText}</p>
+                    </div>
+                  )}
               </div>
             </div>
             {sidePanelTab && (
-              <aside className="video-call-side-panel" aria-label="In-meeting chat and assistant">
+              <aside className="video-call-side-panel" aria-label="In-meeting chat, transcript, and assistant">
                 <div className="video-call-side-panel-tabs" role="tablist">
                   <button
                     type="button"
@@ -2570,6 +2624,20 @@ export function VideoCallPage() {
                     onClick={() => roomPrefsLive.continuousMeetingChat && setSidePanelTab('messages')}
                   >
                     Messages
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sidePanelTab === 'transcript'}
+                    className={[
+                      'video-call-side-panel-tab',
+                      sidePanelTab === 'transcript' && 'video-call-side-panel-tab--active',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => setSidePanelTab('transcript')}
+                  >
+                    Transcript
                   </button>
                   <button
                     type="button"
@@ -2632,6 +2700,30 @@ export function VideoCallPage() {
                       </div>
                       {!aiRestBase && (
                         <p className="video-call-meeting-chat-hint">Set VITE_API_URL or VITE_AI_WS_URL to enable meeting Q&A.</p>
+                      )}
+                    </div>
+                  )}
+                  {sidePanelTab === 'transcript' && (
+                    <div className="video-call-transcript-panel">
+                      {!transcriptionWsBase ? (
+                        <p className="video-call-meeting-chat-hint">
+                          Set <code className="video-call-transcript-code">VITE_AI_WS_URL</code> to your AI backend and
+                          rebuild to enable live transcription, subtitles, and this panel.
+                        </p>
+                      ) : liveTranscriptLines.length === 0 ? (
+                        <p className="video-call-transcript-empty">
+                          Transcript segments appear here as the AI transcribes speech (about every 15 seconds when
+                          you’re speaking). Turn on your microphone.
+                        </p>
+                      ) : (
+                        <div className="video-call-transcript-scroll" role="log" aria-live="polite" aria-relevant="additions">
+                          {liveTranscriptLines.map((line) => (
+                            <p key={line.id} className="video-call-transcript-line">
+                              {line.text}
+                            </p>
+                          ))}
+                          <span ref={liveTranscriptEndRef} className="video-call-transcript-end" aria-hidden />
+                        </div>
                       )}
                     </div>
                   )}
@@ -2703,6 +2795,33 @@ export function VideoCallPage() {
                 aria-label="Ask AI"
               >
                 <Bot size={20} strokeWidth={2.25} />
+              </Button>
+              <Button
+                className="video-call-control-btn"
+                variant={sidePanelTab === 'transcript' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={toggleTranscriptPanel}
+                aria-label="Live transcript"
+                title="Open live transcript"
+              >
+                <FileText size={20} strokeWidth={2.25} />
+              </Button>
+              <Button
+                className="video-call-control-btn"
+                variant={showLiveSubtitles && transcriptionWsBase ? 'primary' : 'outline'}
+                size="sm"
+                onClick={toggleLiveSubtitles}
+                disabled={!transcriptionWsBase}
+                aria-label={showLiveSubtitles ? 'Hide subtitles' : 'Show subtitles'}
+                title={
+                  transcriptionWsBase
+                    ? showLiveSubtitles
+                      ? 'Hide on-screen subtitles'
+                      : 'Show on-screen subtitles'
+                    : 'Subtitles need the AI transcription service'
+                }
+              >
+                <Captions size={20} strokeWidth={2.25} />
               </Button>
               <Button
                 className="video-call-control-btn"

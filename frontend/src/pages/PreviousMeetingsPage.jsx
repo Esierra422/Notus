@@ -12,6 +12,12 @@ import '../styles/variables.css'
 import './AppLayout.css'
 import './PreviousMeetingsPage.css'
 
+function truncateText(text, max) {
+  const t = String(text || '').trim().replace(/\s+/g, ' ')
+  if (t.length <= max) return t
+  return `${t.slice(0, max).trim()}…`
+}
+
 function formatRowTime(ts) {
   const ms = ts?.toMillis?.() ?? (ts?.seconds ? ts.seconds * 1000 : ts)
   if (!ms) return ''
@@ -91,6 +97,7 @@ export function PreviousMeetingsPage() {
             meeting: m,
             orgId,
             meetingId: m.id,
+            transcriptSessionId: sessionId || null,
             title: m.title || 'Meeting',
             startAt: m.startAt,
             summary,
@@ -106,6 +113,7 @@ export function PreviousMeetingsPage() {
             kind: 'summary-only',
             meeting: null,
             meetingId: null,
+            transcriptSessionId: (s.transcriptSessionId || '').trim() || null,
             title: s.title || 'Meeting summary',
             startAt: s.createdAt,
             summary: s,
@@ -226,12 +234,37 @@ export function PreviousMeetingsPage() {
                   {row.kind === 'summary-only' && (
                     <p className="prev-meetings-summary-only-note">Summary record (no linked calendar meeting).</p>
                   )}
+                  {row.summary?.transcript && String(row.summary.transcript).trim() && (
+                    <p className="prev-meetings-transcript-snippet">{truncateText(row.summary.transcript, 280)}</p>
+                  )}
                 </div>
                 <div className="prev-meetings-row-actions">
                   {row.summary ? (
-                    <Link to={`/app/meeting-summary/${row.summary.id}`} className="prev-meetings-summary-link">
-                      View AI summary
-                    </Link>
+                    <div className="prev-meetings-action-links">
+                      <Link to={`/app/meeting-summary/${row.summary.id}`} className="prev-meetings-summary-link">
+                        View AI summary
+                      </Link>
+                      {row.summary.transcript && String(row.summary.transcript).trim() && (
+                        <Link
+                          to={`/app/meeting-summary/${row.summary.id}#meeting-transcript`}
+                          className="prev-meetings-transcript-link"
+                        >
+                          Full transcript
+                        </Link>
+                      )}
+                    </div>
+                  ) : row.transcriptSessionId ? (
+                    <div className="prev-meetings-action-links">
+                      <Link
+                        to={`/app/meeting-transcript/${encodeURIComponent(row.transcriptSessionId)}`}
+                        className="prev-meetings-transcript-link"
+                      >
+                        View saved transcript
+                      </Link>
+                      <span className="prev-meetings-no-summary prev-meetings-no-summary--inline">
+                        AI summary appears after the host uses “End for everyone” when notes generate successfully.
+                      </span>
+                    </div>
                   ) : (
                     <span className="prev-meetings-no-summary">
                       No AI summary yet — needs enough transcript and “End for everyone” with the AI backend connected.

@@ -76,6 +76,36 @@ def add_transcript_to_meeting(rag_namespace: str, text: str) -> None:
         print(f"Pinecone add_texts error: {e}")
 
 
+def _transcript_text_from_pinecone(namespace: str) -> str:
+    """
+    Reconstruct meeting text from Pinecone (same namespace as live /api/ask RAG).
+    Used when meetingTranscripts/{sessionId} is missing or empty but in-meeting Q&A still worked.
+    """
+    key = (namespace or "").strip() or "default"
+    vs = _get_vectorstore(key)
+    if vs is None:
+        return ""
+    seen: set[str] = set()
+    parts: list[str] = []
+    for q in (
+        "meeting discussion decisions",
+        "action items tasks next steps",
+        "what participants said",
+        "summary topics",
+    ):
+        try:
+            docs = vs.similarity_search(q, k=25)
+            for d in docs:
+                t = (d.page_content or "").strip()
+                if len(t) < 3 or t in seen:
+                    continue
+                seen.add(t)
+                parts.append(t)
+        except Exception as e:
+            print(f"[Summary] Pinecone gather error ({q[:20]}…): {e}")
+    return " ".join(parts)
+
+
 TOOL_DEFINITIONS = [
     {
         "type": "function",
@@ -465,29 +495,51 @@ def generate_summary(body: SummarizeBody):
         print("[Summary] ERROR: Missing sessionId or channel")
         return {"error": "Missing session id or channel."}
 
-    # Read full transcript from Firestore
+    doc_ref = _firestore_db.collection("meetingTranscripts").document(transcript_doc_id)
+    chunks: list = []
     try:
-        doc_ref = _firestore_db.collection("meetingTranscripts").document(transcript_doc_id)
         doc = doc_ref.get()
-        if not doc.exists:
-            print(f"[Summary] ERROR: No transcript doc found for id '{transcript_doc_id}'")
-            return {"error": "No transcript found for this meeting.", "wordCount": 0}
-        data = doc.to_dict()
-        chunks = data.get("chunks", [])
-        if not chunks:
-            print("[Summary] ERROR: Transcript doc exists but chunks array is empty")
-            return {"error": "Transcript is empty.", "wordCount": 0}
-        print(f"[Summary] Found {len(chunks)} chunks in Firestore")
+        if doc.exists:
+            data = doc.to_dict() or {}
+            raw_chunks = data.get("chunks", [])
+            if isinstance(raw_chunks, list):
+                chunks = raw_chunks
+            print(f"[Summary] Firestore chunk count={len(chunks)} for id '{transcript_doc_id}'")
+        else:
+            print(f"[Summary] No Firestore transcript doc for id '{transcript_doc_id}' (will try Pinecone)")
     except Exception as e:
-        print(f"[Summary] ERROR reading transcript: {e}")
+        print(f"[Summary] ERROR reading Firestore transcript: {e}")
         return {"error": f"Failed to read transcript: {e}"}
 
-    full_text = " ".join(c.get("text", "") for c in chunks)
+    full_text = " ".join(
+        (c.get("text", "") if isinstance(c, dict) else str(c))
+        for c in chunks
+    ).strip()
     word_count = len(full_text.split())
-    print(f"[Summary] Total word count: {word_count}")
+
+    # Live Q&A reads Pinecone only; Firestore append can fail while vectors succeed. Merge Pinecone if thin/missing.
     if word_count < 100:
-        print(f"[Summary] Transcript too short ({word_count} words)")
-        return {"error": "Transcript too short for a meaningful summary.", "wordCount": word_count}
+        pc_text = _transcript_text_from_pinecone(transcript_doc_id)
+        pc_words = len(pc_text.split()) if pc_text else 0
+        if pc_text:
+            print(f"[Summary] Firestore words={word_count}; Pinecone fallback words≈{pc_words}")
+            full_text = (full_text + " " + pc_text).strip() if full_text else pc_text
+            word_count = len(full_text.split())
+        elif not full_text:
+            print(f"[Summary] No Firestore text and no Pinecone vectors for namespace '{transcript_doc_id}'")
+            return {
+                "error": "No transcript found for this meeting. Speak with the mic on, or check AI / Pinecone.",
+                "wordCount": 0,
+            }
+
+    print(f"[Summary] Total word count (after merge): {word_count}")
+    MIN_SUMMARY_WORDS = 70
+    if word_count < MIN_SUMMARY_WORDS:
+        print(f"[Summary] Transcript too short ({word_count} words, min {MIN_SUMMARY_WORDS})")
+        return {
+            "error": "Transcript too short for a meaningful summary. Talk longer with the microphone on, then use End for everyone.",
+            "wordCount": word_count,
+        }
 
     # Generate summary via OpenAI
     print("[Summary] Calling OpenAI for summary generation...")
@@ -606,6 +658,10 @@ async def websocket_transcription(websocket: WebSocket):
                 text = (transcript.text or "").strip()
                 if text:
                     on_transcript(session_id, channel, uid, text)
+                    try:
+                        await websocket.send_json({"type": "transcript", "text": text})
+                    except Exception:
+                        pass  # client may have disconnected
             except Exception as e:
                 print(f"Whisper transcription error: {e}")
     except WebSocketDisconnect:
