@@ -5776,54 +5776,61 @@ function NewMeetingSettingsModal({
     <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="new-meeting-settings-title">
       <button type="button" className="video-prejoin-backdrop" onClick={onClose} aria-label="Close" />
       <div className="video-prejoin-modal video-new-meeting-settings-modal video-new-meeting-settings-modal--wide">
-        <div className="video-prejoin-header video-new-meeting-header--center">
-          <h2 id="new-meeting-settings-title" className="video-prejoin-title">
+        <header className="video-new-meeting-shell-header">
+          <h2 id="new-meeting-settings-title" className="video-new-meeting-shell-title">
             New meeting
           </h2>
-          <p className="video-prejoin-sub">
-            Configure who can see this quick meeting, who gets notified, and your title. Next you&apos;ll check camera and
-            microphone before starting the room.
+          <p className="video-new-meeting-shell-lead">
+            Set the title and who can join. You&apos;ll confirm camera and microphone on the next step.
           </p>
-        </div>
-        {orgOptions && orgOptions.length > 1 && onOrgChange ? (
-          <label className="video-new-meeting-field">
-            <span className="video-new-meeting-field-label">Organization</span>
-            <select
-              className="auth-input video-new-meeting-org-select"
-              value={selectedOrgId || ''}
-              onChange={(e) => onOrgChange(e.target.value)}
-            >
-              {orgOptions.map((o) => (
-                <option key={o.orgId} value={o.orgId}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <label className="video-new-meeting-field">
-          <span className="video-new-meeting-field-label">Meeting title</span>
-          <input
-            type="text"
-            className="auth-input video-new-meeting-title-input"
-            value={titleValue}
-            onChange={(e) => onTitleChange(e.target.value)}
-            placeholder="e.g. Team sync"
-            maxLength={120}
-          />
-        </label>
-        <label className="video-new-meeting-field">
-          <span className="video-new-meeting-field-label">Description / agenda</span>
-          <textarea
-            className="auth-input video-new-meeting-bio"
-            value={bioValue}
-            onChange={(e) => onBioChange(e.target.value)}
-            placeholder="Optional context for attendees…"
-            rows={3}
-          />
-        </label>
-        <fieldset className="video-new-meeting-field video-new-meeting-fieldset video-new-meeting-fieldset--card">
-          <legend className="video-new-meeting-field-label">Who can see &amp; join</legend>
+        </header>
+
+        <div className="video-new-meeting-layout">
+          <div className="video-new-meeting-layout__col video-new-meeting-layout__col--details">
+            <p className="video-new-meeting-section-kicker">Meeting details</p>
+            {orgOptions && orgOptions.length > 1 && onOrgChange ? (
+              <label className="video-new-meeting-field">
+                <span className="video-new-meeting-field-label">Organization</span>
+                <select
+                  className="auth-input video-new-meeting-org-select"
+                  value={selectedOrgId || ''}
+                  onChange={(e) => onOrgChange(e.target.value)}
+                >
+                  {orgOptions.map((o) => (
+                    <option key={o.orgId} value={o.orgId}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label className="video-new-meeting-field">
+              <span className="video-new-meeting-field-label">Meeting title</span>
+              <input
+                type="text"
+                className="auth-input video-new-meeting-title-input"
+                value={titleValue}
+                onChange={(e) => onTitleChange(e.target.value)}
+                placeholder="e.g. Team sync"
+                maxLength={120}
+              />
+            </label>
+            <label className="video-new-meeting-field">
+              <span className="video-new-meeting-field-label">Description / agenda</span>
+              <textarea
+                className="auth-input video-new-meeting-bio"
+                value={bioValue}
+                onChange={(e) => onBioChange(e.target.value)}
+                placeholder="Optional context for attendees…"
+                rows={4}
+              />
+            </label>
+          </div>
+
+          <div className="video-new-meeting-layout__col video-new-meeting-layout__col--access">
+            <p className="video-new-meeting-section-kicker">Access &amp; notifications</p>
+            <fieldset className="video-new-meeting-fieldset video-new-meeting-fieldset--card video-new-meeting-fieldset--flush">
+              <legend className="video-new-meeting-fieldset-legend">Who can see &amp; join</legend>
           <label className="video-new-meeting-radio">
             <input
               type="radio"
@@ -5962,37 +5969,43 @@ function NewMeetingSettingsModal({
               <strong>Invite-only</strong> — only selected people can see this meeting; they get a notification.
             </span>
           </label>
-        </fieldset>
-        {visibility === 'invited' && (
-          <div className="video-new-meeting-invite-block">
-            <span className="video-new-meeting-field-label">Who can join</span>
-            <div className="video-new-meeting-invite-scroll">
-              {membersLoading ? (
-                <p className="video-prejoin-sub">Loading…</p>
-              ) : (
-                <ul className="video-new-meeting-invite-list">
-                  {(members || []).map(({ userId: uid, profile }) => (
-                    <li key={uid}>
-                      <label className="video-new-meeting-invite-row">
-                        <input
-                          type="checkbox"
-                          checked={inviteeIds.includes(uid)}
-                          onChange={() =>
-                            onInviteeIdsChange((prev) =>
-                              prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
-                            )
-                          }
-                        />
-                        <span>{getDisplayName(profile, uid)}</span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            </fieldset>
           </div>
-        )}
-        <div className="video-prejoin-footer">
+
+          {visibility === 'invited' ? (
+            <div className="video-new-meeting-layout__full">
+              <div className="video-new-meeting-invite-block video-new-meeting-invite-block--panel">
+                <span className="video-new-meeting-field-label">Who can join</span>
+                <div className="video-new-meeting-invite-scroll video-new-meeting-invite-scroll--tall">
+                  {membersLoading ? (
+                    <p className="video-prejoin-sub">Loading…</p>
+                  ) : (
+                    <ul className="video-new-meeting-invite-list">
+                      {(members || []).map(({ userId: uid, profile }) => (
+                        <li key={uid}>
+                          <label className="video-new-meeting-invite-row">
+                            <input
+                              type="checkbox"
+                              checked={inviteeIds.includes(uid)}
+                              onChange={() =>
+                                onInviteeIdsChange((prev) =>
+                                  prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+                                )
+                              }
+                            />
+                            <span>{getDisplayName(profile, uid)}</span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="video-prejoin-footer video-new-meeting-footer">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>

@@ -2253,10 +2253,11 @@
 }
 
 .video-new-meeting-settings-modal--wide.video-prejoin-modal {
-  max-width: 480px;
-  max-height: min(92vh, 720px);
+  width: 100%;
+  max-width: min(94vw, 820px);
+  max-height: min(92vh, 780px);
   overflow-y: auto;
-  padding: 1.35rem 1.5rem 1.3rem;
+  padding: 1.5rem 1.75rem 1.35rem;
   box-sizing: border-box;
 }
 
@@ -3099,7 +3100,7 @@
 }
 
 /* New meeting + pre-join: room preferences (chat defaults, video defaults, audio) */
-.video-new-meeting-settings-modal.video-prejoin-modal {
+.video-new-meeting-settings-modal.video-prejoin-modal:not(.video-new-meeting-settings-modal--wide) {
   max-width: 480px;
   max-height: min(92vh, 720px);
   overflow-y: auto;
@@ -4170,13 +4171,94 @@
   line-height: 1.45;
 }
 
-/* New meeting modal — refined layout */
-.video-new-meeting-header--center {
-  text-align: center;
+/* New meeting modal — wide shell + two-column layout */
+.video-new-meeting-shell-header {
+  text-align: left;
+  padding-bottom: 1rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, var(--accent) 12%);
 }
 
-.video-new-meeting-header--center .video-prejoin-title {
-  margin-bottom: 0.35rem;
+.video-new-meeting-shell-title {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.video-new-meeting-shell-lead {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-width: 52rem;
+}
+
+.video-new-meeting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.25rem 2rem;
+  align-items: start;
+  margin-top: 1.1rem;
+}
+
+.video-new-meeting-layout__full {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+}
+
+.video-new-meeting-section-kicker {
+  margin: 0 0 0.65rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text-muted) 92%, var(--accent) 8%);
+}
+
+.video-new-meeting-layout__col--details .video-new-meeting-field:last-child {
+  margin-bottom: 0;
+}
+
+.video-new-meeting-fieldset--flush {
+  margin: 0;
+  min-width: 0;
+}
+
+.video-new-meeting-fieldset-legend {
+  padding: 0 0.4rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.video-new-meeting-invite-block--panel {
+  margin-top: 0;
+  padding: 0.65rem 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+}
+
+.video-new-meeting-invite-scroll--tall {
+  max-height: min(240px, 32vh);
+}
+
+.video-new-meeting-footer {
+  margin-top: 1.15rem;
+  padding-top: 1rem;
+}
+
+@media (max-width: 720px) {
+  .video-new-meeting-layout {
+    grid-template-columns: 1fr;
+    gap: 1.15rem;
+  }
+
+  .video-new-meeting-settings-modal--wide.video-prejoin-modal {
+    max-width: min(94vw, 520px);
+    padding: 1.25rem 1.2rem 1.15rem;
+  }
 }
 
 .video-new-meeting-fieldset--card {
@@ -4186,6 +4268,10 @@
   border-color: color-mix(in srgb, var(--border) 90%, var(--accent) 10%);
   background: rgba(0, 0, 0, 0.12);
   padding: 0.85rem 1rem 1rem;
+}
+
+.video-new-meeting-fieldset--card > .video-new-meeting-radio:first-of-type {
+  margin-top: 0.2rem;
 }
 
 .video-new-meeting-scope-stack {
