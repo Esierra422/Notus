@@ -26,7 +26,24 @@
   padding: 0.55rem 0.65rem;
   border-radius: 10px;
   border: 1px solid var(--border);
+  border-left-width: 4px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+/* Match CalendarPage combined-view colors */
+.upcoming-events-row--src-personal {
+  border-left-color: #6b9fff;
+  background: rgba(107, 159, 255, 0.1);
+}
+
+.upcoming-events-row--src-org {
+  border-left-color: var(--accent);
+  background: rgba(212, 168, 83, 0.12);
+}
+
+.upcoming-events-row--src-team {
+  border-left-color: #3ecf8e;
+  background: rgba(62, 207, 142, 0.1);
 }
 
 .upcoming-events-row-main {
@@ -58,4 +75,15 @@
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-left: 0.35rem;
+}
+
+.upcoming-events-source {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  vertical-align: middle;
 }

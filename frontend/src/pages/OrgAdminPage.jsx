@@ -10,6 +10,7 @@ import {
   updateMembershipState,
   canManageOrg,
   MEMBERSHIP_STATES,
+  getMembershipDisplayTitle,
 } from '../lib/orgService'
 import { createOrgInvitation } from '../lib/invitationService'
 import { getUserDoc, getDisplayName, getMemberDisplayLine } from '../lib/userService'
@@ -90,7 +91,7 @@ export function OrgAdminPage() {
   const handleApprove = async (userId) => {
     setLoading((l) => ({ ...l, [userId]: true }))
     try {
-      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.active)
+      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.active, user.uid)
       setPending((p) => p.filter((m) => m.userId !== userId))
       setMembers((m) => [...m, { userId, role: 'member', state: MEMBERSHIP_STATES.active }])
       const profile = await getUserDoc(userId)
@@ -133,7 +134,7 @@ export function OrgAdminPage() {
   const handleReject = async (userId) => {
     setLoading((l) => ({ ...l, [userId]: true }))
     try {
-      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.rejected)
+      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.rejected, user.uid)
       setPending((p) => p.filter((m) => m.userId !== userId))
     } finally {
       setLoading((l) => ({ ...l, [userId]: false }))
@@ -207,7 +208,14 @@ export function OrgAdminPage() {
           <ul className="org-admin-list">
             {members.map((m) => (
               <li key={m.userId} className="org-admin-list-item">
-                <span>{getMemberDisplayLine(userProfiles[m.userId], m.userId, m.userId === user?.uid ? user : null, m.role)}</span>
+                <span>
+                  {getMemberDisplayLine(
+                    userProfiles[m.userId],
+                    m.userId,
+                    m.userId === user?.uid ? user : null,
+                    getMembershipDisplayTitle(m)
+                  )}
+                </span>
               </li>
             ))}
           </ul>

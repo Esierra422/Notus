@@ -76,7 +76,7 @@ export function MeetingTranscriptPage() {
         <div className="summary-error">
           <p>{error}</p>
           <Button as={Link} to="/app/video/meetings" variant="outline" size="sm">
-            <ArrowLeftIcon size={16} /> Past meetings
+            <ArrowLeftIcon size={16} /> Past Meetings
           </Button>
         </div>
       </div>
@@ -89,11 +89,11 @@ export function MeetingTranscriptPage() {
     <div className="summary-page meeting-transcript-page">
       <div className="summary-nav">
         <Button as={Link} to="/app/video/meetings" variant="ghost" size="sm">
-          <ArrowLeftIcon size={16} /> Past meetings
+          <ArrowLeftIcon size={16} /> Past Meetings
         </Button>
       </div>
       <header className="meeting-transcript-header">
-        <h1 className="summary-title">Meeting transcript</h1>
+        <h1 className="summary-title">Meeting Transcript</h1>
         <p className="meeting-transcript-meta">Session: <code>{sessionId}</code></p>
         <div className="meeting-transcript-export-bar">
           <Button

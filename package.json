@@ -11,7 +11,9 @@
     "build": "cd frontend && npm run build",
     "start": "cd backend && npm start",
     "deploy": "npm run build && npx firebase deploy --only hosting --project notus-e026b",
-    "deploy:full": "npm run build && npx firebase deploy --only hosting,functions --project notus-e026b"
+    "deploy:full": "npm run build && npx firebase deploy --only hosting,functions --project notus-e026b",
+    "scripts:delete-all-meetings": "node scripts/delete-all-meetings.mjs",
+    "scripts:delete-all-meetings:dry": "node scripts/delete-all-meetings.mjs --dry-run"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -44,7 +44,7 @@ export function MeetingsNavDropdown() {
       {open && (
         <div className="app-nav-meetings-dropdown" role="menu">
           <Link to={VIDEO_LOBBY} role="menuitem" className="app-nav-meetings-item" onClick={() => setOpen(false)}>
-            Video room
+            Video Room
           </Link>
           <Link
             to={VIDEO_MEETINGS}
@@ -52,7 +52,7 @@ export function MeetingsNavDropdown() {
             className="app-nav-meetings-item"
             onClick={() => setOpen(false)}
           >
-            Past meetings & transcripts
+            Past Meetings & Transcripts
           </Link>
         </div>
       )}

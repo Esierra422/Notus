@@ -1,11 +1,21 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getMeetingsInRangeForUser } from '../../lib/meetingService'
+import { loadPersonalCalendarMonthForUser } from '../../lib/dashboardCalendarService'
+import { formatCalendarDateQueryParam } from '../../lib/dateUtils'
 import { CalendarIcon } from '../ui/Icons'
 import './MiniCalendarWidget.css'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/** Consistent dot order in the mini grid */
+const SOURCE_DOT_ORDER = ['personal', 'org', 'team']
+
+function sourcesForDay(rowsByDate, key) {
+  const set = rowsByDate[key]
+  if (!set || set.size === 0) return []
+  return SOURCE_DOT_ORDER.filter((s) => set.has(s))
+}
 
 function getDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -28,23 +38,27 @@ export function MiniCalendarWidget({ userId }) {
     setLoading(true)
     const nextMonth = viewMonth === 11 ? { y: viewYear + 1, m: 0 } : { y: viewYear, m: viewMonth + 1 }
     Promise.all([
-      getMeetingsInRangeForUser(userId, viewYear, viewMonth),
-      getMeetingsInRangeForUser(userId, nextMonth.y, nextMonth.m),
+      loadPersonalCalendarMonthForUser(userId, viewYear, viewMonth),
+      loadPersonalCalendarMonthForUser(userId, nextMonth.y, nextMonth.m),
     ])
-      .then(([currMeet, nextMeet]) => {
-        setMeetings([...currMeet, ...nextMeet])
+      .then(([currRows, nextRows]) => {
+        setMeetings([...currRows, ...nextRows])
         setLoading(false)
       })
       .catch(() => setLoading(false))
   }, [userId, viewYear, viewMonth])
 
-  const byDate = {}
+  /** dateKey -> Set of calendar sources present that day (personal | org | team) */
+  const rowsByDate = {}
   for (const m of meetings) {
+    if (m._todo && m.done) continue
     const ms = m.startAt?.toMillis?.() ?? m.startAt ?? 0
+    if (!ms) continue
     const d = new Date(ms)
     const key = getDateKey(d)
-    if (!byDate[key]) byDate[key] = []
-    byDate[key].push({ ...m, _ms: ms })
+    const src = m._calendarSource || 'personal'
+    if (!rowsByDate[key]) rowsByDate[key] = new Set()
+    rowsByDate[key].add(src)
   }
 
   const goPrevMonth = (e) => {
@@ -75,10 +89,21 @@ export function MiniCalendarWidget({ userId }) {
     setSelectedDate(new Date(viewYear, viewMonth, dayNum))
   }
 
+  const goToFullCalendar = (d) => {
+    const qs = formatCalendarDateQueryParam(d)
+    navigate(qs ? `/app/calendar?date=${qs}` : '/app/calendar')
+  }
+
   const handleViewCalendar = (e) => {
     e.preventDefault()
-    const d = selectedDate
-    navigate(`/app/calendar?date=${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)
+    e.stopPropagation()
+    goToFullCalendar(selectedDate)
+  }
+
+  const handleDayDoubleClick = (dayNum, e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    goToFullCalendar(new Date(viewYear, viewMonth, dayNum))
   }
 
   const firstDay = new Date(viewYear, viewMonth, 1).getDay()
@@ -102,7 +127,7 @@ export function MiniCalendarWidget({ userId }) {
           </button>
         </div>
         <button type="button" className="mini-calendar-view-link" onClick={handleViewCalendar}>
-          View calendar →
+          View Calendar →
         </button>
       </div>
 
@@ -120,7 +145,8 @@ export function MiniCalendarWidget({ userId }) {
               if (n === null) return <span key={`empty-${i}`} className="mini-calendar-cell mini-calendar-cell-empty" />
               const d = new Date(viewYear, viewMonth, n)
               const key = getDateKey(d)
-              const hasEvents = (byDate[key] || []).length > 0
+              const dotSources = sourcesForDay(rowsByDate, key)
+              const hasEvents = dotSources.length > 0
               const isToday = key === todayKey
               const isSelected = key === selectedKey
               return (
@@ -129,15 +155,33 @@ export function MiniCalendarWidget({ userId }) {
                   key={key}
                   className={`mini-calendar-cell ${isToday ? 'mini-calendar-cell-today' : ''} ${isSelected ? 'mini-calendar-cell-selected' : ''} ${hasEvents ? 'mini-calendar-cell-has-events' : ''}`}
                   onClick={(e) => handleDayClick(n, e)}
+                  onDoubleClick={(e) => handleDayDoubleClick(n, e)}
                 >
-                  {n}
+                  <span className="mini-calendar-cell-num">{n}</span>
+                  <span className="mini-calendar-event-dots" aria-hidden>
+                    {hasEvents ? (
+                      dotSources.map((src) => (
+                        <span
+                          key={src}
+                          className={`mini-calendar-event-dot mini-calendar-event-dot--${src}`}
+                        />
+                      ))
+                    ) : (
+                      <span className="mini-calendar-event-dot mini-calendar-event-dot--empty" />
+                    )}
+                  </span>
                 </button>
               )
             })}
           </div>
           <p className="mini-calendar-hint">
-            <CalendarIcon size={14} style={{ verticalAlign: 'middle', marginRight: '0.35rem' }} />
-            Dots mark days with meetings. Open the full calendar for details.
+            <CalendarIcon size={14} className="mini-calendar-hint-icon" aria-hidden />
+            <span>
+              Dots match your personal calendar: <span className="mini-calendar-legend-personal">blue</span> personal
+              (private, tasks, imports), <span className="mini-calendar-legend-org">gold</span> organization-wide,{' '}
+              <span className="mini-calendar-legend-team">green</span> team. Use <strong>View Calendar</strong> or
+              double-click a day.
+            </span>
           </p>
         </div>
       )}

@@ -716,7 +716,7 @@ function EventModal({ onClose, onSubmit, sending, userDoc }) {
     <div className="chats-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="chats-modal" onClick={(e) => e.stopPropagation()}>
         <div className="chats-modal-header">
-          <h3 className="chats-modal-title">Create event</h3>
+          <h3 className="chats-modal-title">Create Event</h3>
           <button type="button" className="chats-modal-close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <form onSubmit={handleSubmit} className="chats-modal-form">
@@ -1021,10 +1021,17 @@ export function ChatsPage() {
 
   const canCreateChatEvent = useMemo(() => {
     if (!membership || membership.state !== MEMBERSHIP_STATES.active) return false
-    if (!membershipHasCapability(membership, 'scheduleMeetings')) return false
     const isTeam = selectedConv?.type === CONV_TYPES.team && selectedConv?.teamId
-    if (isTeam) return membershipHasCapability(membership, 'teamCalendar')
-    return true
+    if (isTeam) {
+      return (
+        membershipHasCapability(membership, 'scheduleTeamMeetings') &&
+        membershipHasCapability(membership, 'teamCalendar')
+      )
+    }
+    return (
+      membershipHasCapability(membership, 'scheduleOrgMeetings') &&
+      membershipHasCapability(membership, 'orgCalendar')
+    )
   }, [membership, selectedConv])
 
   useEffect(() => {

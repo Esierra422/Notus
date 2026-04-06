@@ -1,5 +1,15 @@
 import { Timestamp } from 'firebase/firestore'
 
+function recurrenceExceptionMsSet(m) {
+  const arr = Array.isArray(m.recurrenceExceptions) ? m.recurrenceExceptions : []
+  const s = new Set()
+  for (const x of arr) {
+    const ms = typeof x?.toMillis === 'function' ? x.toMillis() : Number(x)
+    if (Number.isFinite(ms)) s.add(ms)
+  }
+  return s
+}
+
 function firstWeeklyOccurrenceMs(startMs, targetWeekday) {
   const r = new Date(startMs)
   const d = new Date(r.getFullYear(), r.getMonth(), r.getDate(), r.getHours(), r.getMinutes(), 0, 0)
@@ -29,7 +39,11 @@ function makeVirtual(m, ms) {
  */
 export function expandMeetingOccurrencesInMonth(m, year, month) {
   const rec = m.recurrence
+  const excluded = recurrenceExceptionMsSet(m)
+
   if (!rec || !rec.frequency || rec.frequency === 'none') {
+    const sm = m.startAt?.toMillis?.() ?? 0
+    if (excluded.has(sm)) return []
     return [{ ...m, _seriesId: m.id, _recurrenceInstance: false }]
   }
 
@@ -54,11 +68,14 @@ export function expandMeetingOccurrencesInMonth(m, year, month) {
       let ms = firstWeeklyOccurrenceMs(startMs, wd)
       let steps = 0
       while (ms <= endCap && steps++ < 520) {
-        if (ms >= monthStart && ms <= monthEnd) out.push(makeVirtual(m, ms))
+        if (!excluded.has(ms) && ms >= monthStart && ms <= monthEnd) out.push(makeVirtual(m, ms))
         ms += interval * 7 * 86400000
       }
     }
-    if (!out.length) return [{ ...m, _seriesId: m.id, _recurrenceInstance: false }]
+    if (!out.length) {
+      if (excluded.size > 0) return []
+      return [{ ...m, _seriesId: m.id, _recurrenceInstance: false }]
+    }
     out.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0))
     const dedup = []
     const seen = new Set()
@@ -76,12 +93,14 @@ export function expandMeetingOccurrencesInMonth(m, year, month) {
     let ms = startMs
     let guard = 0
     while (ms <= endCap && guard++ < 400) {
-      if (ms >= monthStart && ms <= monthEnd) out.push(makeVirtual(m, ms))
+      if (!excluded.has(ms) && ms >= monthStart && ms <= monthEnd) out.push(makeVirtual(m, ms))
       const d = new Date(ms)
       d.setDate(d.getDate() + interval)
       ms = d.getTime()
     }
-    return out.length ? out : [{ ...m, _seriesId: m.id, _recurrenceInstance: false }]
+    if (out.length) return out
+    if (excluded.size > 0) return []
+    return [{ ...m, _seriesId: m.id, _recurrenceInstance: false }]
   }
 
   return [{ ...m, _seriesId: m.id, _recurrenceInstance: false }]

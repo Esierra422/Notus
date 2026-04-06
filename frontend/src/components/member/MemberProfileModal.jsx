@@ -5,7 +5,13 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { getMembership, canManageOrg, MEMBERSHIP_ROLES } from '../../lib/orgService'
+import {
+  getMembership,
+  canManageOrg,
+  canRemoveOrgMember,
+  getMembershipDisplayTitle,
+  MEMBERSHIP_ROLES,
+} from '../../lib/orgService'
 import { getTeamsForUserInOrg } from '../../lib/teamService'
 import { getUserDoc, getDisplayName, getProfilePictureUrl } from '../../lib/userService'
 import { getOrCreateDM } from '../../lib/conversationService'
@@ -31,6 +37,8 @@ export function MemberProfileModal({
   onRoleChange,
   onRemoveMember,
   removeLabel = 'Remove from org',
+  /** When false, remove action uses team rules (caller is team admin). When true, org removal + capability rules. */
+  orgRemoval = true,
 }) {
   const navigate = useNavigate()
   const [userDoc, setUserDoc] = useState(initialUserDoc ?? null)
@@ -93,8 +101,15 @@ export function MemberProfileModal({
   const email = (userDoc?.email || authUser?.email || '').trim()
   const photoUrl = getProfilePictureUrl(userDoc, authUser)
   const initials = name ? name.split(/\s+/).map((n) => n[0]).join('').toUpperCase().slice(0, 2) : email?.[0]?.toUpperCase() || '?'
-  const displayRole = memberData?.role ?? targetMembership?.role
-  const roleLabel = displayRole ? displayRole[0].toUpperCase() + displayRole.slice(1) : ''
+  const orgRole = targetMembership?.role ?? memberData?.role
+  const customRoleLabel = (targetMembership?.displayRoleName ?? memberData?.displayRoleName ?? '').trim()
+  const roleTitle = getMembershipDisplayTitle({
+    displayRoleName: targetMembership?.displayRoleName ?? memberData?.displayRoleName,
+    role: orgRole,
+  })
+  const orgRoleHuman = orgRole
+    ? orgRole.charAt(0).toUpperCase() + orgRole.slice(1).toLowerCase()
+    : ''
   const timeZone = userDoc?.timeZone ? (TZ_LABELS[userDoc.timeZone] || userDoc.timeZone) : 'Browser default'
   const language = LANG_MAP[userDoc?.language] || userDoc?.language || '—'
   const memTz = getTimeZone(userDoc)
@@ -105,16 +120,17 @@ export function MemberProfileModal({
   const lastActive = userDoc?.lastActive?.toDate?.() ?? userDoc?.lastActive
   const lastActiveStr = lastActive ? formatDate(lastActive, { ...memDateOpts, month: 'short', day: 'numeric' }) : null
 
-  const mRole = displayRole ?? targetMembership?.role
-  const isOwner = mRole === MEMBERSHIP_ROLES.owner
-  const isAdmin = mRole === MEMBERSHIP_ROLES.admin
-  const isMember = mRole === MEMBERSHIP_ROLES.member
+  const isOwner = orgRole === MEMBERSHIP_ROLES.owner
+  const isAdmin = orgRole === MEMBERSHIP_ROLES.admin
+  const isMember = orgRole === MEMBERSHIP_ROLES.member
   const iAmOwner = myMembership?.role === MEMBERSHIP_ROLES.owner
   const iAmAdmin = myMembership?.role === MEMBERSHIP_ROLES.admin
   const canMakeAdmin = (iAmOwner && isMember) || (iAmAdmin && isMember)
   const canMakeMember = iAmOwner && isAdmin
-  const canRemove = (iAmOwner && !isOwner) || (iAmAdmin && isMember)
   const isSelf = userId === currentUser?.uid
+  const canRemove = orgRemoval
+    ? !isSelf && canRemoveOrgMember(myMembership, orgRole, isOwner)
+    : !isSelf && showManage
 
   return (
     <div className="member-profile-modal-backdrop" onClick={onClose}>
@@ -134,7 +150,14 @@ export function MemberProfileModal({
             </div>
             <div className="member-profile-modal-head">
               <p className="member-profile-modal-name">{name || email || 'Unknown'}</p>
-              {roleLabel && <span className="member-profile-modal-role-badge">{roleLabel}</span>}
+              {roleTitle && (
+                <span
+                  className="member-profile-modal-role-badge"
+                  title={customRoleLabel ? `Organization role: ${orgRoleHuman}` : undefined}
+                >
+                  {roleTitle}
+                </span>
+              )}
             </div>
           </div>
 

@@ -106,8 +106,11 @@
 .mini-calendar-cell {
   aspect-ratio: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 3px;
+  padding: 2px 0;
   font-size: 0.75rem;
   color: var(--text-muted);
   border-radius: 6px;
@@ -116,6 +119,57 @@
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
   font-family: inherit;
+}
+
+.mini-calendar-cell-num {
+  line-height: 1.1;
+  font-size: 0.75rem;
+}
+
+.mini-calendar-event-dots {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-height: 7px;
+}
+
+.mini-calendar-event-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
+  box-sizing: border-box;
+}
+
+/* Same palette as CalendarPage combined view */
+.mini-calendar-event-dot--personal {
+  background: #6b9fff;
+}
+
+.mini-calendar-event-dot--org {
+  background: var(--accent, #d4a853);
+}
+
+.mini-calendar-event-dot--team {
+  background: #3ecf8e;
+}
+
+.mini-calendar-event-dot--empty {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.mini-calendar-cell-selected .mini-calendar-event-dot:not(.mini-calendar-event-dot--empty) {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.mini-calendar-cell-today .mini-calendar-event-dot:not(.mini-calendar-event-dot--empty) {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
 .mini-calendar-cell:hover:not(.mini-calendar-cell-empty) {
@@ -128,7 +182,7 @@
   pointer-events: none;
 }
 
-.mini-calendar-cell-today {
+.mini-calendar-cell-today .mini-calendar-cell-num {
   color: var(--accent);
   font-weight: 600;
 }
@@ -139,12 +193,17 @@
   font-weight: 600;
 }
 
+.mini-calendar-cell-selected .mini-calendar-cell-num {
+  color: var(--bg);
+}
+
 .mini-calendar-cell-selected:hover {
   background: var(--accent-dim);
 }
 
-.mini-calendar-cell-has-events:not(.mini-calendar-cell-today):not(.mini-calendar-cell-selected) {
+.mini-calendar-cell-has-events:not(.mini-calendar-cell-today):not(.mini-calendar-cell-selected) .mini-calendar-cell-num {
   color: var(--accent);
+  font-weight: 600;
 }
 
 /* Events section */
@@ -229,9 +288,41 @@
 }
 
 .mini-calendar-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  width: 100%;
   margin: 0.85rem 0 0;
+  padding: 0;
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--text-muted);
+  text-align: left;
+}
+
+.mini-calendar-hint strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mini-calendar-hint-icon {
+  flex-shrink: 0;
+  margin-top: 0.12rem;
+  color: var(--accent);
+}
+
+.mini-calendar-legend-personal {
+  color: #6b9fff;
+  font-weight: 600;
+}
+
+.mini-calendar-legend-org {
+  color: var(--accent, #d4a853);
+  font-weight: 600;
+}
+
+.mini-calendar-legend-team {
+  color: #3ecf8e;
+  font-weight: 600;
 }
 

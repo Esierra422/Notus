@@ -14,7 +14,14 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import { getMembership, MEMBERSHIP_STATES } from './orgService'
+import { getMembership, MEMBERSHIP_STATES, membershipHasCapability } from './orgService'
+
+function isOrgOwnerOrAdmin(orgMem) {
+  return (
+    orgMem?.state === MEMBERSHIP_STATES.active &&
+    (orgMem.role === 'owner' || orgMem.role === 'admin')
+  )
+}
 
 const TEAMS_SUB = 'teams'
 const TEAM_MEMBERSHIPS_SUB = 'teamMemberships'
@@ -34,6 +41,9 @@ export async function createTeam(orgId, name, userId, allowOpenJoin = false) {
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) {
     throw new Error('You must be an org member to create a team.')
+  }
+  if (!isOrgOwnerOrAdmin(orgMem) && !membershipHasCapability(orgMem, 'createTeams')) {
+    throw new Error('You do not have permission to create teams. Ask an organization admin to grant this access.')
   }
 
   const teamsRef = collection(db, 'organizations', orgId, TEAMS_SUB)
@@ -202,7 +212,7 @@ export async function removeTeamMember(orgId, teamId, userId, callerId) {
     getMembership(orgId, callerId),
     getTeamMembership(orgId, teamId, callerId),
   ])
-  if (!canManageTeam(teamMem, orgMem)) {
+  if (!canManageTeam(teamMem, orgMem) && !membershipHasCapability(orgMem, 'removeTeamMembers')) {
     throw new Error('You do not have permission to remove team members.')
   }
   const ref = doc(db, 'organizations', orgId, TEAM_MEMBERSHIPS_SUB, teamMembershipId(teamId, userId))
@@ -220,8 +230,10 @@ export async function orgAdminAddUserToTeam(orgId, teamId, targetUserId, callerI
   if (!callerOrgMem || callerOrgMem.state !== MEMBERSHIP_STATES.active) {
     throw new Error('You must be an active org member.')
   }
-  if (callerOrgMem.role !== 'owner' && callerOrgMem.role !== 'admin') {
-    throw new Error('Only organization admins can add members to teams this way.')
+  if (!isOrgOwnerOrAdmin(callerOrgMem) && !membershipHasCapability(callerOrgMem, 'manageTeams')) {
+    throw new Error(
+      'Only organization admins or users with team management access can add members to teams this way.'
+    )
   }
   if (!targetOrgMem || targetOrgMem.state !== MEMBERSHIP_STATES.active) {
     throw new Error('That user is not an active member of this organization.')
@@ -286,13 +298,14 @@ export async function updateTeam(orgId, teamId, updates, userId) {
     getMembership(orgId, userId),
     getTeamMembership(orgId, teamId, userId),
   ])
-  if (!canManageTeam(teamMem, orgMem)) {
+  if (!canManageTeam(teamMem, orgMem) && !membershipHasCapability(orgMem, 'manageTeams')) {
     throw new Error('You do not have permission to update this team.')
   }
   const ref = doc(db, 'organizations', orgId, TEAMS_SUB, teamId)
   const data = {}
   if (updates.description !== undefined) data.description = String(updates.description || '').trim()
   if (updates.imageUrl !== undefined) data.imageUrl = updates.imageUrl == null ? null : String(updates.imageUrl)
+  if (updates.bannerUrl !== undefined) data.bannerUrl = updates.bannerUrl == null ? null : String(updates.bannerUrl)
   if (updates.name !== undefined) data.name = String(updates.name || '').trim()
   if (updates.allowOpenJoin !== undefined) data.allowOpenJoin = Boolean(updates.allowOpenJoin)
   if (Object.keys(data).length === 0) return

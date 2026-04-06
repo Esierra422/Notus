@@ -9,8 +9,11 @@ import {
   updateMembershipState,
   updateMembershipRole,
   canManageOrg,
+  canOpenMemberManagement,
+  membershipHasCapability,
   MEMBERSHIP_STATES,
   MEMBERSHIP_ROLES,
+  getMembershipDisplayTitle,
 } from '../lib/orgService'
 import { createOrgInvitation, getRejectedInvitationsForOrg } from '../lib/invitationService'
 import { getReportsForOrg } from '../lib/reportService'
@@ -68,7 +71,7 @@ export function AdminPage() {
         navigate('/app')
         return
       }
-      if (!canManageOrg(memData)) {
+      if (!canManageOrg(memData) && !canOpenMemberManagement(memData)) {
         navigate('/app')
         return
       }
@@ -157,7 +160,7 @@ export function AdminPage() {
   const handleApprove = async (userId) => {
     setAdminLoading((l) => ({ ...l, [userId]: true }))
     try {
-      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.active)
+      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.active, user.uid)
       setPending((p) => p.filter((m) => m.userId !== userId))
       setMembers((m) => [...m, { userId, role: 'member', state: MEMBERSHIP_STATES.active }])
       const profile = await getUserDoc(userId)
@@ -170,7 +173,7 @@ export function AdminPage() {
   const handleReject = async (userId) => {
     setAdminLoading((l) => ({ ...l, [userId]: true }))
     try {
-      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.rejected)
+      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.rejected, user.uid)
       setPending((p) => p.filter((m) => m.userId !== userId))
       setRejected((r) => [...r, { userId }])
     } finally {
@@ -182,7 +185,7 @@ export function AdminPage() {
     setMemberMenuOpen(null)
     setAdminLoading((l) => ({ ...l, [userId]: true }))
     try {
-      await updateMembershipRole(orgId, userId, newRole)
+      await updateMembershipRole(orgId, userId, newRole, user.uid)
       setMembers((m) => m.map((x) => (x.userId === userId ? { ...x, role: newRole } : x)))
     } finally {
       setAdminLoading((l) => ({ ...l, [userId]: false }))
@@ -194,7 +197,7 @@ export function AdminPage() {
     if (!window.confirm('Remove this member from the organization?')) return
     setAdminLoading((l) => ({ ...l, [userId]: true }))
     try {
-      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.removed)
+      await updateMembershipState(orgId, userId, MEMBERSHIP_STATES.removed, user.uid)
       setMembers((m) => m.filter((x) => x.userId !== userId))
     } finally {
       setAdminLoading((l) => ({ ...l, [userId]: false }))
@@ -239,6 +242,13 @@ export function AdminPage() {
 
   if (!org || !membership) return null
 
+  const canCreateTeamInAdmin =
+    canManageOrg(membership) || membershipHasCapability(membership, 'createTeams')
+  const canOpenMemberManage = canOpenMemberManagement(membership)
+  const isFullOrgAdmin = canManageOrg(membership)
+  const canSeeTeamManageMenu =
+    canManageOrg(membership) || membershipHasCapability(membership, 'manageTeams')
+
   if (loading) {
     return (
       <main className="app-main org-admin-main">
@@ -274,6 +284,12 @@ export function AdminPage() {
         <div>
           <h2>Admin</h2>
           <p className="org-admin-subtitle">{org.name}</p>
+          {!isFullOrgAdmin && canOpenMemberManage && (
+            <p className="app-muted" style={{ marginTop: '0.5rem', maxWidth: '36rem' }}>
+              You can view members and update their access settings. Invitations, join requests, and reports are limited to
+              organization admins.
+            </p>
+          )}
         </div>
         <Link to={`/app/org/${orgId}/profile`} className="org-admin-btn org-admin-btn-approve" style={{ alignSelf: 'center' }}>
           View organization profile
@@ -281,6 +297,7 @@ export function AdminPage() {
       </div>
 
       {/* Stats row */}
+      {isFullOrgAdmin && (
       <div className="org-admin-stats">
         <div className="org-admin-stat">
           <span className="org-admin-stat-value">{members.length}</span>
@@ -303,8 +320,11 @@ export function AdminPage() {
           <span className="org-admin-stat-label">Reports</span>
         </div>
       </div>
+      )}
 
       <div className="org-admin-grid">
+        {isFullOrgAdmin && (
+        <>
         <section className="org-admin-section org-admin-section-invite">
           <h3>Invite by email</h3>
         <form onSubmit={handleInvite} className="org-admin-invite-form">
@@ -448,6 +468,8 @@ export function AdminPage() {
           </ul>
         )}
         </section>
+        </>
+        )}
 
         <section className="org-admin-section org-admin-section-wide">
           <h3>Members</h3>
@@ -479,8 +501,11 @@ export function AdminPage() {
                 <div className="member-card-info">
                   <span className="member-card-name">{fullName || email}</span>
                   {showEmail && <span className="member-card-email">{email}</span>}
-                  <span className="member-card-role" title={m.role}>
-                    {m.displayRoleName?.trim() || m.role}
+                  <span
+                    className="member-card-role"
+                    title={m.displayRoleName?.trim() ? `Organization role: ${getMembershipDisplayTitle({ role: m.role })}` : undefined}
+                  >
+                    {getMembershipDisplayTitle(m)}
                   </span>
                 </div>
                 <div
@@ -506,7 +531,7 @@ export function AdminPage() {
                       >
                         Profile
                       </button>
-                      {canManageOrg(membership) && (
+                      {canOpenMemberManage && (
                         <button
                           type="button"
                           className="member-card-menu-item"
@@ -544,7 +569,14 @@ export function AdminPage() {
           Create and manage teams. Team leaders can approve join requests from the team page.
         </p>
         {!showCreateTeam ? (
-          <Button variant="primary" size="md" onClick={() => setShowCreateTeam(true)} style={{ marginBottom: '1rem' }}>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => setShowCreateTeam(true)}
+            style={{ marginBottom: '1rem' }}
+            disabled={!canCreateTeamInAdmin}
+            title={!canCreateTeamInAdmin ? 'You do not have permission to create teams.' : undefined}
+          >
             Create team
           </Button>
         ) : (
@@ -608,7 +640,7 @@ export function AdminPage() {
                     >
                       Profile
                     </Link>
-                    {canManageOrg(membership) && (
+                    {canSeeTeamManageMenu && (
                       <Link
                         to={`/app/org/${orgId}/teams/${t.id}`}
                         className="member-card-menu-item"
@@ -639,9 +671,13 @@ export function AdminPage() {
           currentUser={user}
           myMembership={membership}
           userDoc={userProfiles[profileModalMember.userId]}
-          memberData={{ role: profileModalMember.role, createdAt: profileModalMember.createdAt }}
+          memberData={{
+            role: profileModalMember.role,
+            displayRoleName: profileModalMember.displayRoleName,
+            createdAt: profileModalMember.createdAt,
+          }}
           onClose={() => setProfileModalMember(null)}
-          showManage
+          showManage={canOpenMemberManage}
           onOpenManage={() => {
             const m = profileModalMember
             setProfileModalMember(null)

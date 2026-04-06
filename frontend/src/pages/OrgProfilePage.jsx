@@ -27,6 +27,7 @@ export function OrgProfilePage() {
   const [error, setError] = useState('')
   const [uploadingImage, setUploadingImage] = useState(false)
   const imageInputRef = useRef(null)
+  const bannerInputRef = useRef(null)
 
   useEffect(() => {
     if (!user || !orgId) return
@@ -50,7 +51,11 @@ export function OrgProfilePage() {
   }, [user, orgId, navigate])
 
   useEffect(() => {
-    if (!orgId) return
+    if (!orgId || !membership || membership.orgId !== orgId || membership.state !== MEMBERSHIP_STATES.active) {
+      setMembers([])
+      setTeams([])
+      return
+    }
     const load = async () => {
       const [membersData, teamsData] = await Promise.all([
         getOrgMembers(orgId),
@@ -60,7 +65,7 @@ export function OrgProfilePage() {
       setTeams(teamsData)
     }
     load()
-  }, [orgId])
+  }, [orgId, membership])
 
   useEffect(() => {
     if (setNavExtra) setNavExtra(undefined)
@@ -127,7 +132,39 @@ export function OrgProfilePage() {
     }
   }
 
-  if (!org || !membership) return null
+  const handleBannerChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) return
+    setUploadingImage(true)
+    setError('')
+    try {
+      const dataUrl = await compressImageToDataUrl(file)
+      await updateOrg(orgId, { bannerUrl: dataUrl }, user.uid)
+      setOrg((o) => (o ? { ...o, bannerUrl: dataUrl } : null))
+    } catch (err) {
+      setError(err?.message || 'Failed to upload cover.')
+    } finally {
+      setUploadingImage(false)
+      if (bannerInputRef.current) bannerInputRef.current.value = ''
+    }
+  }
+
+  const handleRemoveBanner = async () => {
+    setUploadingImage(true)
+    setError('')
+    try {
+      await updateOrg(orgId, { bannerUrl: null }, user.uid)
+      setOrg((o) => (o ? { ...o, bannerUrl: null } : null))
+    } catch (err) {
+      setError(err?.message || 'Failed to remove cover.')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  if (!org || org.id !== orgId || !membership || membership.orgId !== orgId || membership.state !== MEMBERSHIP_STATES.active) {
+    return null
+  }
 
   const isAdmin = canManageOrg(membership)
 
@@ -137,7 +174,35 @@ export function OrgProfilePage() {
         <ArrowLeftIcon size={18} /> Back to {org.name}
       </Link>
       <div className="profile-header org-profile-header">
-        <div className="profile-cover org-profile-cover" aria-hidden />
+        <div
+          className={`profile-cover org-profile-cover${org.bannerUrl ? ' org-profile-cover--image' : ''}`}
+          style={org.bannerUrl ? { backgroundImage: `url(${org.bannerUrl})` } : undefined}
+          role="img"
+          aria-label=""
+        >
+          {isAdmin && (
+            <>
+              <input
+                ref={bannerInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleBannerChange}
+                className="profile-file-input"
+                disabled={uploadingImage}
+              />
+              <button
+                type="button"
+                className="org-profile-cover-edit"
+                onClick={() => bannerInputRef.current?.click()}
+                disabled={uploadingImage}
+                title="Change cover"
+                aria-label="Change cover"
+              >
+                <PencilIcon size={16} />
+              </button>
+            </>
+          )}
+        </div>
         <section className="profile-hero org-profile-hero">
           <div className="profile-hero-inner">
             <div className="org-profile-avatar-block">
@@ -180,6 +245,16 @@ export function OrgProfilePage() {
                   disabled={uploadingImage}
                 >
                   Remove photo
+                </button>
+              )}
+              {isAdmin && org.bannerUrl && (
+                <button
+                  type="button"
+                  className="org-profile-remove-photo"
+                  onClick={handleRemoveBanner}
+                  disabled={uploadingImage}
+                >
+                  Remove cover
                 </button>
               )}
             </div>

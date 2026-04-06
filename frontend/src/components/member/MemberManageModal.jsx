@@ -4,6 +4,11 @@ import {
   updateMemberDisplayRole,
   updateMemberCapabilities,
   updateMembershipRole,
+  canManageOrg,
+  membershipHasCapability,
+  normalizeMemberCapabilities,
+  canRemoveOrgMember,
+  getMembershipDisplayTitle,
   MEMBERSHIP_ROLES,
 } from '../../lib/orgService'
 import { getTeamsForUserInOrg, orgAdminAddUserToTeam, removeTeamMember } from '../../lib/teamService'
@@ -11,16 +16,30 @@ import { getDisplayName, getProfilePictureUrl } from '../../lib/userService'
 import { Button } from '../ui/Button'
 import './MemberManageModal.css'
 
-function normCaps(c) {
-  return {
-    scheduleMeetings: c?.scheduleMeetings === true,
-    orgCalendar: c?.orgCalendar === true,
-    teamCalendar: c?.teamCalendar === true,
-  }
+function capsEqual(a, b) {
+  const n = normalizeMemberCapabilities({})
+  return Object.keys(n).every((k) => a[k] === b[k])
 }
 
-function capsEqual(a, b) {
-  return a.scheduleMeetings === b.scheduleMeetings && a.orgCalendar === b.orgCalendar && a.teamCalendar === b.teamCalendar
+function ToggleRow({ label, description, checked, onChange, disabled }) {
+  return (
+    <div className="member-manage-toggle-row">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        className={`member-manage-toggle ${checked ? 'member-manage-toggle--on' : ''}`}
+        onClick={() => !disabled && onChange(!checked)}
+        disabled={disabled}
+      >
+        <span className="member-manage-toggle-knob" />
+      </button>
+      <div className="member-manage-toggle-text">
+        <span className="member-manage-toggle-label">{label}</span>
+        {description && <span className="member-manage-toggle-desc">{description}</span>}
+      </div>
+    </div>
+  )
 }
 
 export function MemberManageModal({
@@ -44,10 +63,14 @@ export function MemberManageModal({
 
   const [displayRoleName, setDisplayRoleName] = useState('')
   const [role, setRole] = useState(MEMBERSHIP_ROLES.member)
-  const [capabilities, setCapabilities] = useState(normCaps({}))
+  const [capabilities, setCapabilities] = useState(() => normalizeMemberCapabilities({}))
   const [teamSelected, setTeamSelected] = useState(() => new Set())
 
   const [initial, setInitial] = useState(null)
+
+  const canChangeRole = canManageOrg(myMembership)
+  const canEditCapabilities = canManageOrg(myMembership) || membershipHasCapability(myMembership, 'manageMembers')
+  const canAssignTeams = canManageOrg(myMembership) || membershipHasCapability(myMembership, 'manageTeams')
 
   useEffect(() => {
     if (!orgId || !userId) return
@@ -63,7 +86,7 @@ export function MemberManageModal({
         if (cancelled) return
         const r = mem?.role || member?.role || MEMBERSHIP_ROLES.member
         const dr = (mem?.displayRoleName ?? member?.displayRoleName ?? '').trim()
-        const caps = normCaps(mem?.capabilities || member?.capabilities)
+        const caps = normalizeMemberCapabilities(mem?.capabilities || member?.capabilities)
         const tset = new Set((userTeams || []).map((t) => t.id))
         setRole(r)
         setDisplayRoleName(dr)
@@ -101,7 +124,12 @@ export function MemberManageModal({
 
   const canMakeAdmin = (iAmOwner && isTargetMember) || (iAmAdmin && isTargetMember)
   const canMakeMember = iAmOwner && isTargetAdmin
-  const canRemove = (iAmOwner && !isTargetOwner) || (iAmAdmin && isTargetMember)
+  const canRemove =
+    !isSelf && canRemoveOrgMember(myMembership, role, isTargetOwner)
+
+  const toggleCap = (key) => {
+    setCapabilities((c) => ({ ...c, [key]: !c[key] }))
+  }
 
   const dirty = useMemo(() => {
     if (!initial) return false
@@ -130,16 +158,22 @@ export function MemberManageModal({
     setError('')
     try {
       if ((displayRoleName || '').trim() !== (initial.displayRoleName || '').trim()) {
+        if (!canEditCapabilities) throw new Error('You cannot update this member’s label.')
         await updateMemberDisplayRole(orgId, userId, currentUser.uid, displayRoleName)
       }
       if (role !== initial.role && !isTargetOwner) {
-        await updateMembershipRole(orgId, userId, role)
+        if (!canChangeRole) throw new Error('You cannot change organization roles.')
+        await updateMembershipRole(orgId, userId, role, currentUser.uid)
       }
       if (!capsEqual(capabilities, initial.capabilities)) {
+        if (!canEditCapabilities) throw new Error('You cannot update capabilities.')
         await updateMemberCapabilities(orgId, userId, currentUser.uid, capabilities)
       }
       const toAdd = [...teamSelected].filter((id) => !initial.teamIds.has(id))
       const toRemove = [...initial.teamIds].filter((id) => !teamSelected.has(id))
+      if ((toAdd.length || toRemove.length) && !canAssignTeams) {
+        throw new Error('You do not have permission to change team assignments.')
+      }
       for (const teamId of toAdd) {
         await orgAdminAddUserToTeam(orgId, teamId, userId, currentUser.uid)
       }
@@ -161,17 +195,14 @@ export function MemberManageModal({
     }
   }
 
-  const toggleTeam = (teamId) => {
+  const setTeamInRoster = (teamId, inTeam) => {
+    if (!canAssignTeams) return
     setTeamSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(teamId)) next.delete(teamId)
-      else next.add(teamId)
+      if (inTeam) next.add(teamId)
+      else next.delete(teamId)
       return next
     })
-  }
-
-  const toggleCap = (key) => {
-    setCapabilities((c) => ({ ...c, [key]: !c[key] }))
   }
 
   return (
@@ -195,6 +226,9 @@ export function MemberManageModal({
               </div>
               <div>
                 <div className="member-manage-name">{name || email || 'Member'}</div>
+                <div className="member-manage-role-title">
+                  {getMembershipDisplayTitle({ displayRoleName, role })}
+                </div>
                 {email && <div className="member-manage-email">{email}</div>}
               </div>
             </div>
@@ -205,7 +239,9 @@ export function MemberManageModal({
               <label className="member-manage-label" htmlFor="member-display-role">
                 Role label
               </label>
-              <p className="member-manage-hint">Shown on member cards (e.g. &quot;Engineer&quot;, &quot;Lead&quot;). Does not change admin access by itself.</p>
+              <p className="member-manage-hint">
+                Shown on member cards (e.g. &quot;Engineer&quot;, &quot;Lead&quot;). Does not change admin access by itself.
+              </p>
               <input
                 id="member-display-role"
                 type="text"
@@ -213,12 +249,15 @@ export function MemberManageModal({
                 value={displayRoleName}
                 onChange={(e) => setDisplayRoleName(e.target.value)}
                 placeholder="e.g. Product, Sales, Contractor"
-                disabled={saving}
+                disabled={saving || !canEditCapabilities || isTargetOwner}
               />
             </div>
 
-            <div className="member-manage-section">
-              <span className="member-manage-label">Organization access</span>
+            <div className="member-manage-section member-manage-section--unified">
+              <span className="member-manage-label">Organization role &amp; access</span>
+              <p className="member-manage-hint">
+                Role controls admin boundaries. Toggles control scheduling, calendars, teams, and people management for this member.
+              </p>
               {isTargetOwner ? (
                 <p className="member-manage-readonly">Owner — full access. Transfer ownership is not available in this dialog.</p>
               ) : (
@@ -226,73 +265,105 @@ export function MemberManageModal({
                   className="member-manage-select"
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
-                  disabled={saving || (!canMakeAdmin && !canMakeMember && !(iAmAdmin && isTargetAdmin))}
+                  disabled={saving || !canChangeRole || (!canMakeAdmin && !canMakeMember && !(iAmAdmin && isTargetAdmin))}
                 >
                   <option value={MEMBERSHIP_ROLES.member}>Member</option>
                   <option value={MEMBERSHIP_ROLES.admin}>Admin</option>
                 </select>
               )}
-            </div>
 
-            <div className="member-manage-section">
-              <span className="member-manage-label">Capabilities</span>
-              <p className="member-manage-hint">
-                Controls creating scheduled meetings, publishing to the organization calendar, and adding team-calendar
-                events (including chat → event and video). Owners and admins always have full access.
-              </p>
-              <label className="member-manage-check">
-                <input
-                  type="checkbox"
-                  checked={capabilities.scheduleMeetings}
-                  onChange={() => toggleCap('scheduleMeetings')}
-                  disabled={saving || isTargetOwner}
-                />
-                Create scheduled meetings
-              </label>
-              <label className="member-manage-check">
-                <input
-                  type="checkbox"
-                  checked={capabilities.orgCalendar}
-                  onChange={() => toggleCap('orgCalendar')}
-                  disabled={saving || isTargetOwner}
-                />
-                Add to organization calendar
-              </label>
-              <label className="member-manage-check">
-                <input
-                  type="checkbox"
-                  checked={capabilities.teamCalendar}
-                  onChange={() => toggleCap('teamCalendar')}
-                  disabled={saving || isTargetOwner}
-                />
-                Add to team calendar
-              </label>
+              {!isTargetOwner && (
+                <div className="member-manage-toggle-list">
+                  <ToggleRow
+                    label="Create scheduled meetings (organization)"
+                    description="Schedule org-wide or private calendar events in this organization."
+                    checked={capabilities.scheduleOrgMeetings}
+                    onChange={(v) => toggleCap('scheduleOrgMeetings')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Create scheduled meetings (teams)"
+                    description="Schedule events on team calendars."
+                    checked={capabilities.scheduleTeamMeetings}
+                    onChange={(v) => toggleCap('scheduleTeamMeetings')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Add to organization calendar"
+                    description="Publish non–invite-only events visible to the org."
+                    checked={capabilities.orgCalendar}
+                    onChange={(v) => toggleCap('orgCalendar')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Add to team calendar"
+                    description="Create and manage team-scoped calendar entries."
+                    checked={capabilities.teamCalendar}
+                    onChange={(v) => toggleCap('teamCalendar')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Create teams"
+                    description="Create new teams in this organization."
+                    checked={capabilities.createTeams}
+                    onChange={(v) => toggleCap('createTeams')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Manage teams"
+                    description="Edit team settings and add org members to teams from admin tools."
+                    checked={capabilities.manageTeams}
+                    onChange={(v) => toggleCap('manageTeams')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Manage other users"
+                    description="Open manage-member, edit labels, and adjust capability toggles."
+                    checked={capabilities.manageMembers}
+                    onChange={(v) => toggleCap('manageMembers')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Remove users from organization"
+                    description="Remove members (not owners or admins unless you are owner)."
+                    checked={capabilities.removeOrgMembers}
+                    onChange={(v) => toggleCap('removeOrgMembers')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                  <ToggleRow
+                    label="Remove users from teams"
+                    description="Remove people from team rosters."
+                    checked={capabilities.removeTeamMembers}
+                    onChange={(v) => toggleCap('removeTeamMembers')}
+                    disabled={saving || !canEditCapabilities}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="member-manage-section">
               <span className="member-manage-label">Teams</span>
+              {!canAssignTeams && (
+                <p className="member-manage-muted">You can view team membership but cannot change assignments.</p>
+              )}
               {teams.length === 0 ? (
                 <p className="member-manage-muted">No teams in this organization yet.</p>
               ) : (
-                <ul className="member-manage-team-list">
+                <div className="member-manage-toggle-list member-manage-team-toggle-list">
                   {teams.map((t) => (
-                    <li key={t.id}>
-                      <label className="member-manage-check">
-                        <input
-                          type="checkbox"
-                          checked={teamSelected.has(t.id)}
-                          onChange={() => toggleTeam(t.id)}
-                          disabled={saving}
-                        />
-                        {t.name}
-                      </label>
-                    </li>
+                    <ToggleRow
+                      key={t.id}
+                      label={t.name}
+                      checked={teamSelected.has(t.id)}
+                      onChange={(v) => setTeamInRoster(t.id, v)}
+                      disabled={saving || !canAssignTeams}
+                    />
                   ))}
-                </ul>
+                </div>
               )}
             </div>
 
-            {canRemove && !isSelf && (
+            {canRemove && (
               <div className="member-manage-danger">
                 <Button
                   type="button"
@@ -312,9 +383,7 @@ export function MemberManageModal({
             )}
 
             <div className="member-manage-footer">
-              {confirmSave && dirty && (
-                <p className="member-manage-confirm-hint">Click Save again to apply changes.</p>
-              )}
+              {confirmSave && dirty && <p className="member-manage-confirm-hint">Click Save again to apply changes.</p>}
               <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
                 Cancel
               </Button>

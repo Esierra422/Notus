@@ -67,7 +67,7 @@ export function MeetingSummaryPage() {
     <div className="summary-page">
       <div className="summary-nav">
         <Button as={Link} to="/app/video/meetings" variant="ghost" size="sm">
-          <ArrowLeftIcon size={16} /> Past meetings
+          <ArrowLeftIcon size={16} /> Past Meetings
         </Button>
         <div className="summary-nav-links">
           <Button as={Link} to="/app" variant="ghost" size="sm">
@@ -166,7 +166,7 @@ export function MeetingSummaryPage() {
 
         {summary.transcript && String(summary.transcript).trim() && (
           <section className="summary-section summary-section--transcript" id="meeting-transcript">
-            <h2>Full transcript</h2>
+            <h2>Full Transcript</h2>
             <div className="summary-transcript-text summary-transcript-text--open">{summary.transcript}</div>
           </section>
         )}

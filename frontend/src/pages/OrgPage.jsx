@@ -151,8 +151,10 @@ export function OrgPage() {
   const isAdmin = canManageOrg(membership)
   const canCreateOrgMeeting =
     membership &&
-    membershipHasCapability(membership, 'scheduleMeetings') &&
+    membershipHasCapability(membership, 'scheduleOrgMeetings') &&
     membershipHasCapability(membership, 'orgCalendar')
+  const canCreateTeamHere =
+    membership && (canManageOrg(membership) || membershipHasCapability(membership, 'createTeams'))
 
   const navExtra = (
     <>
@@ -167,7 +169,7 @@ export function OrgPage() {
     <div className="app-layout">
       <AppHeader user={user} navExtra={navExtra} />
       <main className="app-main org-page-main">
-        <h2>Org meetings</h2>
+        <h2>Org Meetings</h2>
         <p className="app-muted">Meetings in this org. Invite-only meetings show only for people who were invited.</p>
         <div className="org-meetings-actions" style={{ marginBottom: '1rem' }}>
           {!showCreateMeeting ? (
@@ -182,7 +184,7 @@ export function OrgPage() {
                   : undefined
               }
             >
-              Create meeting
+              Create Meeting
             </Button>
           ) : (
             <form onSubmit={handleCreateMeeting} className="org-create-team-form">
@@ -221,7 +223,7 @@ export function OrgPage() {
 
         <h2 style={{ marginTop: '2rem' }}>Teams</h2>
         {error && <p className="auth-error">{error}</p>}
-        {isAdmin && (
+        {canCreateTeamHere && (
           <div className="org-teams-actions">
             {!showCreate ? (
               <Button variant="primary" size="md" onClick={() => setShowCreate(true)}>
@@ -263,7 +265,7 @@ export function OrgPage() {
             />
           ))}
           {teams.length === 0 && (
-            <li className="org-teams-empty">No teams yet. {isAdmin && 'Create one above.'}</li>
+            <li className="org-teams-empty">No teams yet. {canCreateTeamHere && 'Create one above.'}</li>
           )}
         </ul>
       </main>

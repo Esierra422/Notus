@@ -19,6 +19,8 @@ import { db } from './firebase'
 export const NOTIFICATION_TYPES = {
   meetingInvite: 'meeting_invite',
   instantMeetingInvite: 'instant_meeting_invite',
+  /** Scheduled calendar-only event — invite adds the event to the recipient’s calendar view. */
+  calendarEventInvite: 'calendar_event_invite',
 }
 
 function notifCol(uid) {
@@ -33,8 +35,14 @@ export async function createMeetingInviteNotifications({
   title,
   body,
   isInstant = false,
+  /** When not instant: calendar-only events vs video / lobby meetings. */
+  inviteKind = 'video_meeting',
 }) {
-  const type = isInstant ? NOTIFICATION_TYPES.instantMeetingInvite : NOTIFICATION_TYPES.meetingInvite
+  const type = isInstant
+    ? NOTIFICATION_TYPES.instantMeetingInvite
+    : inviteKind === 'calendar_event'
+      ? NOTIFICATION_TYPES.calendarEventInvite
+      : NOTIFICATION_TYPES.meetingInvite
   const ids = [...new Set((recipientUids || []).filter(Boolean))].filter((id) => id !== fromUid)
   await Promise.all(
     ids.map((toUid) =>
@@ -58,7 +66,10 @@ export function subscribeUnreadNotificationCount(userId, callback) {
   return onSnapshot(
     q,
     (snap) => callback(snap.size),
-    () => callback(0)
+    (err) => {
+      console.warn('Notification count listener failed', err)
+      callback(0)
+    }
   )
 }
 
@@ -70,7 +81,10 @@ export function subscribeNotifications(userId, maxCount, callback) {
     (snap) => {
       callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     },
-    () => callback([])
+    (err) => {
+      console.warn('Notifications listener failed (add Firestore index on users/{uid}/notifications createdAt if needed)', err)
+      callback([])
+    }
   )
 }
 

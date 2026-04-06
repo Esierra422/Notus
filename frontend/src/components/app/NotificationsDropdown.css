@@ -88,6 +88,12 @@
   color: var(--text-muted);
 }
 
+.notifications-panel-hint {
+  padding: 0.5rem 1.25rem 0.75rem;
+  font-size: 0.82rem;
+  border-bottom: 1px solid var(--border);
+}
+
 .notifications-list {
   list-style: none;
   padding: 0.5rem 0;

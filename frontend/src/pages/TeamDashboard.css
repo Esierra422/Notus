@@ -1,0 +1,156 @@
+/* Team page — aligned with org / main dashboard (Dashboard.css widgets + stats) */
+
+.team-dashboard-main {
+  padding-bottom: 2rem;
+}
+
+.team-dashboard-profile-widget .dashboard-widget-header {
+  align-items: center;
+}
+
+.team-dashboard-settings-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: none;
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--accent, #d4a853);
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.team-dashboard-settings-link:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.team-dashboard-profile-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.team-dashboard-profile-avatar-col {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.team-dashboard-avatar-wrap {
+  width: 88px;
+  height: 88px;
+}
+
+.team-dashboard-avatar-wrap .org-profile-avatar,
+.team-dashboard-avatar-wrap .org-profile-avatar-placeholder {
+  width: 88px;
+  height: 88px;
+}
+
+.team-dashboard-profile-copy {
+  flex: 1;
+  min-width: min(100%, 240px);
+}
+
+.team-dashboard-profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.team-dashboard-about-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.team-dashboard-about-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.team-dashboard-about-text {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.team-dashboard-about-form .profile-input {
+  width: 100%;
+}
+
+.team-dashboard-about-actions {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.team-dashboard-members-intro {
+  margin: 0 0 1rem;
+}
+
+.team-dashboard-member-search {
+  margin-bottom: 0.75rem;
+  max-width: 420px;
+}
+
+.member-card-role-suffix {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.team-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .team-dashboard-grid {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+
+  .team-dashboard-grid > .dashboard-widget:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* When only meetings column (non-admin): single column full width is fine */
+.team-dashboard-invite-form {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.team-dashboard-invite-form .org-admin-btn {
+  align-self: flex-start;
+}
+
+.team-dashboard-meetings-desc {
+  margin-top: 0;
+  margin-bottom: 0.85rem;
+}
+
+.team-dashboard-meetings-actions {
+  margin-bottom: 1rem;
+}
+
+.team-dashboard-meeting-list {
+  margin-bottom: 0;
+}
+
+.team-dashboard-stat-pending {
+  text-decoration: none;
+}

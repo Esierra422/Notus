@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useOutletContext, useSearchParams, useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   getActiveMemberships,
@@ -7,18 +7,20 @@ import {
   canManageOrg,
   membershipHasCapability,
 } from '../lib/orgService'
-import { getOrgTeams, getTeamMembership } from '../lib/teamService'
+import { getTeamsForUserInOrg } from '../lib/teamService'
 import {
   getMeetingsInRangeForUser,
   getMeetingsInRangeForUserInOrg,
   getMeetingsInRangeForUserInTeam,
+  meetingCalendarDisplaySource,
+  MEETING_CREATED_VIA,
 } from '../lib/meetingService'
 import { getImportedEventsInRange } from '../lib/calendarImportService'
 import { expandMeetingsListForMonth } from '../lib/calendarRecurrence'
 import { getTodosInRange, addTodo, toggleTodo, deleteTodo } from '../lib/todoService'
 import { Button } from '../components/ui/Button'
 import { Timestamp } from 'firebase/firestore'
-import { getTimeZone, getLocale } from '../lib/dateUtils'
+import { getTimeZone, getLocale, parseCalendarDateQueryParam, formatCalendarDateQueryParam } from '../lib/dateUtils'
 import { CreateEventModal } from '../components/calendar/CreateEventModal'
 import { EventDetailModal } from '../components/calendar/EventDetailModal'
 import '../styles/variables.css'
@@ -26,7 +28,9 @@ import './AppLayout.css'
 import './CalendarPage.css'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const VIEWS = ['month', 'week', 'day']
+const VIEWS = ['day', 'month', 'year']
+/** Dot order for yearly grid source indicators (mini calendar uses MiniCalendarWidget) */
+const CALENDAR_SOURCE_DOT_ORDER = ['personal', 'org', 'team']
 
 function formatMeetingTime(startAt, userDoc) {
   if (!startAt) return ''
@@ -41,16 +45,76 @@ function formatDateKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
+function sourcesFromDayMeetings(dayMeetings) {
+  const set = new Set()
+  for (const m of dayMeetings || []) {
+    if (m._todo && m.done) continue
+    set.add(m._calendarSource || 'personal')
+  }
+  return CALENDAR_SOURCE_DOT_ORDER.filter((s) => set.has(s))
+}
+
+/** Calendar-scheduled video meetings: pulse before start, strong highlight during the event window. */
+function scheduledVideoHighlightClass(m, nowMs) {
+  if (m._todo || m._imported) return ''
+  if (m.isVideoMeeting === false) return ''
+  if (m.createdVia !== MEETING_CREATED_VIA.calendar) return ''
+  const start = m.startAt?.toMillis?.() ?? 0
+  if (!start) return ''
+  const end = m.endAt?.toMillis?.() ?? null
+  const windowEnd = end && end > start ? end : start + 60 * 60 * 1000
+  if (nowMs >= start && nowMs < windowEnd) return 'calendar-meeting-item--video-live'
+  const soonMs = 10 * 60 * 1000
+  if (nowMs >= start - soonMs && nowMs < start) return 'calendar-meeting-item--video-soon'
+  return ''
+}
+
+function meetingItemClasses(m, filter, nowMs = Date.now()) {
+  const done = m._todo && m.done ? 'calendar-meeting-done' : ''
+  const vid = scheduledVideoHighlightClass(m, nowMs)
+  const base = `calendar-meeting-item calendar-meeting-item--btn ${done} ${vid}`.trim()
+  if (filter === 'combined' && m._calendarSource) {
+    return `${base} calendar-meeting-item--src-${m._calendarSource}`
+  }
+  return base
+}
+
+function mergeCreatedMeetingIntoState(prev, created, orgLabel) {
+  if (!created?.id || !created.startAt?.toMillis) return prev
+  const d = new Date(created.startAt.toMillis())
+  const y = d.getFullYear()
+  const m = d.getMonth()
+  const augmented = {
+    ...created,
+    _orgName: orgLabel,
+    _orgId: created.orgId,
+    _calendarSource: meetingCalendarDisplaySource(created),
+  }
+  const without = prev.filter((row) => row.id !== created.id && row._seriesId !== created.id)
+  const meetingRows = without.filter((x) => !x._todo && !x._imported)
+  const otherRows = without.filter((x) => x._todo || x._imported)
+  const newExpanded = expandMeetingsListForMonth([augmented], y, m)
+  const merged = [...meetingRows, ...newExpanded]
+  merged.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0))
+  return [...merged, ...otherRows]
+}
+
 export function CalendarPage() {
   const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const { orgId: routeOrgId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation()
+  const pushCalendarDateToUrl = useCallback(
+    (d) => {
+      const qs = formatCalendarDateQueryParam(d)
+      navigate(`${location.pathname}${qs ? `?date=${qs}` : ''}`, { replace: true })
+    },
+    [navigate, location.pathname]
+  )
   const [activeOrgId, setActiveOrgId] = useState(routeOrgId || null)
   const [org, setOrg] = useState(null)
   const [teams, setTeams] = useState([])
-  const [teamMemberships, setTeamMemberships] = useState({})
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth())
   const [meetings, setMeetings] = useState([])
@@ -63,20 +127,24 @@ export function CalendarPage() {
   const [view, setView] = useState('month')
   const [myMembershipForCalendar, setMyMembershipForCalendar] = useState(null)
   const [orgPickerOptions, setOrgPickerOptions] = useState([])
-  const [showAddTask, setShowAddTask] = useState(false)
-  const [newTaskText, setNewTaskText] = useState('')
-  const [addingTask, setAddingTask] = useState(false)
   const [calendarReloadKey, setCalendarReloadKey] = useState(0)
+  const [calendarNowMs, setCalendarNowMs] = useState(() => Date.now())
+  const lastCreatedMeetingRef = useRef(null)
+  const [editingMeetingDraft, setEditingMeetingDraft] = useState(null)
+
+  useEffect(() => {
+    const id = setInterval(() => setCalendarNowMs(Date.now()), 30000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     const dateParam = searchParams.get('date')
-    if (dateParam) {
-      const [y, m, d] = dateParam.split('-').map(Number)
-      if (y && m !== undefined && d) {
-        setYear(y)
-        setMonth(m)
-        setSelectedDate(new Date(y, m, d))
-      }
+    if (!dateParam) return
+    const parsed = parseCalendarDateQueryParam(dateParam)
+    if (parsed) {
+      setYear(parsed.year)
+      setMonth(parsed.monthIndex)
+      setSelectedDate(parsed.selectedDate)
     }
   }, [searchParams])
 
@@ -120,27 +188,33 @@ export function CalendarPage() {
   }, [user?.uid, activeOrgId])
 
   useEffect(() => {
+    if (filter !== 'team' || !activeOrgId || !scopeTeamId) return
+    const ok = teams.some((t) => t.id === scopeTeamId)
+    if (!ok) setScopeTeamId(null)
+  }, [activeOrgId, teams, scopeTeamId, filter])
+
+  useEffect(() => {
+    if (filter !== 'team' || !activeOrgId || scopeTeamId) return
+    const first = teams[0]
+    if (first) setScopeTeamId(first.id)
+  }, [filter, activeOrgId, teams, scopeTeamId])
+
+  useEffect(() => {
     if (!activeOrgId || !user) return
     const load = async () => {
-      const [orgData, teamsData] = await Promise.all([
+      const [orgData, myTeams] = await Promise.all([
         getOrg(activeOrgId),
-        getOrgTeams(activeOrgId),
+        getTeamsForUserInOrg(activeOrgId, user.uid),
       ])
       setOrg(orgData)
-      setTeams(teamsData)
-      const memEntries = await Promise.all(
-        teamsData.map(async (t) => {
-          const m = await getTeamMembership(activeOrgId, t.id, user.uid)
-          return [t.id, m]
-        })
-      )
-      setTeamMemberships(Object.fromEntries(memEntries.filter(([, m]) => m)))
+      setTeams(myTeams)
     }
     load()
   }, [activeOrgId, user])
 
   useEffect(() => {
     if (searchParams.get('create') !== '1' || !activeOrgId) return
+    setEditingMeetingDraft(null)
     setShowCreateEventModal(true)
     const next = new URLSearchParams(searchParams)
     next.delete('create')
@@ -153,60 +227,107 @@ export function CalendarPage() {
     const load = async () => {
       setLoading(true)
       try {
-        let list = []
-        const monthsToLoad = [{ year, month }]
-        if (view === 'week') {
-          const ref = new Date(year, month, 1)
-          const ws = new Date(ref)
-          ws.setDate(ref.getDate() - ref.getDay())
-          const we = new Date(ws)
-          we.setDate(ws.getDate() + 6)
-          if (ws.getMonth() !== month || ws.getFullYear() !== year) {
-            monthsToLoad.unshift({ year: ws.getFullYear(), month: ws.getMonth() })
+        const loadMonthData = async (y, m) => {
+          if (filter === 'personal') {
+            const [meetingsList, importedList, todosList] = await Promise.all([
+              getMeetingsInRangeForUser(user.uid, y, m),
+              getImportedEventsInRange(user.uid, y, m),
+              getTodosInRange(user.uid, y, m).catch(() => []),
+            ])
+            const todosAsEvents = todosList.map((t) => ({
+              id: t.id,
+              title: t.text,
+              startAt: t.dueDate,
+              _todo: true,
+              done: t.done,
+              _calendarSource: 'personal',
+            }))
+            const importedTagged = importedList.map((ev) => ({
+              ...ev,
+              _calendarSource: 'personal',
+            }))
+            const meetingsTagged = meetingsList.map((row) => ({
+              ...row,
+              _calendarSource: meetingCalendarDisplaySource(row),
+            }))
+            const taggedRows = [...meetingsTagged, ...importedTagged, ...todosAsEvents]
+            const meetingRows = taggedRows.filter((x) => !x._todo && !x._imported)
+            const otherRows = taggedRows.filter((x) => x._todo || x._imported)
+            return [...expandMeetingsListForMonth(meetingRows, y, m), ...otherRows]
           }
-          if ((we.getMonth() !== month || we.getFullYear() !== year) && (we.getTime() !== ws.getTime())) {
-            monthsToLoad.push({ year: we.getFullYear(), month: we.getMonth() })
+          if (filter === 'combined' && activeOrgId) {
+            const [meetingsList, importedList, todosList] = await Promise.all([
+              getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m),
+              getImportedEventsInRange(user.uid, y, m),
+              getTodosInRange(user.uid, y, m).catch(() => []),
+            ])
+            const todosAsEvents = todosList.map((t) => ({
+              id: t.id,
+              title: t.text,
+              startAt: t.dueDate,
+              _todo: true,
+              done: t.done,
+              _calendarSource: 'personal',
+            }))
+            const importedTagged = importedList.map((ev) => ({
+              ...ev,
+              _calendarSource: 'personal',
+            }))
+            const meetingsTagged = meetingsList.map((row) => ({
+              ...row,
+              _calendarSource: meetingCalendarDisplaySource(row),
+            }))
+            const taggedRows = [...meetingsTagged, ...importedTagged, ...todosAsEvents]
+            const meetingRows = taggedRows.filter((x) => !x._todo && !x._imported)
+            const otherRows = taggedRows.filter((x) => x._todo || x._imported)
+            return [...expandMeetingsListForMonth(meetingRows, y, m), ...otherRows]
           }
+          if (filter === 'org' && activeOrgId) {
+            const rows = await getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m)
+            const tagged = rows.map((row) => ({
+              ...row,
+              _calendarSource: meetingCalendarDisplaySource(row),
+            }))
+            return expandMeetingsListForMonth(tagged, y, m)
+          }
+          if (filter === 'team' && activeOrgId && scopeTeamId) {
+            const rows = await getMeetingsInRangeForUserInTeam(user.uid, activeOrgId, scopeTeamId, y, m)
+            const tagged = rows.map((row) => ({
+              ...row,
+              _calendarSource: 'team',
+            }))
+            return expandMeetingsListForMonth(tagged, y, m)
+          }
+          return []
+        }
+
+        let monthsToLoad = [{ year, month }]
+        if (view === 'year') {
+          monthsToLoad = Array.from({ length: 12 }, (_, i) => ({ year, month: i }))
         }
         const seen = new Set()
-        const monthKeys = monthsToLoad.filter(({ year: y, month: m }) => {
-          const key = `${y}-${m}`
-          if (seen.has(key)) return false
-          seen.add(key)
+        const monthKeys = monthsToLoad.filter(({ year: y, month: mo }) => {
+          const k = `${y}-${mo}`
+          if (seen.has(k)) return false
+          seen.add(k)
           return true
         })
-        const monthParts = await Promise.all(
-          monthKeys.map(async ({ year: y, month: m }) => {
-            if (filter === 'personal') {
-              const [meetingsList, importedList, todosList] = await Promise.all([
-                getMeetingsInRangeForUser(user.uid, y, m),
-                getImportedEventsInRange(user.uid, y, m),
-                getTodosInRange(user.uid, y, m).catch(() => []),
-              ])
-              const todosAsEvents = todosList.map((t) => ({
-                id: t.id,
-                title: t.text,
-                startAt: t.dueDate,
-                _todo: true,
-                done: t.done,
-              }))
-              return [...meetingsList, ...importedList, ...todosAsEvents]
-            }
-            if (filter === 'org' && activeOrgId) {
-              return getMeetingsInRangeForUserInOrg(user.uid, activeOrgId, y, m)
-            }
-            if (filter === 'team' && activeOrgId && scopeTeamId) {
-              return getMeetingsInRangeForUserInTeam(user.uid, activeOrgId, scopeTeamId, y, m)
-            }
-            return []
-          })
-        )
-        list = monthParts.flat()
-        const meetingRows = list.filter((x) => !x._todo && !x._imported)
-        const otherRows = list.filter((x) => x._todo || x._imported)
-        const expandedMeetings = expandMeetingsListForMonth(meetingRows, year, month)
-        list = [...expandedMeetings, ...otherRows]
+        const monthParts = await Promise.all(monthKeys.map(({ year: y, month: mo }) => loadMonthData(y, mo)))
+        let list = monthParts.flat()
         list.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0))
+        const pending = lastCreatedMeetingRef.current
+        if (pending?.id) {
+          const has = list.some(
+            (row) =>
+              !row._todo &&
+              !row._imported &&
+              (row.id === pending.id || row._seriesId === pending.id)
+          )
+          if (!has) {
+            list = mergeCreatedMeetingIntoState(list, pending, org?.name)
+          }
+          lastCreatedMeetingRef.current = null
+        }
         setMeetings(list)
       } catch (err) {
         console.error('Calendar load error:', err)
@@ -218,6 +339,11 @@ export function CalendarPage() {
     load()
   }, [user, activeOrgId, year, month, filter, scopeTeamId, view, calendarReloadKey])
 
+  const handleEventCreated = (created) => {
+    if (created?.id) lastCreatedMeetingRef.current = created
+    setCalendarReloadKey((k) => k + 1)
+  }
+
   const goPrev = () => {
     if (view === 'day') {
       const d = new Date(displayDate)
@@ -225,12 +351,9 @@ export function CalendarPage() {
       setSelectedDate(d)
       setYear(d.getFullYear())
       setMonth(d.getMonth())
-    } else if (view === 'week') {
-      const d = new Date(weekStart)
-      d.setDate(d.getDate() - 7)
-      setYear(d.getFullYear())
-      setMonth(d.getMonth())
-      setSelectedDate(d)
+      pushCalendarDateToUrl(d)
+    } else if (view === 'year') {
+      setYear((y) => y - 1)
     } else {
       if (month === 0) {
         setMonth(11)
@@ -248,12 +371,9 @@ export function CalendarPage() {
       setSelectedDate(d)
       setYear(d.getFullYear())
       setMonth(d.getMonth())
-    } else if (view === 'week') {
-      const d = new Date(weekStart)
-      d.setDate(d.getDate() + 7)
-      setYear(d.getFullYear())
-      setMonth(d.getMonth())
-      setSelectedDate(d)
+      pushCalendarDateToUrl(d)
+    } else if (view === 'year') {
+      setYear((y) => y + 1)
     } else {
       if (month === 11) {
         setMonth(0)
@@ -269,13 +389,8 @@ export function CalendarPage() {
     setYear(now.getFullYear())
     setMonth(now.getMonth())
     setSelectedDate(now)
+    pushCalendarDateToUrl(now)
   }
-
-  const refDate = selectedDate || new Date()
-  const weekStart = new Date(refDate)
-  weekStart.setDate(refDate.getDate() - refDate.getDay())
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 6)
 
   const firstDay = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
@@ -302,37 +417,41 @@ export function CalendarPage() {
   const selectedKey = formatDateKey(displayDate)
   const selectedDayMeetings = meetingsByDay[selectedKey] || []
 
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart)
-    d.setDate(weekStart.getDate() + i)
-    return d
-  })
-
   const handleCellClick = (day) => {
-    setSelectedDate(new Date(year, month, day))
+    const d = new Date(year, month, day)
+    setSelectedDate(d)
+    pushCalendarDateToUrl(d)
+  }
+
+  const handleYearMonthTitleClick = (mi) => {
+    const d = new Date(year, mi, 1)
+    setMonth(mi)
+    setSelectedDate(d)
+    setView('month')
+    pushCalendarDateToUrl(d)
+  }
+
+  const handleYearDayClick = (mi, day) => {
+    const d = new Date(year, mi, day)
+    setYear(d.getFullYear())
+    setMonth(d.getMonth())
+    setSelectedDate(d)
+    setView('month')
+    pushCalendarDateToUrl(d)
+  }
+
+  const handleYearDayDoubleClick = (mi, day) => {
+    const d = new Date(year, mi, day)
+    setYear(d.getFullYear())
+    setMonth(d.getMonth())
+    setSelectedDate(d)
+    setView('day')
+    pushCalendarDateToUrl(d)
   }
 
   useEffect(() => {
     if (typeof setNavExtra === 'function') setNavExtra(undefined)
   }, [setNavExtra])
-
-  const handleAddTask = async (e) => {
-    e.preventDefault()
-    if (!newTaskText.trim() || !user?.uid || !selectedDate) return
-    setAddingTask(true)
-    try {
-      const dueDate = Timestamp.fromDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0))
-      const t = await addTodo(user.uid, newTaskText.trim(), dueDate)
-      const todoEvent = { id: t.id, title: t.text, startAt: dueDate, _todo: true, done: false }
-      setMeetings((prev) => [...prev, todoEvent].sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0)))
-      setNewTaskText('')
-      setShowAddTask(false)
-    } catch {
-      // ignore
-    } finally {
-      setAddingTask(false)
-    }
-  }
 
   const handleToggleTask = async (todoId, done) => {
     if (!user?.uid) return
@@ -367,84 +486,87 @@ export function CalendarPage() {
             {routeOrgId
               ? org?.name
                 ? `${org.name} — scheduled meetings & events`
-                : 'Organization calendar'
+                : 'Organization Calendar'
               : filter === 'personal'
-                ? 'All organizations you can access (quick ad-hoc meetings are hidden)'
-                : filter === 'team'
-                  ? 'Team calendar — scheduled items only'
-                  : org?.name
-                    ? `${org.name} — organization calendar`
-                    : 'Pick an organization below'}
+                ? 'Your tasks, imports, and scheduled meetings across organizations (quick ad-hoc meetings are hidden)'
+                : filter === 'combined'
+                  ? org?.name
+                    ? `${org.name} — tasks, imports, and all org & team events you can access (color-coded)`
+                    : 'Pick an organization to see all calendars together'
+                  : filter === 'team'
+                    ? 'Scheduled team events for the selected organization and team'
+                    : org?.name
+                      ? `${org.name} — organization-wide scheduled events`
+                      : 'Pick an organization in the toolbar'}
           </p>
         </div>
         {activeOrgId && (
           <Button
             variant="primary"
             size="md"
-            onClick={() => setShowCreateEventModal(true)}
-            disabled={myMembershipForCalendar && !membershipHasCapability(myMembershipForCalendar, 'scheduleMeetings')}
+            onClick={() => {
+              setEditingMeetingDraft(null)
+              setShowCreateEventModal(true)
+            }}
+            disabled={
+              !!myMembershipForCalendar &&
+              !membershipHasCapability(myMembershipForCalendar, 'scheduleOrgMeetings') &&
+              !membershipHasCapability(myMembershipForCalendar, 'scheduleTeamMeetings')
+            }
             title={
-              myMembershipForCalendar && !membershipHasCapability(myMembershipForCalendar, 'scheduleMeetings')
-                ? 'You do not have permission to create events. Ask an org admin to enable scheduling for your role.'
+              myMembershipForCalendar &&
+              !membershipHasCapability(myMembershipForCalendar, 'scheduleOrgMeetings') &&
+              !membershipHasCapability(myMembershipForCalendar, 'scheduleTeamMeetings')
+                ? 'You do not have permission to create events. Ask an org admin to enable org or team scheduling for your role.'
                 : undefined
             }
           >
-            Create event
+            Create Event
           </Button>
         )}
       </div>
 
       <div className="calendar-toolbar">
-        <div className="calendar-nav">
-          <Button variant="ghost" size="md" onClick={goPrev}>←</Button>
-          <Button variant="ghost" size="md" onClick={goToday}>Today</Button>
-          <Button variant="ghost" size="md" onClick={goNext}>→</Button>
+        <div className="calendar-toolbar-top">
+          <div className="calendar-toolbar-top-left">
+            <Button variant="ghost" size="md" onClick={goPrev}>←</Button>
+            <Button variant="ghost" size="md" onClick={goToday}>Today</Button>
+            <Button variant="ghost" size="md" onClick={goNext}>→</Button>
+          </div>
           <span className="calendar-month-label">
-            {view === 'day'
-              ? `${MONTHS[displayDate.getMonth()]} ${displayDate.getDate()}, ${displayDate.getFullYear()}`
-              : `${MONTHS[month]} ${year}`}
+            {view === 'year'
+              ? String(year)
+              : view === 'day'
+                ? `${MONTHS[displayDate.getMonth()]} ${displayDate.getDate()}, ${displayDate.getFullYear()}`
+                : `${MONTHS[month]} ${year}`}
           </span>
+          <div className="calendar-toolbar-top-right">
+            <div className="calendar-view-switcher">
+              {VIEWS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`calendar-view-btn ${view === v ? 'calendar-view-btn-active' : ''}`}
+                  onClick={() => setView(v)}
+                >
+                  {v.charAt(0).toUpperCase() + v.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="calendar-view-switcher">
-          {VIEWS.map((v) => (
-            <button
-              key={v}
-              type="button"
-              className={`calendar-view-btn ${view === v ? 'calendar-view-btn-active' : ''}`}
-              onClick={() => setView(v)}
-            >
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
-          ))}
-        </div>
-        <div className="calendar-filters">
-          {filter === 'personal' && (
-            <>
-              {!showAddTask ? (
-                <Button variant="outline" size="sm" onClick={() => setShowAddTask(true)}>
-                  + Add task
-                </Button>
-              ) : (
-                <form className="calendar-toolbar-task-form" onSubmit={handleAddTask}>
-                  <input
-                    type="text"
-                    placeholder="Task for selected day"
-                    value={newTaskText}
-                    onChange={(e) => setNewTaskText(e.target.value)}
-                    className="auth-input calendar-toolbar-task-input"
-                    disabled={addingTask}
-                  />
-                  <Button type="submit" variant="primary" size="sm" disabled={addingTask || !newTaskText.trim() || !selectedDate}>
-                    Add
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => { setShowAddTask(false); setNewTaskText(''); }}>
-                    Cancel
-                  </Button>
-                </form>
-              )}
-            </>
-          )}
+        <div className="calendar-toolbar-bottom">
           <div className="calendar-source-tabs" role="tablist" aria-label="Calendar scope">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filter === 'combined'}
+              className={`calendar-source-tab ${filter === 'combined' ? 'calendar-source-tab--active' : ''}`}
+              onClick={() => setFilter('combined')}
+              disabled={!activeOrgId && orgPickerOptions.length === 0}
+            >
+              All
+            </button>
             <button
               type="button"
               role="tab"
@@ -452,7 +574,7 @@ export function CalendarPage() {
               className={`calendar-source-tab ${filter === 'personal' ? 'calendar-source-tab--active' : ''}`}
               onClick={() => setFilter('personal')}
             >
-              All calendars
+              Personal
             </button>
             <button
               type="button"
@@ -475,38 +597,46 @@ export function CalendarPage() {
               Team
             </button>
           </div>
-          {!routeOrgId && (filter === 'org' || filter === 'team') && orgPickerOptions.length > 1 && (
-            <label className="calendar-org-pick">
-              <span className="visually-hidden">Organization</span>
+          <div className={`calendar-toolbar-context${filter === 'personal' ? ' calendar-toolbar-context--personal' : ''}`}>
+            {filter !== 'personal' && filter !== 'combined' && org?.name && (routeOrgId || orgPickerOptions.length <= 1) && (
+              <span className="calendar-context-org-label">{org.name}</span>
+            )}
+            {filter === 'combined' && org?.name && (routeOrgId || orgPickerOptions.length <= 1) && (
+              <span className="calendar-context-org-label">{org.name}</span>
+            )}
+            {!routeOrgId && (filter === 'org' || filter === 'team' || filter === 'combined') && orgPickerOptions.length > 1 && (
+              <label className="calendar-org-pick">
+                <span className="visually-hidden">Organization</span>
+                <select
+                  className="calendar-filter-select"
+                  value={activeOrgId || ''}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    setActiveOrgId(id || null)
+                  }}
+                >
+                  {orgPickerOptions.map((o) => (
+                    <option key={o.orgId} value={o.orgId}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {filter === 'team' && (
               <select
+                value={scopeTeamId || ''}
+                onChange={(e) => setScopeTeamId(e.target.value || null)}
                 className="calendar-filter-select"
-                value={activeOrgId || ''}
-                onChange={(e) => {
-                  const id = e.target.value
-                  setActiveOrgId(id || null)
-                }}
+                aria-label="Team"
               >
-                {orgPickerOptions.map((o) => (
-                  <option key={o.orgId} value={o.orgId}>
-                    {o.name}
-                  </option>
+                <option value="">Select team</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
-            </label>
-          )}
-          {filter === 'team' && (
-            <select
-              value={scopeTeamId || ''}
-              onChange={(e) => setScopeTeamId(e.target.value || null)}
-              className="calendar-filter-select"
-              aria-label="Team"
-            >
-              <option value="">Select team</option>
-              {teams.filter((t) => teamMemberships[t.id]?.state === 'active').map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -514,60 +644,94 @@ export function CalendarPage() {
         <div className="calendar-grid-wrap">
           {loading ? (
             <p className="app-muted">Loading meetings…</p>
-          ) : view === 'week' ? (
-            <div className="calendar-week-view">
-              {weekDays.map((d) => {
-                const key = formatDateKey(d)
-                const dayMeetings = meetingsByDay[key] || []
-                const selected = selectedKey === key
-                const today = formatDateKey(new Date()) === key
-                return (
-                  <div key={key} className={`calendar-week-day ${selected ? 'calendar-cell-selected' : ''} ${today ? 'calendar-cell-today' : ''}`}>
-                    <button
-                      type="button"
-                      className="calendar-week-day-header"
-                      onClick={() => setSelectedDate(d)}
-                      onDoubleClick={() => {
-                        setSelectedDate(d)
-                        setView('day')
-                      }}
-                    >
-                      <span className="calendar-week-day-name">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]}</span>
-                      <span className="calendar-week-day-num">{d.getDate()}</span>
-                    </button>
-                    <ul className="calendar-week-meetings">
-                      {dayMeetings.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0)).map((m) => (
-                        <li key={m.id}>
-                          <button
-                            type="button"
-                            className={`calendar-meeting-item calendar-meeting-item--btn ${m._todo && m.done ? 'calendar-meeting-done' : ''}`}
-                            title={m.title}
-                            onClick={() => setSelectedEventItem(m)}
-                          >
-                            {m._todo && (
-                              <input
-                                type="checkbox"
-                                checked={!!m.done}
-                                className="calendar-cell-task-check"
-                                onChange={(e) => {
-                                  e.stopPropagation()
-                                  handleToggleTask(m.id, e.target.checked)
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                aria-label="Task done"
-                              />
-                            )}
-                            <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
-                            <span className="calendar-meeting-title">{m.title}</span>
-                            {m._imported && <span className="calendar-meeting-imported">imported</span>}
-                            {m._todo && <span className="calendar-meeting-task">task</span>}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )
-              })}
+          ) : view === 'year' ? (
+            <div className="calendar-year-view">
+              <p className="calendar-year-legend app-muted">
+                <span className="calendar-year-legend-item">
+                  <span className="calendar-year-legend-dot calendar-year-legend-dot--personal" aria-hidden />
+                  Personal
+                </span>
+                <span className="calendar-year-legend-item">
+                  <span className="calendar-year-legend-dot calendar-year-legend-dot--org" aria-hidden />
+                  Organization
+                </span>
+                <span className="calendar-year-legend-item">
+                  <span className="calendar-year-legend-dot calendar-year-legend-dot--team" aria-hidden />
+                  Team
+                </span>
+                <span className="calendar-year-legend-hint">
+                  Click a day for month view, double-click for day view. Click a month name for that month.
+                </span>
+              </p>
+              <div className="calendar-year-grid">
+                {MONTHS.map((monthName, mi) => {
+                  const fd = new Date(year, mi, 1).getDay()
+                  const dim = new Date(year, mi + 1, 0).getDate()
+                  const cells = []
+                  for (let i = 0; i < fd; i++) cells.push(null)
+                  for (let d = 1; d <= dim; d++) cells.push(d)
+                  const now = new Date()
+                  return (
+                    <section key={monthName} className="calendar-year-month">
+                      <button
+                        type="button"
+                        className="calendar-year-month-title"
+                        onClick={() => handleYearMonthTitleClick(mi)}
+                      >
+                        {monthName}
+                      </button>
+                      <div className="calendar-year-dow" aria-hidden>
+                        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((L, i) => (
+                          <span key={`${monthName}-dow-${i}`} className="calendar-year-dow-cell">{L}</span>
+                        ))}
+                      </div>
+                      <div className="calendar-year-days">
+                        {cells.map((day, idx) => {
+                          if (day === null) {
+                            return <span key={`${monthName}-e-${idx}`} className="calendar-year-day calendar-year-day--empty" />
+                          }
+                          const key = formatDateKey(new Date(year, mi, day))
+                          const dayMeetings = meetingsByDay[key] || []
+                          const dots = sourcesFromDayMeetings(dayMeetings)
+                          const today =
+                            now.getFullYear() === year && now.getMonth() === mi && now.getDate() === day
+                          const selected =
+                            selectedDate &&
+                            selectedDate.getFullYear() === year &&
+                            selectedDate.getMonth() === mi &&
+                            selectedDate.getDate() === day
+                          return (
+                            <button
+                              type="button"
+                              key={`${mi}-${day}`}
+                              className={`calendar-year-day ${today ? 'calendar-year-day--today' : ''} ${selected ? 'calendar-year-day--selected' : ''}`}
+                              onClick={() => handleYearDayClick(mi, day)}
+                              onDoubleClick={(e) => {
+                                e.preventDefault()
+                                handleYearDayDoubleClick(mi, day)
+                              }}
+                            >
+                              <span className="calendar-year-day-num">{day}</span>
+                              <span className="calendar-year-event-dots" aria-hidden>
+                                {dots.length > 0 ? (
+                                  dots.map((src) => (
+                                    <span
+                                      key={src}
+                                      className={`calendar-year-event-dot calendar-year-event-dot--${src}`}
+                                    />
+                                  ))
+                                ) : (
+                                  <span className="calendar-year-event-dot calendar-year-event-dot--placeholder" />
+                                )}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  )
+                })}
+              </div>
             </div>
           ) : view === 'day' ? (
             <div className="calendar-day-view">
@@ -589,7 +753,7 @@ export function CalendarPage() {
                         <button
                           key={m.id}
                           type="button"
-                          className={`calendar-meeting-item calendar-meeting-item--btn ${m._todo && m.done ? 'calendar-meeting-done' : ''}`}
+                          className={meetingItemClasses(m, filter, calendarNowMs)}
                           title={m.title}
                           onClick={() => setSelectedEventItem(m)}
                         >
@@ -608,6 +772,7 @@ export function CalendarPage() {
                           )}
                           <span className="calendar-meeting-time">{m._todo ? '' : formatMeetingTime(m.startAt, userDoc)}</span>
                           <span className="calendar-meeting-title">{m.title}</span>
+                          {m._imported && <span className="calendar-meeting-imported">imported</span>}
                           {m._todo && <span className="calendar-meeting-task">task</span>}
                         </button>
                       ))}
@@ -638,8 +803,10 @@ export function CalendarPage() {
                     onDoubleClick={(e) => {
                       if (!day) return
                       e.preventDefault()
-                      setSelectedDate(new Date(year, month, day))
+                      const d = new Date(year, month, day)
+                      setSelectedDate(d)
                       setView('day')
+                      pushCalendarDateToUrl(d)
                     }}
                     disabled={!day}
                   >
@@ -650,7 +817,7 @@ export function CalendarPage() {
                           <li key={m.id}>
                             <button
                               type="button"
-                              className={`calendar-meeting-item calendar-meeting-item--btn ${m._todo && m.done ? 'calendar-meeting-done' : ''}`}
+                              className={meetingItemClasses(m, filter, calendarNowMs)}
                               title={m.title}
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -693,13 +860,19 @@ export function CalendarPage() {
 
       {activeOrgId && user && (
         <CreateEventModal
-          isOpen={showCreateEventModal}
-          onClose={() => setShowCreateEventModal(false)}
+          isOpen={showCreateEventModal || !!editingMeetingDraft}
+          onClose={() => {
+            setShowCreateEventModal(false)
+            setEditingMeetingDraft(null)
+          }}
           user={user}
           activeOrgId={activeOrgId}
           defaultDate={selectedDate}
-          onCreated={() => setCalendarReloadKey((k) => k + 1)}
+          editingMeeting={editingMeetingDraft}
+          onCreated={handleEventCreated}
+          onUpdated={() => setCalendarReloadKey((k) => k + 1)}
           myOrgMembership={myMembershipForCalendar}
+          orgOptions={routeOrgId ? undefined : orgPickerOptions}
         />
       )}
       <EventDetailModal
@@ -710,6 +883,11 @@ export function CalendarPage() {
         userDoc={userDoc}
         canManageOrg={canManageOrg(myMembershipForCalendar)}
         onUpdated={() => setCalendarReloadKey((k) => k + 1)}
+        onEditEvent={(ev) => {
+          setSelectedEventItem(null)
+          setEditingMeetingDraft(ev)
+          setShowCreateEventModal(true)
+        }}
         onDeleted={(id) => {
           setMeetings((prev) => prev.filter((m) => m.id !== id && m._seriesId !== id))
           setSelectedEventItem(null)

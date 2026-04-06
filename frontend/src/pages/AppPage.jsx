@@ -11,7 +11,7 @@ import {
   canManageOrg,
   MEMBERSHIP_STATES,
 } from '../lib/orgService'
-import { getUpcomingMeetingsInHorizonForUser } from '../lib/meetingService'
+import { getPersonalCalendarUpcomingInHorizon } from '../lib/dashboardCalendarService'
 import { Button } from '../components/ui/Button'
 import { CalendarIcon, VideoIcon, MessageSquareIcon, SettingsIcon, BuildingIcon } from '../components/ui/Icons'
 import { MiniCalendarWidget } from '../components/dashboard/MiniCalendarWidget'
@@ -128,26 +128,40 @@ export function AppPage() {
 
   useEffect(() => {
     if (!user) return
+    let cancelled = false
     const load = async () => {
-      const [memberships, pendingMem] = await Promise.all([
-        getActiveMemberships(user.uid),
-        getPendingMembership(user.uid),
-      ])
-      const orgs = await Promise.all(
-        memberships.map(async (m) => {
-          const orgData = await getOrg(m.orgId)
-          return { orgId: m.orgId, org: orgData, membership: m }
-        })
-      )
-      setActiveOrgs(orgs.filter((o) => o.org))
-      if (pendingMem) {
-        const orgData = await getOrg(pendingMem.orgId)
-        setPendingOrg(orgData || { id: pendingMem.orgId, name: 'Organization' })
-        setView('pending')
+      try {
+        const [memberships, pendingMem] = await Promise.all([
+          getActiveMemberships(user.uid),
+          getPendingMembership(user.uid),
+        ])
+        if (cancelled) return
+        const orgs = await Promise.all(
+          memberships.map(async (m) => {
+            const orgData = await getOrg(m.orgId)
+            return { orgId: m.orgId, org: orgData, membership: m }
+          })
+        )
+        if (cancelled) return
+        setActiveOrgs(orgs.filter((o) => o.org))
+        if (pendingMem) {
+          const orgData = await getOrg(pendingMem.orgId)
+          if (!cancelled) {
+            setPendingOrg(orgData || { id: pendingMem.orgId, name: 'Organization' })
+            setView('pending')
+          }
+        }
+      } catch (e) {
+        console.warn('Dashboard failed to load organizations', e)
+        if (!cancelled) setActiveOrgs([])
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      setLoading(false)
     }
     load()
+    return () => {
+      cancelled = true
+    }
   }, [user])
 
   useEffect(() => {
@@ -156,7 +170,7 @@ export function AppPage() {
 
   useEffect(() => {
     if (!user?.uid) return
-    getUpcomingMeetingsInHorizonForUser(user.uid, 14, 20, { includeNonVideo: true })
+    getPersonalCalendarUpcomingInHorizon(user.uid, 14, 40)
       .then(setUpcomingMeetings)
       .catch(() => setUpcomingMeetings([]))
   }, [user?.uid])
@@ -325,7 +339,7 @@ export function AppPage() {
           </div>
         ) : view === 'pending' && pendingOrg ? (
           <div className="dashboard-pending">
-            <h2>Waiting for approval</h2>
+            <h2>Waiting for Approval</h2>
             <p className="onboarding-org-pending-text">
               Your request to join <strong>{pendingOrg.name}</strong> has been sent. An admin will review it shortly.
             </p>

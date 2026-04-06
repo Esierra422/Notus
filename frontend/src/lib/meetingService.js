@@ -33,6 +33,14 @@ const MEETINGS_SUB = 'meetings'
 
 export const MEETING_SCOPES = { org: 'org', team: 'team', private: 'private' }
 
+/** Combined-calendar coloring: personal (private), org-wide, or team. */
+export function meetingCalendarDisplaySource(meeting) {
+  if (!meeting || meeting._todo || meeting._imported) return 'personal'
+  if (meeting.scope === MEETING_SCOPES.private) return 'personal'
+  if (meeting.scope === MEETING_SCOPES.team) return 'team'
+  return 'org'
+}
+
 /** How the meeting row was created — used to filter video lobby “upcoming”. */
 export const MEETING_CREATED_VIA = { calendar: 'calendar', instant: 'instant' }
 
@@ -81,6 +89,32 @@ function mergeInvitedUserIds(data) {
 }
 
 /**
+ * In-app copy + notification kind: calendar-only invites vs video / instant meeting invites.
+ */
+function buildMeetingInviteNotificationPayload(title, { isInstant, isVideoMeeting }) {
+  const t = (title || 'Meeting').trim() || 'Meeting'
+  if (isInstant) {
+    return {
+      body: `${t}: quick meeting — open Video to join when you're ready.`,
+      isInstant: true,
+      inviteKind: 'video_meeting',
+    }
+  }
+  if (isVideoMeeting === false) {
+    return {
+      body: `${t}: calendar invite — this event is added to your Calendar for this organization.`,
+      isInstant: false,
+      inviteKind: 'calendar_event',
+    }
+  }
+  return {
+    body: `${t}: meeting invite — open Video to join, or Calendar to see it on your schedule.`,
+    isInstant: false,
+    inviteKind: 'video_meeting',
+  }
+}
+
+/**
  * Create a meeting. Caller must have access to create in org.
  */
 export async function createMeeting(orgId, data, userId) {
@@ -120,9 +154,15 @@ export async function createMeeting(orgId, data, userId) {
     }
   }
 
-  if (!membershipHasCapability(orgMem, 'scheduleMeetings')) {
+  if (scope === MEETING_SCOPES.team) {
+    if (!membershipHasCapability(orgMem, 'scheduleTeamMeetings')) {
+      throw new Error(
+        'You do not have permission to create team calendar events. Ask an organization admin to enable team scheduling for your role.'
+      )
+    }
+  } else if (!membershipHasCapability(orgMem, 'scheduleOrgMeetings')) {
     throw new Error(
-      'You do not have permission to create meetings or calendar events. Ask an organization admin to enable this for your role.'
+      'You do not have permission to create organization calendar events. Ask an organization admin to enable org scheduling for your role.'
     )
   }
   if (scope === MEETING_SCOPES.org && !inviteOnly && !membershipHasCapability(orgMem, 'orgCalendar')) {
@@ -159,17 +199,19 @@ export async function createMeeting(orgId, data, userId) {
 
   if (invitedUserIds.length) {
     const t = title || 'Meeting'
+    const { body, isInstant, inviteKind } = buildMeetingInviteNotificationPayload(t, {
+      isInstant: createdVia === MEETING_CREATED_VIA.instant,
+      isVideoMeeting,
+    })
     void createMeetingInviteNotifications({
       fromUid: userId,
       recipientUids: invitedUserIds,
       orgId,
       meetingId,
       title: t,
-      body:
-        createdVia === MEETING_CREATED_VIA.instant
-          ? `${t}: quick meeting — open Video to join when you're ready.`
-          : `${t}: you're invited${isVideoMeeting ? ' to a video meeting' : ''}. Open Calendar or Video to join.`,
-      isInstant: createdVia === MEETING_CREATED_VIA.instant,
+      body,
+      isInstant,
+      inviteKind,
     }).catch(() => {})
   }
 
@@ -177,11 +219,20 @@ export async function createMeeting(orgId, data, userId) {
     id: meetingId,
     orgId,
     title: title || 'Meeting',
+    description: description || null,
     scope,
+    scopeTeamId: scope === MEETING_SCOPES.team ? scopeTeamId : null,
+    invitedUserIds,
+    inviteOnly,
+    startAt: startAt || null,
+    endAt: endAt || null,
+    timeZone,
+    recurrence,
     videoRoomId,
     transcriptSessionId,
     createdBy: userId,
     isVideoMeeting,
+    createdVia,
   }
 }
 
@@ -202,6 +253,7 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
   }
 
   const data = {}
+  let addedInviteeIds = []
   if (patch.title !== undefined) {
     const t = String(patch.title || '').trim()
     if (t) data.title = t
@@ -210,7 +262,9 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
     data.description = String(patch.description || '').trim() || null
   }
   if (patch.invitedUserIds !== undefined) {
+    const prevSet = new Set(mergeInvitedUserIds(m))
     const ids = [...new Set((Array.isArray(patch.invitedUserIds) ? patch.invitedUserIds : []).filter(Boolean))]
+    addedInviteeIds = ids.filter((id) => !prevSet.has(id))
     data.invitedUserIds = ids
     if (m.scope === MEETING_SCOPES.private) data.scopeInviteList = ids
   }
@@ -236,9 +290,114 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
   if (patch.recurrence !== undefined) {
     data.recurrence = patch.recurrence && typeof patch.recurrence === 'object' ? patch.recurrence : null
   }
+  if (
+    patch.scope !== undefined &&
+    [MEETING_SCOPES.org, MEETING_SCOPES.team, MEETING_SCOPES.private].includes(patch.scope)
+  ) {
+    const nextScope = patch.scope
+    const nextTeamId = nextScope === MEETING_SCOPES.team ? patch.scopeTeamId || null : null
+    if (nextScope === MEETING_SCOPES.team && !nextTeamId) {
+      throw new Error('Team scope requires a team.')
+    }
+    if (nextScope === MEETING_SCOPES.team && !membershipHasCapability(orgMem, 'scheduleTeamMeetings')) {
+      throw new Error('You cannot move this event to a team calendar without team scheduling permission.')
+    }
+    if (nextScope === MEETING_SCOPES.team && !membershipHasCapability(orgMem, 'teamCalendar')) {
+      throw new Error(
+        'You cannot move this event to a team calendar without team calendar access for your role.'
+      )
+    }
+    if (nextScope === MEETING_SCOPES.org && !membershipHasCapability(orgMem, 'scheduleOrgMeetings')) {
+      throw new Error('You cannot move this event to the organization calendar without org scheduling permission.')
+    }
+    if (nextScope === MEETING_SCOPES.private && !membershipHasCapability(orgMem, 'scheduleOrgMeetings')) {
+      throw new Error('You cannot move this event to your personal calendar without org scheduling permission.')
+    }
+    data.scope = nextScope
+    data.scopeTeamId = nextTeamId
+    if (nextScope === MEETING_SCOPES.private) {
+      data.scopeTeamId = null
+    }
+    if (nextScope === MEETING_SCOPES.org || nextScope === MEETING_SCOPES.team) {
+      data.scopeInviteList = []
+    }
+  } else if (patch.scopeTeamId !== undefined && m.scope === MEETING_SCOPES.team) {
+    if (!membershipHasCapability(orgMem, 'scheduleTeamMeetings')) {
+      throw new Error('You cannot change the team for this event.')
+    }
+    if (!membershipHasCapability(orgMem, 'teamCalendar')) {
+      throw new Error('You cannot change the team for this event without team calendar access for your role.')
+    }
+    data.scopeTeamId = patch.scopeTeamId || null
+  }
+  if (patch.addRecurrenceExceptionAtMs != null) {
+    const ms = Number(patch.addRecurrenceExceptionAtMs)
+    if (Number.isFinite(ms)) {
+      const existing = Array.isArray(m.recurrenceExceptions) ? [...m.recurrenceExceptions] : []
+      existing.push(Timestamp.fromMillis(ms))
+      data.recurrenceExceptions = existing
+    }
+  }
 
   if (Object.keys(data).length === 0) return
+
+  const effectiveScope = data.scope !== undefined ? data.scope : m.scope
+  const effectiveInvited =
+    data.invitedUserIds !== undefined ? data.invitedUserIds : mergeInvitedUserIds(m)
+  if (effectiveScope === MEETING_SCOPES.private) {
+    data.scopeInviteList = [...new Set((Array.isArray(effectiveInvited) ? effectiveInvited : []).filter(Boolean))]
+  }
+
   await updateDoc(ref, data)
+
+  if (addedInviteeIds.length > 0) {
+    const t = (data.title !== undefined ? data.title : m.title) || 'Meeting'
+    const isVideoMeetingEffective =
+      data.isVideoMeeting !== undefined ? data.isVideoMeeting !== false : m.isVideoMeeting !== false
+    const isInstant = m.createdVia === MEETING_CREATED_VIA.instant
+    const { body, isInstant: payloadInstant, inviteKind } = buildMeetingInviteNotificationPayload(t, {
+      isInstant,
+      isVideoMeeting: isVideoMeetingEffective,
+    })
+    void createMeetingInviteNotifications({
+      fromUid: userId,
+      recipientUids: addedInviteeIds,
+      orgId,
+      meetingId,
+      title: t,
+      body,
+      isInstant: payloadInstant,
+      inviteKind,
+    }).catch(() => {})
+  }
+}
+
+/**
+ * Invitee declines a calendar/video invite: removes self from invitedUserIds (and private scopeInviteList).
+ * Firestore rules allow this narrow update for active org members who were on the list.
+ */
+export async function declineMeetingInvite(orgId, meetingId, userId) {
+  const ref = doc(db, 'organizations', orgId, MEETINGS_SUB, meetingId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) throw new Error('Meeting not found.')
+  const m = snap.data()
+  const invited = [...new Set((Array.isArray(m.invitedUserIds) ? m.invitedUserIds : []).filter(Boolean))]
+  if (!invited.includes(userId)) {
+    throw new Error('You are not on the invite list for this event.')
+  }
+  const next = invited.filter((id) => id !== userId)
+  const patch = { invitedUserIds: next }
+  if (m.scope === MEETING_SCOPES.private) {
+    patch.scopeInviteList = next
+  }
+  await updateDoc(ref, patch)
+}
+
+/**
+ * Hide one occurrence of a recurring series (calendar UI). Same auth as updateMeeting.
+ */
+export async function deleteMeetingOccurrence(orgId, meetingId, userId, occurrenceStartMs) {
+  return updateMeeting(orgId, meetingId, userId, { addRecurrenceExceptionAtMs: occurrenceStartMs })
 }
 
 /** Stable Agora room id for an org meeting (works for older docs without videoRoomId). */
@@ -908,6 +1067,27 @@ export async function getMeetingsForUserInOrg(userId, orgId, maxResults = 20) {
     return bTime - aTime
   })
   return accessible.slice(0, maxResults)
+}
+
+/**
+ * Team-scoped upcoming meetings for the roster (user must pass canAccessMeeting).
+ */
+export async function getUpcomingTeamMeetingsForUser(userId, orgId, teamId, options = {}) {
+  const maxResults = options.maxResults ?? 12
+  const horizonDays = options.horizonDays ?? 90
+  const now = Date.now()
+  const horizonEnd = now + horizonDays * 24 * 60 * 60 * 1000
+  const raw = await getTeamMeetings(orgId, teamId)
+  const upcoming = []
+  for (const m of raw) {
+    if (isInstantMeetingRow(m)) continue
+    if (!(await canAccessMeeting(m, userId, orgId))) continue
+    const t = firestoreTimeToMs(m.startAt)
+    if (t < now || t > horizonEnd) continue
+    upcoming.push({ ...m, orgId })
+  }
+  upcoming.sort((a, b) => firestoreTimeToMs(a.startAt) - firestoreTimeToMs(b.startAt))
+  return upcoming.slice(0, maxResults)
 }
 
 /**

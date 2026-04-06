@@ -21,6 +21,20 @@ const MEMBERSHIPS_COLLECTION = 'memberships'
 export const MEMBERSHIP_STATES = { pending: 'pending', active: 'active', rejected: 'rejected', removed: 'removed' }
 export const MEMBERSHIP_ROLES = { owner: 'owner', admin: 'admin', member: 'member' }
 
+/**
+ * Primary title for member cards and profiles: custom role label when set, otherwise title-cased org role.
+ */
+export function getMembershipDisplayTitle(membershipLike) {
+  if (!membershipLike || typeof membershipLike !== 'object') return ''
+  const label =
+    membershipLike.displayRoleName != null ? String(membershipLike.displayRoleName).trim() : ''
+  if (label) return label
+  const r = membershipLike.role
+  if (!r || typeof r !== 'string') return ''
+  const lower = r.toLowerCase()
+  return lower ? lower.charAt(0).toUpperCase() + lower.slice(1) : ''
+}
+
 function membershipId(orgId, userId) {
   return `${orgId}_${userId}`
 }
@@ -76,6 +90,7 @@ export async function updateOrg(orgId, updates, userId) {
   const data = {}
   if (updates.description !== undefined) data.description = String(updates.description || '').trim()
   if (updates.imageUrl !== undefined) data.imageUrl = updates.imageUrl == null ? null : String(updates.imageUrl)
+  if (updates.bannerUrl !== undefined) data.bannerUrl = updates.bannerUrl == null ? null : String(updates.bannerUrl)
   if (updates.name !== undefined) {
     const name = String(updates.name || '').trim()
     data.name = name
@@ -211,12 +226,30 @@ export async function getRejectedRequests(orgId) {
 }
 
 /**
- * Approve, reject, or remove a membership. Requires owner/admin for approve/reject/remove.
+ * Approve, reject, or remove a membership.
+ * Approve/reject: org owner/admin only. Remove: admin rules or `removeOrgMembers` capability (members only).
  */
-export async function updateMembershipState(orgId, userId, newState) {
+export async function updateMembershipState(orgId, userId, newState, actorUserId) {
   const allowed = [MEMBERSHIP_STATES.active, MEMBERSHIP_STATES.rejected, MEMBERSHIP_STATES.removed]
   if (!allowed.includes(newState)) {
     throw new Error('Invalid state')
+  }
+  const actor = await getMembership(orgId, actorUserId)
+  if (!actor || actor.state !== MEMBERSHIP_STATES.active) {
+    throw new Error('Not allowed.')
+  }
+  if (newState === MEMBERSHIP_STATES.active || newState === MEMBERSHIP_STATES.rejected) {
+    if (!canManageOrg(actor)) {
+      throw new Error('Only organization admins can approve or reject join requests.')
+    }
+  }
+  if (newState === MEMBERSHIP_STATES.removed) {
+    const target = await getMembership(orgId, userId)
+    if (!target) throw new Error('Member not found.')
+    const targetIsOwner = target.role === MEMBERSHIP_ROLES.owner
+    if (!canRemoveOrgMember(actor, target.role, targetIsOwner)) {
+      throw new Error('You do not have permission to remove this member.')
+    }
   }
   const ref = doc(db, MEMBERSHIPS_COLLECTION, membershipId(orgId, userId))
   await updateDoc(ref, {
@@ -228,7 +261,11 @@ export async function updateMembershipState(orgId, userId, newState) {
 /**
  * Update a member's role. Requires owner/admin.
  */
-export async function updateMembershipRole(orgId, userId, newRole) {
+export async function updateMembershipRole(orgId, userId, newRole, actorUserId) {
+  const actor = await getMembership(orgId, actorUserId)
+  if (!canManageOrg(actor)) {
+    throw new Error('Only organization admins can change roles.')
+  }
   if (![MEMBERSHIP_ROLES.owner, MEMBERSHIP_ROLES.admin, MEMBERSHIP_ROLES.member].includes(newRole)) {
     throw new Error('Invalid role')
   }
@@ -246,21 +283,133 @@ export function canManageOrg(membership) {
   return membership && (membership.role === MEMBERSHIP_ROLES.owner || membership.role === MEMBERSHIP_ROLES.admin)
 }
 
+/** Capability keys stored on `memberships.capabilities`. */
+export const MEMBERSHIP_CAP_KEYS = {
+  scheduleOrgMeetings: 'scheduleOrgMeetings',
+  scheduleTeamMeetings: 'scheduleTeamMeetings',
+  orgCalendar: 'orgCalendar',
+  teamCalendar: 'teamCalendar',
+  createTeams: 'createTeams',
+  manageMembers: 'manageMembers',
+  removeOrgMembers: 'removeOrgMembers',
+  removeTeamMembers: 'removeTeamMembers',
+  manageTeams: 'manageTeams',
+}
+
+export function normalizeMemberCapabilities(raw) {
+  const base = {
+    scheduleOrgMeetings: false,
+    scheduleTeamMeetings: false,
+    orgCalendar: false,
+    teamCalendar: false,
+    createTeams: false,
+    manageMembers: false,
+    removeOrgMembers: false,
+    removeTeamMembers: false,
+    manageTeams: false,
+  }
+  if (!raw || typeof raw !== 'object') return base
+  for (const k of Object.keys(base)) {
+    if (k in raw) base[k] = raw[k] === true
+  }
+  if (raw.scheduleMeetings === true && !('scheduleOrgMeetings' in raw) && !('scheduleTeamMeetings' in raw)) {
+    base.scheduleOrgMeetings = true
+    base.scheduleTeamMeetings = true
+  }
+  return base
+}
+
 /**
- * Fine-grained permissions for members (owners/admins always pass).
- * If `capabilities` is missing, allow (legacy members before caps existed).
- * If `capabilities` exists but a key is absent, allow that key (partial docs).
- * If a key is present and not `true`, deny.
- *
- * @param {'scheduleMeetings'|'orgCalendar'|'teamCalendar'} cap
+ * Open “manage member” UI (labels + capability toggles): admins or `manageMembers`.
+ */
+export function canOpenMemberManagement(actor) {
+  return canManageOrg(actor) || membershipHasCapability(actor, 'manageMembers')
+}
+
+/**
+ * Remove someone from the org (not owner). Admins follow role rules; others need `removeOrgMembers` for members only.
+ */
+export function canRemoveOrgMember(actor, targetRole, targetIsOwner) {
+  if (!actor || actor.state !== MEMBERSHIP_STATES.active) return false
+  if (targetIsOwner) return false
+  if (canManageOrg(actor)) {
+    if (targetRole === MEMBERSHIP_ROLES.admin) return actor.role === MEMBERSHIP_ROLES.owner
+    return true
+  }
+  if (!membershipHasCapability(actor, 'removeOrgMembers')) return false
+  return targetRole === MEMBERSHIP_ROLES.member
+}
+
+/**
+ * Fine-grained permissions. Owners/admins always pass.
+ * Legacy: no `capabilities` field → full calendar/scheduling; enterprise flags off.
+ * With a capabilities object: scheduling split + explicit enterprise toggles.
  */
 export function membershipHasCapability(membership, cap) {
   if (!membership || membership.state !== MEMBERSHIP_STATES.active) return false
   if (membership.role === MEMBERSHIP_ROLES.owner || membership.role === MEMBERSHIP_ROLES.admin) return true
-  const c = membership.capabilities
-  if (c == null || typeof c !== 'object') return true
-  if (!(cap in c)) return true
-  return c[cap] === true
+
+  const raw = membership.capabilities
+
+  if (raw == null || typeof raw !== 'object') {
+    if (
+      cap === 'manageMembers' ||
+      cap === 'removeOrgMembers' ||
+      cap === 'removeTeamMembers' ||
+      cap === 'manageTeams' ||
+      cap === 'createTeams'
+    ) {
+      return false
+    }
+    if (
+      cap === 'scheduleMeetings' ||
+      cap === 'scheduleOrgMeetings' ||
+      cap === 'scheduleTeamMeetings' ||
+      cap === 'orgCalendar' ||
+      cap === 'teamCalendar'
+    ) {
+      return true
+    }
+    return false
+  }
+
+  const c = raw
+
+  if (cap === 'scheduleOrgMeetings') {
+    if (c.scheduleOrgMeetings === true) return true
+    if ('scheduleOrgMeetings' in c) return false
+    if (c.scheduleMeetings === true) return true
+    if ('scheduleMeetings' in c) return false
+    return false
+  }
+
+  if (cap === 'scheduleTeamMeetings') {
+    if (c.scheduleTeamMeetings === true) return true
+    if ('scheduleTeamMeetings' in c) return false
+    if (c.scheduleMeetings === true) return true
+    if ('scheduleMeetings' in c) return false
+    return false
+  }
+
+  if (cap === 'scheduleMeetings') {
+    return (
+      membershipHasCapability({ ...membership, capabilities: c }, 'scheduleOrgMeetings') ||
+      membershipHasCapability({ ...membership, capabilities: c }, 'scheduleTeamMeetings')
+    )
+  }
+
+  // Require explicit true whenever a capabilities object exists (matches admin toggles + normalizeMemberCapabilities).
+  // Missing keys are not treated as allow — that bypassed orgCalendar/teamCalendar off when keys were omitted in Firestore.
+  if (cap === 'orgCalendar') {
+    return c.orgCalendar === true
+  }
+  if (cap === 'teamCalendar') {
+    return c.teamCalendar === true
+  }
+
+  const enterprise = ['createTeams', 'manageMembers', 'removeOrgMembers', 'removeTeamMembers', 'manageTeams']
+  if (enterprise.includes(cap)) return c[cap] === true
+  return false
 }
 
 /**
@@ -268,7 +417,13 @@ export function membershipHasCapability(membership, cap) {
  */
 export async function updateMemberDisplayRole(orgId, targetUserId, actorUserId, displayRoleName) {
   const actor = await getMembership(orgId, actorUserId)
-  if (!canManageOrg(actor)) throw new Error('Only owners and admins can update member labels.')
+  if (!canManageOrg(actor) && !membershipHasCapability(actor, 'manageMembers')) {
+    throw new Error('You do not have permission to update this member’s label.')
+  }
+  const targetMem = await getMembership(orgId, targetUserId)
+  if (targetMem?.role === MEMBERSHIP_ROLES.owner) {
+    throw new Error('The organization owner’s role label cannot be changed here.')
+  }
   const ref = doc(db, MEMBERSHIPS_COLLECTION, membershipId(orgId, targetUserId))
   await updateDoc(ref, {
     displayRoleName: String(displayRoleName || '').trim() || null,
@@ -276,17 +431,29 @@ export async function updateMemberDisplayRole(orgId, targetUserId, actorUserId, 
   })
 }
 
-/** Optional capability flags for UI (org owners/admins may still override in Firestore rules later). */
+/** Persist fine-grained capability flags (admins or people with `manageMembers`). */
 export async function updateMemberCapabilities(orgId, targetUserId, actorUserId, capabilities) {
   const actor = await getMembership(orgId, actorUserId)
-  if (!canManageOrg(actor)) throw new Error('Only owners and admins can update capabilities.')
+  if (!canManageOrg(actor) && !membershipHasCapability(actor, 'manageMembers')) {
+    throw new Error('You do not have permission to update member capabilities.')
+  }
+  const targetMem = await getMembership(orgId, targetUserId)
+  if (targetMem?.role === MEMBERSHIP_ROLES.owner) {
+    throw new Error('Organization owners always have full access; capability flags are not editable for owners.')
+  }
   const ref = doc(db, MEMBERSHIPS_COLLECTION, membershipId(orgId, targetUserId))
-  const safe = capabilities && typeof capabilities === 'object' ? capabilities : {}
+  const n = normalizeMemberCapabilities(capabilities)
   await updateDoc(ref, {
     capabilities: {
-      scheduleMeetings: safe.scheduleMeetings === true,
-      orgCalendar: safe.orgCalendar === true,
-      teamCalendar: safe.teamCalendar === true,
+      scheduleOrgMeetings: n.scheduleOrgMeetings,
+      scheduleTeamMeetings: n.scheduleTeamMeetings,
+      orgCalendar: n.orgCalendar,
+      teamCalendar: n.teamCalendar,
+      createTeams: n.createTeams,
+      manageMembers: n.manageMembers,
+      removeOrgMembers: n.removeOrgMembers,
+      removeTeamMembers: n.removeTeamMembers,
+      manageTeams: n.manageTeams,
     },
     updatedAt: serverTimestamp(),
   })

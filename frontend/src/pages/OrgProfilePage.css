@@ -14,8 +14,43 @@
 
 .org-profile-cover,
 .team-profile-cover {
-  height: 80px;
+  position: relative;
+  height: 100px;
   background: linear-gradient(135deg, rgba(212, 168, 83, 0.12) 0%, rgba(184, 146, 63, 0.05) 50%, transparent 100%);
+}
+
+.org-profile-cover--image {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.org-profile-cover-edit {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.org-profile-cover-edit:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.6);
+  border-color: rgba(212, 168, 83, 0.45);
+}
+
+.org-profile-cover-edit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .org-profile-hero,

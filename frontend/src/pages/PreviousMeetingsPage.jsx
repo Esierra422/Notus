@@ -253,7 +253,7 @@ export function PreviousMeetingsPage() {
     return (
       <div className="prev-meetings-page">
         <div className="prev-meetings-empty">
-          <h2>Could not load meetings</h2>
+          <h2>Could Not Load Meetings</h2>
           <p className="prev-meetings-error-text">{loadError}</p>
         </div>
       </div>
@@ -265,7 +265,7 @@ export function PreviousMeetingsPage() {
       <header className="prev-meetings-hero">
         <div className="prev-meetings-hero-text">
           <p className="prev-meetings-kicker">Meetings</p>
-          <h1 className="prev-meetings-title">Past meetings & transcripts</h1>
+          <h1 className="prev-meetings-title">Past Meetings & Transcripts</h1>
           <p className="prev-meetings-lead">
             AI notes, full transcripts, and calendar-linked calls. Export to PDF or Word from any card that has notes.
           </p>
@@ -344,7 +344,7 @@ export function PreviousMeetingsPage() {
       {rows.length === 0 && (
         <div className="prev-meetings-empty">
           <FileTextIcon size={48} className="prev-meetings-empty-icon" />
-          <h2>No meetings yet</h2>
+          <h2>No Meetings Yet</h2>
           <p>
             Start a call from the video room; when you’re done, AI notes appear here after the host uses{' '}
             <strong>End for everyone</strong> (with the AI backend connected).

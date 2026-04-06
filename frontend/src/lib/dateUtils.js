@@ -78,6 +78,24 @@ export function formatDateTime(date, options = {}) {
   })
 }
 
+/** Firestore Timestamp or ms — compact row label for meeting lists. */
+export function formatMeetingRowWhen(startAt, userDoc) {
+  if (!startAt) return ''
+  const ms = typeof startAt?.toMillis === 'function' ? startAt.toMillis() : startAt
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
+  const tz = getTimeZone(userDoc)
+  const locale = getLocale(userDoc)
+  return d.toLocaleString(locale, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(tz && { timeZone: tz }),
+  })
+}
+
 /**
  * Format relative date (e.g. "Today", "Yesterday", "Jan 5").
  */
@@ -100,4 +118,39 @@ export function formatRelativeDate(date, options = {}) {
     return d.toLocaleDateString(locale || undefined, { month: 'short', day: 'numeric', ...intlOpts })
   }
   return d.toLocaleDateString(locale || undefined, { month: 'short', day: 'numeric', year: 'numeric', ...intlOpts })
+}
+
+/**
+ * Calendar `?date=` query string: local date as YYYY-MM-DD (month 1–12).
+ */
+export function formatCalendarDateQueryParam(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${day}`
+}
+
+/**
+ * Parse `?date=` from calendar deep links.
+ * Prefers `YYYY-MM-DD` (1-based month). Accepts legacy unpadded `Y-M-D` with JS month index 0–11.
+ */
+export function parseCalendarDateQueryParam(dateParam) {
+  if (!dateParam || typeof dateParam !== 'string') return null
+  const s = dateParam.trim()
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (iso) {
+    const y = Number(iso[1])
+    const mo = Number(iso[2])
+    const d = Number(iso[3])
+    if (y >= 1970 && y <= 2100 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return { year: y, monthIndex: mo - 1, selectedDate: new Date(y, mo - 1, d) }
+    }
+    return null
+  }
+  const parts = s.split('-').map(Number)
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null
+  const [y, m, d] = parts
+  if (y < 1970 || y > 2100 || m < 0 || m > 11 || d < 1 || d > 31) return null
+  return { year: y, monthIndex: m, selectedDate: new Date(y, m, d) }
 }

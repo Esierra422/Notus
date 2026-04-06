@@ -126,13 +126,13 @@ export function AppShell() {
     if (/^\/app\/org\/[^/]+\/admin$/.test(p)) return 'Admin'
     if (/^\/app\/org\/[^/]+\/calendar$/.test(p)) return 'Calendar'
     if (/^\/app\/org\/[^/]+\/teams\/[^/]+$/.test(p)) return 'Team'
-    if (p === '/app/previous-meetings') return 'Past meetings'
-    if (p === '/app/video/meetings') return 'Past meetings'
-    if (/^\/app\/org\/[^/]+\/video\/meetings$/.test(p)) return 'Past meetings'
+    if (p === '/app/previous-meetings') return 'Past Meetings'
+    if (p === '/app/video/meetings') return 'Past Meetings'
+    if (/^\/app\/org\/[^/]+\/video\/meetings$/.test(p)) return 'Past Meetings'
     if (/^\/app\/meeting-summary\//.test(p)) return 'Meeting Summary'
     if (/^\/app\/meeting-transcript\//.test(p)) return 'Meeting Transcript'
     if (p === '/app/features') return 'Features'
-    if (p === '/app/how-it-works') return 'How it works'
+    if (p === '/app/how-it-works') return 'How It Works'
     return 'Notus'
   })()
 

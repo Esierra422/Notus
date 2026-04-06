@@ -12,6 +12,7 @@ import {
   subscribeUnreadNotificationCount,
   markNotificationRead,
 } from '../../lib/userNotificationService'
+import { declineMeetingInvite } from '../../lib/meetingService'
 import { BellIcon } from '../ui/Icons'
 import './NotificationsDropdown.css'
 
@@ -64,7 +65,15 @@ export function NotificationsDropdown({ user }) {
   }, [user?.uid])
 
   useEffect(() => {
-    if (!user?.email || !open) return
+    if (!open) {
+      setLoading(false)
+      return
+    }
+    if (!user?.email?.trim()) {
+      setLoading(false)
+      return
+    }
+    let cancelled = false
     const load = async () => {
       setLoading(true)
       try {
@@ -72,13 +81,20 @@ export function NotificationsDropdown({ user }) {
           getPendingInvitationsForEmail(user.email),
           getPendingTeamInvitationsForEmail(user.email),
         ])
-        setOrgInvitations(orgList)
-        setTeamInvitations(teamList)
+        if (!cancelled) {
+          setOrgInvitations(orgList)
+          setTeamInvitations(teamList)
+        }
+      } catch (e) {
+        console.warn('Failed to refresh invitations', e)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     load()
+    return () => {
+      cancelled = true
+    }
   }, [user?.email, open])
 
   useEffect(() => {
@@ -149,7 +165,28 @@ export function NotificationsDropdown({ user }) {
     try {
       await markNotificationRead(user.uid, n.id)
       setOpen(false)
-      navigate(`/app/org/${encodeURIComponent(n.orgId)}/video?meetingId=${encodeURIComponent(n.meetingId)}`)
+      if (n.type === NOTIFICATION_TYPES.calendarEventInvite) {
+        navigate(`/app/org/${encodeURIComponent(n.orgId)}/calendar`)
+      } else {
+        navigate(`/app/org/${encodeURIComponent(n.orgId)}/video?meetingId=${encodeURIComponent(n.meetingId)}`)
+      }
+    } catch (e) {
+      console.warn(e)
+    } finally {
+      setActioning((a) => ({ ...a, [n.id]: false }))
+    }
+  }
+
+  const handleMeetingInviteDecline = async (n) => {
+    if (!user?.uid || !n.orgId || !n.meetingId) return
+    setActioning((a) => ({ ...a, [n.id]: true }))
+    try {
+      try {
+        await declineMeetingInvite(n.orgId, n.meetingId, user.uid)
+      } catch (e) {
+        console.warn('declineMeetingInvite', e)
+      }
+      await markNotificationRead(user.uid, n.id)
     } catch (e) {
       console.warn(e)
     } finally {
@@ -186,11 +223,10 @@ export function NotificationsDropdown({ user }) {
       {open && (
         <div className="notifications-panel">
           <h4 className="notifications-title">Notifications</h4>
-          {loading ? (
-            <p className="notifications-empty">Loading…</p>
-          ) : (
-            <>
-              {inboxItems.filter((n) => !n.read).length > 0 && (
+          {loading && (
+            <p className="notifications-empty notifications-panel-hint">Updating invitations…</p>
+          )}
+          {inboxItems.filter((n) => !n.read).length > 0 && (
                 <ul className="notifications-list notifications-list--inbox">
                   {inboxItems
                     .filter((n) => !n.read)
@@ -198,7 +234,8 @@ export function NotificationsDropdown({ user }) {
                       <li key={n.id} className="notifications-item">
                         <p className="notifications-item-text">
                           {(n.type === NOTIFICATION_TYPES.meetingInvite ||
-                            n.type === NOTIFICATION_TYPES.instantMeetingInvite) && (
+                            n.type === NOTIFICATION_TYPES.instantMeetingInvite ||
+                            n.type === NOTIFICATION_TYPES.calendarEventInvite) && (
                             <>
                               <strong>{n.title || 'Meeting'}</strong>
                               <br />
@@ -206,13 +243,15 @@ export function NotificationsDropdown({ user }) {
                             </>
                           )}
                           {n.type !== NOTIFICATION_TYPES.meetingInvite &&
-                            n.type !== NOTIFICATION_TYPES.instantMeetingInvite && (
+                            n.type !== NOTIFICATION_TYPES.instantMeetingInvite &&
+                            n.type !== NOTIFICATION_TYPES.calendarEventInvite && (
                               <span>{n.title || 'Notification'}</span>
                             )}
                         </p>
                         <div className="notifications-item-actions">
                           {(n.type === NOTIFICATION_TYPES.meetingInvite ||
-                            n.type === NOTIFICATION_TYPES.instantMeetingInvite) &&
+                            n.type === NOTIFICATION_TYPES.instantMeetingInvite ||
+                            n.type === NOTIFICATION_TYPES.calendarEventInvite) &&
                             n.orgId &&
                             n.meetingId && (
                             <button
@@ -221,16 +260,32 @@ export function NotificationsDropdown({ user }) {
                               onClick={() => handleMeetingInviteAccept(n)}
                               disabled={actioning[n.id]}
                             >
-                              {actioning[n.id] ? '…' : 'Join'}
+                              {actioning[n.id]
+                                ? '…'
+                                : n.type === NOTIFICATION_TYPES.calendarEventInvite
+                                  ? 'Accept'
+                                  : 'Join'}
                             </button>
                           )}
                           <button
                             type="button"
                             className="notifications-btn notifications-btn-decline"
-                            onClick={() => handleDismissInbox(n)}
+                            onClick={() =>
+                              (n.type === NOTIFICATION_TYPES.calendarEventInvite ||
+                                n.type === NOTIFICATION_TYPES.meetingInvite ||
+                                n.type === NOTIFICATION_TYPES.instantMeetingInvite) &&
+                              n.orgId &&
+                              n.meetingId
+                                ? handleMeetingInviteDecline(n)
+                                : handleDismissInbox(n)
+                            }
                             disabled={actioning[n.id]}
                           >
-                            Dismiss
+                            {n.type === NOTIFICATION_TYPES.calendarEventInvite ||
+                            n.type === NOTIFICATION_TYPES.meetingInvite ||
+                            n.type === NOTIFICATION_TYPES.instantMeetingInvite
+                              ? 'Decline'
+                              : 'Dismiss'}
                           </button>
                         </div>
                       </li>
@@ -279,8 +334,6 @@ export function NotificationsDropdown({ user }) {
                   ))}
                 </ul>
               )}
-            </>
-          )}
         </div>
       )}
     </div>
