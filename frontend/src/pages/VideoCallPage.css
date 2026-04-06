@@ -2202,20 +2202,6 @@
   border-color: rgba(212, 168, 83, 0.45);
 }
 
-.video-prejoin-host-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  font-size: 0.88rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  margin: 0;
-}
-
-.video-prejoin-host-option input {
-  margin-top: 0.2rem;
-}
-
 .video-prejoin-footer {
   display: flex;
   justify-content: flex-end;

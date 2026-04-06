@@ -403,7 +403,6 @@ export function VideoCallPage() {
   const [preJoinMode, setPreJoinMode] = useState('instant')
   const [preJoinMicOn, setPreJoinMicOn] = useState(true)
   const [preJoinCamOn, setPreJoinCamOn] = useState(true)
-  const [preJoinAllowRemoteShare, setPreJoinAllowRemoteShare] = useState(true)
   const [preJoinPreviewStream, setPreJoinPreviewStream] = useState(null)
   const [preJoinPreviewError, setPreJoinPreviewError] = useState('')
   /** While in-call: host + transcript session for summary + Ask AI RAG */
@@ -1198,7 +1197,6 @@ export function VideoCallPage() {
     }
     const t = newMeetingTitleDraft.trim() || 'Quick meeting'
     setPreJoinInstantMeetingTitle(t)
-    setPreJoinAllowRemoteShare(true)
     setNewMeetingSettingsOpen(false)
     setPreJoinMode('instant')
     setPreJoinMicOn(true)
@@ -1223,7 +1221,6 @@ export function VideoCallPage() {
       setRoomPrefsDraft({ ...DEFAULT_ROOM_PREFS })
       setPreJoinMicOn(true)
       setPreJoinCamOn(true)
-      setPreJoinAllowRemoteShare(true)
       setPreJoinPreviewError('')
       setPreJoinOpen(true)
     },
@@ -2462,7 +2459,7 @@ export function VideoCallPage() {
       instantCreate: preJoinMode === 'instant',
       micOn: preJoinMicOn,
       videoOn: preJoinCamOn,
-      allowRemoteScreenShare: preJoinAllowRemoteShare,
+      allowRemoteScreenShare: true,
       instantTitle: preJoinMode === 'instant' ? preJoinInstantMeetingTitle : undefined,
       instantMeetingExtra: instantExtra,
       roomPrefsOverride: isHostForPrefs ? roomPrefsDraft : undefined,
@@ -3561,12 +3558,6 @@ export function VideoCallPage() {
             camOn={preJoinCamOn}
             onToggleMic={() => setPreJoinMicOn((v) => !v)}
             onToggleCam={() => setPreJoinCamOn((v) => !v)}
-            showHostOptions={
-              preJoinMode === 'instant' ||
-              (preJoinMode === 'meeting' && selectedMeeting && user?.uid === selectedMeeting.createdBy)
-            }
-            allowRemoteScreenShare={preJoinAllowRemoteShare}
-            onAllowRemoteScreenShareChange={setPreJoinAllowRemoteShare}
             confirmLabel={preJoinMode === 'instant' ? 'Start Quick Meeting' : 'Join Meeting'}
             loading={loading}
             onConfirm={confirmPreJoin}
@@ -6029,9 +6020,6 @@ function VideoPreJoinModal({
   camOn,
   onToggleMic,
   onToggleCam,
-  showHostOptions,
-  allowRemoteScreenShare,
-  onAllowRemoteScreenShareChange,
   confirmLabel,
   loading,
   onConfirm,
@@ -6101,16 +6089,6 @@ function VideoPreJoinModal({
             </button>
           </div>
         </div>
-        {showHostOptions && (
-          <label className="video-prejoin-host-option">
-            <input
-              type="checkbox"
-              checked={allowRemoteScreenShare}
-              onChange={(e) => onAllowRemoteScreenShareChange(e.target.checked)}
-            />
-            <span>Allow participants to share their screen</span>
-          </label>
-        )}
         <div className="video-prejoin-footer">
           <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>
             Cancel
