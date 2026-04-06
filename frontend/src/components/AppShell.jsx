@@ -35,6 +35,8 @@ export function AppShell() {
   const [activeOrg, setActiveOrg] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [navExtraOverride, setNavExtraOverride] = useState(undefined)
+  /** While in an active video call, hide the global app header so the meeting fills the viewport. */
+  const [videoCallSuppressAppHeader, setVideoCallSuppressAppHeader] = useState(false)
   const [slowLoad, setSlowLoad] = useState(false)
   const lastOrgRef = useRef(null)
 
@@ -175,9 +177,25 @@ export function AppShell() {
       <div
         className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''} ${isVideoImmersiveLayout ? 'app-layout-video' : ''}`}
       >
-        <AppHeader user={user} orgName={displayedOrg?.name} activeOrgId={activeOrgId} isAdmin={isAdmin} navExtraOverride={navExtraOverride} currentPageTitle={currentPageTitle} />
+        <AppHeader
+          user={user}
+          orgName={displayedOrg?.name}
+          activeOrgId={activeOrgId}
+          isAdmin={isAdmin}
+          navExtraOverride={navExtraOverride}
+          currentPageTitle={currentPageTitle}
+          suppressForVideoCall={isVideoImmersiveLayout && videoCallSuppressAppHeader}
+        />
         <PageTransition>
-          <Outlet context={{ user, userDoc, setNavExtra: setNavExtraOverride, activeOrgId }} />
+          <Outlet
+            context={{
+              user,
+              userDoc,
+              setNavExtra: setNavExtraOverride,
+              activeOrgId,
+              setVideoCallSuppressAppHeader,
+            }}
+          />
         </PageTransition>
         {!isChatsPage && !isVideoImmersiveLayout && <AppFooter />}
       </div>

@@ -56,6 +56,15 @@
 
 .app-layout-video .page-transition {
   overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* In-call: more vertical space when the app header is hidden */
+.app-layout-video:not(:has(.app-header)) .video-call-side-panel {
+  max-height: min(720px, calc(100dvh - 80px));
 }
 
 .app-header {

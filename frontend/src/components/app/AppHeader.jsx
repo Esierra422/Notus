@@ -54,7 +54,19 @@ function AdminNavLink({ isAdmin }) {
   )
 }
 
-export function AppHeader({ user, orgName, activeOrgId, isAdmin, navExtraOverride, currentPageTitle }) {
+export function AppHeader({
+  user,
+  orgName,
+  activeOrgId,
+  isAdmin,
+  navExtraOverride,
+  currentPageTitle,
+  suppressForVideoCall = false,
+}) {
+  if (suppressForVideoCall) {
+    return null
+  }
+
   const pageLabel = currentPageTitle || 'Notus'
   const leftExtra = navExtraOverride !== undefined ? navExtraOverride : (
     <span className="app-page-title">{pageLabel}</span>

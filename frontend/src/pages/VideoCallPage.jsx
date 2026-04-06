@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useOutletContext, useSearchParams, useNavigate, useParams, Link } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Notepad } from '../pages/Notepad'
@@ -16,6 +17,7 @@ import {
   NotebookPen,
   Monitor,
   MoreVertical,
+  X,
   Copy,
   Info,
   RefreshCw,
@@ -31,6 +33,8 @@ import {
   UserPlus,
   BarChart3,
   ChevronDown,
+  Settings,
+  Shield,
 } from 'lucide-react'
 
 import * as videoApp from '../lib/videoAppService.js'
@@ -160,6 +164,40 @@ function firestoreTimeToMs(t) {
   if (typeof t.toMillis === 'function') return t.toMillis()
   if (typeof t.seconds === 'number') return t.seconds * 1000
   return 0
+}
+
+/** Merge consecutive transcript segments from the same speaker (streaming chunks). */
+const TRANSCRIPT_MERGE_GAP_MS = 12000
+
+function appendTranscriptLines(prev, { text, speaker, timeLabel, ts, segmentMs }) {
+  const last = prev[prev.length - 1]
+  const lastMs = last?._segmentMs
+  const gapOk =
+    last &&
+    last.speaker === speaker &&
+    typeof lastMs === 'number' &&
+    segmentMs - lastMs <= TRANSCRIPT_MERGE_GAP_MS
+  if (gapOk) {
+    return [
+      ...prev.slice(0, -1),
+      {
+        ...last,
+        text: `${last.text} ${text}`.trim(),
+        _segmentMs: segmentMs,
+      },
+    ]
+  }
+  return [
+    ...prev,
+    {
+      id: `tr-${segmentMs}-${prev.length}`,
+      text,
+      speaker,
+      timeLabel,
+      ts,
+      _segmentMs: segmentMs,
+    },
+  ]
 }
 
 /** Resolve Firestore invitedUserIds for instant meetings (bell notifications + invite-only list). */
@@ -330,7 +368,7 @@ function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGE
 }
 
 export function VideoCallPage() {
-  const { user, setNavExtra, activeOrgId } = useOutletContext() || {}
+  const { user, setNavExtra, activeOrgId, setVideoCallSuppressAppHeader } = useOutletContext() || {}
   const { orgId: videoRouteOrgId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -444,6 +482,8 @@ export function VideoCallPage() {
   const joinedAtMsRef = useRef(0)
   const [hostPrefsModalOpen, setHostPrefsModalOpen] = useState(false)
   const [hostPrefsDraft, setHostPrefsDraft] = useState(() => ({ ...DEFAULT_ROOM_PREFS }))
+  const [hostPrefsSaving, setHostPrefsSaving] = useState(false)
+  const [hostPrefsSaveError, setHostPrefsSaveError] = useState('')
   const [upcomingMeetings, setUpcomingMeetings] = useState([])
   const [upcomingMeetingsLoading, setUpcomingMeetingsLoading] = useState(false)
   const [upcomingReloadKey, setUpcomingReloadKey] = useState(0)
@@ -471,6 +511,8 @@ export function VideoCallPage() {
   const pcmBufferRef = useRef([])
   const transcriptionChunksSentRef = useRef(0)
   const remoteEndHandledRef = useRef(false)
+  /** Merge on-screen captions into one line per speaker burst (same window as transcript). */
+  const subtitleUtteranceRef = useRef({ speaker: null, segmentMs: 0, accumulated: '' })
   const executeJoinRef = useRef(async () => false)
 
   /** Calendar-scheduled video: early guests wait until host admits or start time. */
@@ -511,6 +553,7 @@ export function VideoCallPage() {
     if (!joined) {
       setLiveTranscriptLines([])
       setLiveSubtitleMeta(null)
+      subtitleUtteranceRef.current = { speaker: null, segmentMs: 0, accumulated: '' }
     }
   }, [joined])
 
@@ -660,6 +703,12 @@ export function VideoCallPage() {
   useEffect(() => {
     if (setNavExtra) setNavExtra(undefined)
   }, [setNavExtra])
+
+  useEffect(() => {
+    if (!setVideoCallSuppressAppHeader) return
+    setVideoCallSuppressAppHeader(Boolean(joined && !generatingSummary))
+    return () => setVideoCallSuppressAppHeader(false)
+  }, [joined, generatingSummary, setVideoCallSuppressAppHeader])
 
   useEffect(() => {
     if (!user?.uid) {
@@ -1205,6 +1254,7 @@ export function VideoCallPage() {
     setError('')
     setLiveTranscriptLines([])
     setLiveSubtitleMeta(null)
+    subtitleUtteranceRef.current = { speaker: null, segmentMs: 0, accumulated: '' }
     setLoading(true)
     try {
       let meeting = meetingInput
@@ -1453,8 +1503,8 @@ export function VideoCallPage() {
         if (!transcriptionWsBase) {
           // Skip: avoids failed WS to Express (3001) and console spam
         } else {
-        /** Short windows = faster subtitles/transcript; Whisper still needs ~1–2s per request after each send. */
-        const CHUNK_DURATION_SEC = 2
+        /** Shorter windows = lower latency to first caption (more round-trips; backend still dominates delay). */
+        const CHUNK_DURATION_SEC = 1.25
         const wsUrl = /^wss?:\/\//i.test(transcriptionWsBase)
           ? `${transcriptionWsBase.replace(/\/?$/, '')}/ws/transcription`
           : (() => {
@@ -1496,17 +1546,25 @@ export function VideoCallPage() {
               } catch {
                 timeLabel = ''
               }
-              setLiveTranscriptLines((prev) => [
-                ...prev,
-                {
-                  id: `${Date.now()}-${prev.length}`,
-                  text: t,
-                  speaker,
-                  timeLabel,
-                  ts: msg.ts || new Date().toISOString(),
-                },
-              ])
-              setLiveSubtitleMeta({ text: t, speaker, timeLabel })
+              const segmentMs = msg.ts ? new Date(msg.ts).getTime() : Date.now()
+              const tsIso = msg.ts || new Date().toISOString()
+              setLiveTranscriptLines((prev) =>
+                appendTranscriptLines(prev, { text: t, speaker, timeLabel, ts: tsIso, segmentMs })
+              )
+              const u = subtitleUtteranceRef.current
+              const mergeCaption =
+                u.speaker === speaker &&
+                typeof u.segmentMs === 'number' &&
+                segmentMs - u.segmentMs <= TRANSCRIPT_MERGE_GAP_MS
+              if (mergeCaption) {
+                u.accumulated = `${u.accumulated} ${t}`.trim()
+                u.segmentMs = segmentMs
+              } else {
+                u.speaker = speaker
+                u.segmentMs = segmentMs
+                u.accumulated = t
+              }
+              setLiveSubtitleMeta({ text: u.accumulated, speaker, timeLabel })
             }
           } catch {
             /* non-JSON or unexpected shape */
@@ -2087,13 +2145,15 @@ export function VideoCallPage() {
   }
 
   const hostSaveRoomPrefs = async (prefs) => {
-    if (!channelName || joinedMeetingMeta?.createdBy !== user?.uid) return
+    if (!channelName || joinedMeetingMeta?.createdBy !== user?.uid) return false
     try {
       await updateDoc(doc(db, 'videoChannels', channelName, 'roomState', 'current'), {
         roomPrefs: normalizeRoomPrefs(prefs),
       })
+      return true
     } catch (e) {
       console.warn('Could not save meeting preferences:', e)
+      return false
     }
   }
 
@@ -2211,24 +2271,25 @@ export function VideoCallPage() {
 
   useEffect(() => {
     if (!hostMenuOpen) return
-    const onDown = (e) => {
+    const onClose = (e) => {
       if (hostMenuWrapRef.current && !hostMenuWrapRef.current.contains(e.target)) {
         setHostMenuOpen(false)
       }
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    /* Use click (not mousedown) so moving the pointer over video without pressing does not dismiss */
+    document.addEventListener('click', onClose)
+    return () => document.removeEventListener('click', onClose)
   }, [hostMenuOpen])
 
   useEffect(() => {
     if (!guestMenuOpen) return
-    const onDown = (e) => {
+    const onClose = (e) => {
       if (guestMenuWrapRef.current && !guestMenuWrapRef.current.contains(e.target)) {
         setGuestMenuOpen(false)
       }
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('click', onClose)
+    return () => document.removeEventListener('click', onClose)
   }, [guestMenuOpen])
 
   useEffect(() => {
@@ -3756,15 +3817,21 @@ export function VideoCallPage() {
                       aria-live="polite"
                       aria-atomic="true"
                     >
-                      <p className="video-call-live-subtitles-meta">
-                        {liveSubtitleMeta.timeLabel && (
-                          <span className="video-call-live-subtitles-time">{liveSubtitleMeta.timeLabel}</span>
-                        )}
-                        {liveSubtitleMeta.timeLabel && liveSubtitleMeta.speaker ? ' · ' : null}
-                        {liveSubtitleMeta.speaker && (
-                          <span className="video-call-live-subtitles-speaker">{liveSubtitleMeta.speaker}</span>
-                        )}
-                      </p>
+                      {(liveSubtitleMeta.timeLabel || liveSubtitleMeta.speaker) && (
+                        <p className="video-call-live-subtitles-meta">
+                          {liveSubtitleMeta.timeLabel && (
+                            <span className="video-call-live-subtitles-time">{liveSubtitleMeta.timeLabel}</span>
+                          )}
+                          {liveSubtitleMeta.timeLabel && liveSubtitleMeta.speaker ? (
+                            <span className="video-call-live-subtitles-sep" aria-hidden>
+                              ·
+                            </span>
+                          ) : null}
+                          {liveSubtitleMeta.speaker && (
+                            <span className="video-call-live-subtitles-speaker">{liveSubtitleMeta.speaker}</span>
+                          )}
+                        </p>
+                      )}
                       <p className="video-call-live-subtitles-text">{liveSubtitleMeta.text}</p>
                     </div>
                   )}
@@ -3896,7 +3963,18 @@ export function VideoCallPage() {
                           {liveTranscriptLines.map((line) => (
                             <div key={line.id} className="video-call-transcript-line">
                               <span className="video-call-transcript-line-meta">
-                                {[line.timeLabel, line.speaker].filter(Boolean).join(' · ')}
+                                {line.timeLabel ? (
+                                  <span className="video-call-transcript-line-time">{line.timeLabel}</span>
+                                ) : null}
+                                {line.timeLabel && line.speaker ? (
+                                  <span className="video-call-transcript-line-sep" aria-hidden>
+                                    {' '}
+                                    ·{' '}
+                                  </span>
+                                ) : null}
+                                {line.speaker ? (
+                                  <span className="video-call-transcript-line-speaker">{line.speaker}</span>
+                                ) : null}
                               </span>
                               <p className="video-call-transcript-line-text">{line.text}</p>
                             </div>
@@ -4040,66 +4118,72 @@ export function VideoCallPage() {
                     <MoreVertical size={20} strokeWidth={2.25} />
                   </Button>
                   {hostMenuOpen && (
-                    <div className="video-host-dropdown" role="menu">
+                    <div className="video-host-dropdown video-host-dropdown--grid" role="menu">
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setParticipantsRosterOpen(true)
                           setHostMenuOpen(false)
                         }}
                       >
-                        Participants
+                        <Users className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Participants</span>
                       </button>
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setInvitePeopleModalOpen(true)
                           setHostMenuOpen(false)
                         }}
                       >
-                        Invite people
+                        <UserPlus className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Invite</span>
                       </button>
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setMeetingInfoOpen(true)
                           setHostMenuOpen(false)
                         }}
                       >
-                        Meeting information
+                        <Info className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Meeting info</span>
                       </button>
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setHostPrefsDraft({ ...roomPrefsLive })
+                          setHostPrefsSaveError('')
                           setHostPrefsModalOpen(true)
                           setHostMenuOpen(false)
                         }}
                       >
-                        Meeting preferences
+                        <Settings className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Preferences</span>
                       </button>
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setHostPermissionsOpen(true)
                           setHostMenuOpen(false)
                         }}
                       >
-                        Permissions
+                        <Shield className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Permissions</span>
                       </button>
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setMeetingPollQuestion('')
@@ -4108,21 +4192,20 @@ export function VideoCallPage() {
                           setHostMenuOpen(false)
                         }}
                       >
-                        <span className="video-host-dropdown-item-inner">
-                          <BarChart3 size={16} strokeWidth={2.25} aria-hidden />
-                          Poll…
-                        </span>
+                        <BarChart3 className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Poll</span>
                       </button>
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setHostHandsQueueOpen(true)
                           setHostMenuOpen(false)
                         }}
                       >
-                        Raised hands
+                        <Hand className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Raised hands</span>
                       </button>
                     </div>
                   )}
@@ -4142,28 +4225,30 @@ export function VideoCallPage() {
                     <MoreVertical size={20} strokeWidth={2.25} />
                   </Button>
                   {guestMenuOpen && (
-                    <div className="video-host-dropdown" role="menu">
+                    <div className="video-host-dropdown video-host-dropdown--grid video-host-dropdown--grid-guest" role="menu">
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setParticipantsRosterOpen(true)
                           setGuestMenuOpen(false)
                         }}
                       >
-                        Participants
+                        <Users className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Participants</span>
                       </button>
                       <button
                         type="button"
-                        className="video-host-dropdown-item"
+                        className="video-host-grid-item"
                         role="menuitem"
                         onClick={() => {
                           setMeetingInfoOpen(true)
                           setGuestMenuOpen(false)
                         }}
                       >
-                        Meeting information
+                        <Info className="video-host-grid-icon" size={22} strokeWidth={2} aria-hidden />
+                        <span className="video-host-grid-label">Meeting info</span>
                       </button>
                     </div>
                   )}
@@ -4270,35 +4355,81 @@ export function VideoCallPage() {
             </div>
           )}
           {localIsHost && hostPrefsModalOpen && (
-            <div className="video-host-overlay" role="dialog" aria-modal="true" aria-labelledby="video-host-prefs-title">
+            <div
+              className="video-host-overlay video-host-overlay--meeting-prefs"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="video-host-prefs-title"
+            >
               <button
                 type="button"
                 className="video-host-overlay-backdrop"
                 aria-label="Close"
-                onClick={() => !hostActionLoading && setHostPrefsModalOpen(false)}
-              />
+                disabled={hostPrefsSaving}
+                    onClick={() => {
+                      if (hostPrefsSaving) return
+                      setHostPrefsSaveError('')
+                      setHostPrefsModalOpen(false)
+                    }}
+                  />
               <div className="video-host-modal video-host-modal--prefs video-host-modal--scroll">
                 <h3 id="video-host-prefs-title" className="video-host-modal-title">
                   Meeting preferences
                 </h3>
                 <p className="video-host-modal-hint">
-                  Changes apply to everyone in the room. Chat availability updates immediately.
+                  Meeting chat settings apply to everyone right away. Video toggles set the default camera state for people when they
+                  join (they can still change their own camera).
                 </p>
-                <RoomPrefsFields prefs={hostPrefsDraft} onChange={setHostPrefsDraft} className="video-room-prefs--host-modal" />
+                {hostPrefsSaveError ? (
+                  <p className="video-host-prefs-save-error" role="alert">
+                    {hostPrefsSaveError}
+                  </p>
+                ) : null}
+                <RoomPrefsFields
+                  prefs={hostPrefsDraft}
+                  onChange={(next) => {
+                    setHostPrefsSaveError('')
+                    setHostPrefsDraft(next)
+                  }}
+                  className="video-room-prefs--host-modal"
+                />
                 <div className="video-host-modal-footer">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setHostPrefsModalOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={hostPrefsSaving}
+                    onClick={() => {
+                      if (hostPrefsSaving) return
+                      setHostPrefsSaveError('')
+                      setHostPrefsModalOpen(false)
+                    }}
+                  >
                     Cancel
                   </Button>
                   <Button
                     type="button"
                     variant="primary"
                     size="sm"
+                    disabled={hostPrefsSaving}
                     onClick={async () => {
-                      await hostSaveRoomPrefs(hostPrefsDraft)
-                      setHostPrefsModalOpen(false)
+                      setHostPrefsSaving(true)
+                      setHostPrefsSaveError('')
+                      try {
+                        const ok = await hostSaveRoomPrefs(hostPrefsDraft)
+                        if (ok) {
+                          setRoomPrefsLive(normalizeRoomPrefs(hostPrefsDraft))
+                          setHostPrefsSaveError('')
+                          setHostPrefsModalOpen(false)
+                        } else {
+                          setHostPrefsSaveError('Could not save meeting preferences. Check your connection and try again.')
+                        }
+                      } finally {
+                        setHostPrefsSaving(false)
+                      }
                     }}
                   >
-                    Save
+                    {hostPrefsSaving ? 'Saving…' : 'Save'}
                   </Button>
                 </div>
               </div>
@@ -4890,12 +5021,44 @@ export function VideoCallPage() {
             menuOpenKey={rosterRowMenuKey}
             onMenuOpenChange={setRosterRowMenuKey}
             getMenuItemsForRow={getMenuItemsForRosterRow}
+            localIsHost={localIsHost}
+            hostActionLoading={hostActionLoading}
+            onInvite={() => {
+              setParticipantsRosterOpen(false)
+              setInvitePeopleModalOpen(true)
+            }}
+            onMuteAllRequest={() =>
+              setHostConfirm({
+                title: 'Mute everyone?',
+                body: 'Linked participants will be muted and cannot unmute until you allow their microphone again in Permissions or per person.',
+                onConfirm: async () => {
+                  for (const row of policyParticipantRows) {
+                    if (row.isLocal || !row.firebaseUid) continue
+                    await patchParticipantMediaPolicy(row.firebaseUid, { micAllowed: false })
+                  }
+                },
+              })
+            }
+            onUnmuteAllRequest={() =>
+              setHostConfirm({
+                title: 'Allow microphones for everyone?',
+                body: 'All linked participants will be able to unmute themselves (unless you restrict them again).',
+                onConfirm: async () => {
+                  for (const row of policyParticipantRows) {
+                    if (row.isLocal || !row.firebaseUid) continue
+                    await patchParticipantMediaPolicy(row.firebaseUid, { micAllowed: true })
+                  }
+                },
+              })
+            }
           />
           <InvitePeopleInMeetingModal
             isOpen={invitePeopleModalOpen}
             onClose={() => setInvitePeopleModalOpen(false)}
             orgId={joinedMeetingMeta?.orgId || videoRouteOrgId || instantMeetingOrgId || ''}
             meetingId={joinedMeetingMeta?.meetingId || ''}
+            channelName={channelName}
+            meetingTitle={joinedMeetingMeta?.meetingTitle || ''}
             userId={user?.uid}
             setError={setError}
           />
@@ -4947,22 +5110,54 @@ export function VideoCallPage() {
           )}
           {showLeaveModal && (
             <div className="video-call-leave-overlay" role="dialog" aria-modal="true" aria-labelledby="video-leave-title">
-              <div className="video-call-leave-backdrop" onClick={() => !loading && setShowLeaveModal(false)} />
+              <button
+                type="button"
+                className="video-call-leave-backdrop"
+                aria-label="Dismiss"
+                disabled={loading}
+                onClick={() => !loading && setShowLeaveModal(false)}
+              />
               <div className="video-call-leave-modal">
-                <h3 id="video-leave-title" className="video-call-leave-title">Leave meeting</h3>
-                <p className="video-call-leave-desc">You are the host. Choose what happens for everyone else.</p>
+                <div className="video-call-leave-header">
+                  <h3 id="video-leave-title" className="video-call-leave-title">
+                    Leave meeting
+                  </h3>
+                  <p className="video-call-leave-desc">You are the host. Choose what happens for everyone else.</p>
+                </div>
                 <div className="video-call-leave-actions">
-                  <Button type="button" variant="ghost" onClick={() => !loading && setShowLeaveModal(false)} disabled={loading}>
+                  <div className="video-call-leave-actions-primary">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="video-call-leave-choice-btn"
+                      onClick={leaveCallOnly}
+                      disabled={loading}
+                    >
+                      Leave (others stay)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      className="video-call-leave-choice-btn video-call-leave-choice-btn--end"
+                      onClick={endMeetingForAll}
+                      disabled={loading}
+                    >
+                      End for everyone
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="video-call-leave-cancel"
+                    onClick={() => !loading && setShowLeaveModal(false)}
+                    disabled={loading}
+                  >
                     Cancel
                   </Button>
-                  <Button type="button" variant="outline" onClick={leaveCallOnly} disabled={loading}>
-                    {loading ? 'Leaving…' : 'Leave (others stay)'}
-                  </Button>
-                  <Button type="button" variant="primary" onClick={endMeetingForAll} disabled={loading}>
-                    {loading ? 'Ending…' : 'End for everyone'}
-                  </Button>
                 </div>
-                <p className="video-call-leave-hint">“End for everyone” closes the room for all participants and starts meeting notes when the AI backend is configured.</p>
+                <p className="video-call-leave-hint">
+                  “End for everyone” closes the room for all participants and starts meeting notes when the AI backend is configured.
+                </p>
               </div>
             </div>
           )}
@@ -5023,6 +5218,7 @@ function RoomPrefsFields({ prefs, onChange, className = '' }) {
             type="button"
             role="switch"
             aria-checked={hostOn}
+            aria-label={hostOn ? 'Host camera default: on' : 'Host camera default: off'}
             className={`video-room-prefs-switch ${hostOn ? 'video-room-prefs-switch--on' : ''}`}
             onClick={() => set({ hostVideoDefault: !hostOn })}
           >
@@ -5036,6 +5232,7 @@ function RoomPrefsFields({ prefs, onChange, className = '' }) {
             type="button"
             role="switch"
             aria-checked={partOn}
+            aria-label={partOn ? 'Participant camera default: on' : 'Participant camera default: off'}
             className={`video-room-prefs-switch ${partOn ? 'video-room-prefs-switch--on' : ''}`}
             onClick={() => set({ participantVideoDefault: !partOn })}
           >
@@ -5088,6 +5285,11 @@ function ParticipantsRosterModal({
   menuOpenKey,
   onMenuOpenChange,
   getMenuItemsForRow,
+  localIsHost,
+  hostActionLoading,
+  onInvite,
+  onMuteAllRequest,
+  onUnmuteAllRequest,
 }) {
   if (!isOpen) return null
   return (
@@ -5099,10 +5301,12 @@ function ParticipantsRosterModal({
             <h2 id="video-roster-title" className="video-prejoin-title">
               Participants
             </h2>
-            <p className="video-roster-sub">{inRoomCount} in this meeting</p>
+            <p className="video-roster-sub">
+              <span className="video-roster-count">{inRoomCount}</span> in this meeting
+            </p>
           </div>
           <button type="button" className="video-roster-close" onClick={onClose} aria-label="Close">
-            ×
+            <X size={20} strokeWidth={2.25} />
           </button>
         </div>
         <div className="video-roster-search-wrap">
@@ -5137,18 +5341,64 @@ function ParticipantsRosterModal({
           ))}
         </ul>
         {rows.length === 0 ? <p className="video-roster-empty">No one matches your search.</p> : null}
+        {localIsHost ? (
+          <div className="video-roster-footer">
+            <div className="video-roster-footer-actions">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="video-roster-footer-btn"
+                disabled={hostActionLoading}
+                onClick={onMuteAllRequest}
+              >
+                Mute all
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="video-roster-footer-btn"
+                disabled={hostActionLoading}
+                onClick={onUnmuteAllRequest}
+              >
+                Allow mics
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                className="video-roster-footer-btn video-roster-footer-btn--primary"
+                disabled={hostActionLoading}
+                onClick={onInvite}
+              >
+                Invite
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
 }
 
-function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId, setError }) {
+function InvitePeopleInMeetingModal({
+  isOpen,
+  onClose,
+  orgId,
+  meetingId,
+  channelName,
+  meetingTitle,
+  userId,
+  setError,
+}) {
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(() => new Set())
   const [existingInviteIds, setExistingInviteIds] = useState([])
+  const [banner, setBanner] = useState(null)
 
   useEffect(() => {
     if (!isOpen || !orgId || !meetingId || !userId) return undefined
@@ -5193,6 +5443,33 @@ function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId,
       ? `${window.location.origin}/app/org/${encodeURIComponent(orgId)}/video?meetingId=${encodeURIComponent(meetingId)}`
       : ''
 
+  const copyJoinLink = async () => {
+    if (!joinUrl) {
+      setBanner({ type: 'err', text: 'No shareable link for this meeting.' })
+      return
+    }
+    setBanner(null)
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(joinUrl)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = joinUrl
+        ta.setAttribute('readonly', '')
+        ta.style.position = 'fixed'
+        ta.style.left = '-9999px'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setBanner({ type: 'ok', text: 'Link copied to clipboard.' })
+    } catch {
+      setBanner({ type: 'err', text: 'Could not copy. Select the link and copy manually.' })
+    }
+    window.setTimeout(() => setBanner(null), 3500)
+  }
+
   const filteredMembers = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return members
@@ -5200,11 +5477,6 @@ function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId,
       getDisplayName(profile, uid).toLowerCase().includes(q)
     )
   }, [members, search])
-
-  const copyJoinLink = () => {
-    if (!joinUrl || !navigator.clipboard?.writeText) return
-    navigator.clipboard.writeText(joinUrl).catch(() => {})
-  }
 
   const toggleUid = (uid) => {
     setSelected((prev) => {
@@ -5217,14 +5489,29 @@ function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId,
 
   const handleNotify = async () => {
     if (!orgId || !meetingId || !userId || selected.size === 0) return
+    const add = [...selected]
+    const newlyInvited = add.filter((id) => !existingInviteIds.includes(id))
+    if (newlyInvited.length === 0) {
+      setBanner({
+        type: 'err',
+        text: 'Everyone selected is already on the invite list. Choose others or copy the join link.',
+      })
+      window.setTimeout(() => setBanner(null), 5000)
+      return
+    }
     setSaving(true)
+    setBanner(null)
     try {
-      const add = [...selected]
       const merged = [...new Set([...existingInviteIds, ...add])]
       await updateMeeting(orgId, meetingId, userId, { invitedUserIds: merged })
-      onClose()
+      setBanner({ type: 'ok', text: `Notified ${newlyInvited.length} teammate(s). They’ll see a bell invitation.` })
+      setExistingInviteIds(merged)
+      setSelected(new Set())
+      window.setTimeout(() => onClose(), 1200)
     } catch (e) {
-      setError?.(e?.message || 'Could not notify people.')
+      const msg = e?.message || 'Could not update invites.'
+      setBanner({ type: 'err', text: msg })
+      setError?.(msg)
     } finally {
       setSaving(false)
     }
@@ -5237,36 +5524,66 @@ function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId,
   return (
     <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="invite-in-meeting-title">
       <button type="button" className="video-prejoin-backdrop" onClick={() => !saving && onClose()} aria-label="Close" />
-      <div className="video-prejoin-modal video-invite-in-meeting-modal">
-        <h2 id="invite-in-meeting-title" className="video-prejoin-title">
+      <div className="video-prejoin-modal video-invite-in-meeting-modal video-invite-in-meeting-modal--enterprise">
+        <h2 id="invite-in-meeting-title" className="video-prejoin-title video-invite-enterprise-title">
           Invite people
         </h2>
-        <p className="video-prejoin-sub">
-          Share the join link or send in-app notifications to organization members. People you add get a bell notification
-          with a link to this room.
+        {meetingTitle ? <p className="video-invite-enterprise-meeting-name">{meetingTitle}</p> : null}
+        <p className="video-prejoin-sub video-invite-enterprise-desc">
+          Copy the join link for email or chat, or notify teammates in Notus (bell + in-app link).
         </p>
+        {banner && (
+          <p
+            className={[
+              'video-invite-banner',
+              banner.type === 'ok' ? 'video-invite-banner--ok' : 'video-invite-banner--err',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            role="status"
+          >
+            {banner.text}
+          </p>
+        )}
         {joinUrl ? (
-          <div className="video-invite-link-row">
-            <code className="video-invite-link-code">{joinUrl}</code>
-            <Button type="button" variant="outline" size="sm" onClick={copyJoinLink}>
-              Copy link
-            </Button>
+          <div className="video-invite-link-block">
+            <span className="video-invite-link-label">Join link</span>
+            <div className="video-invite-link-input-row">
+              <input
+                type="text"
+                readOnly
+                className="auth-input video-invite-link-input"
+                value={joinUrl}
+                aria-label="Meeting join URL"
+                onFocus={(e) => e.target.select()}
+              />
+              <Button type="button" variant="outline" size="sm" onClick={() => void copyJoinLink()}>
+                Copy
+              </Button>
+            </div>
           </div>
         ) : (
           <p className="video-prejoin-sub video-invite-unavailable">
-            Join link isn&apos;t available for this session. If you need a link, copy the meeting ID from meeting information.
+            This session has no calendar meeting id, so a web link can&apos;t be built. Use{' '}
+            <strong>Meeting information</strong> to share the meeting ID, or schedule a video event from the calendar.
+            {channelName ? (
+              <>
+                {' '}
+                Room: <code className="video-invite-room-code">{channelName}</code>
+              </>
+            ) : null}
           </p>
         )}
         {canNotify ? (
           <>
             <div className="video-invite-divider" />
-            <span className="video-new-meeting-field-label">Notify org members</span>
+            <span className="video-invite-section-label">Notify organization members</span>
             <div className="video-roster-search-wrap video-invite-search">
               <Search size={18} className="video-roster-search-icon" aria-hidden />
               <input
                 type="search"
                 className="auth-input video-roster-search-input"
-                placeholder="Search…"
+                placeholder="Search by name…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 aria-label="Search members"
@@ -5275,13 +5592,20 @@ function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId,
             <div className="video-new-meeting-invite-scroll video-invite-member-scroll">
               {loading ? (
                 <p className="video-prejoin-sub">Loading members…</p>
+              ) : filteredMembers.length === 0 ? (
+                <p className="video-prejoin-sub">No members match your search.</p>
               ) : (
-                <ul className="video-new-meeting-invite-list">
+                <ul className="video-new-meeting-invite-list video-invite-member-list">
                   {filteredMembers.map(({ userId: uid, profile }) => (
                     <li key={uid}>
-                      <label className="video-new-meeting-invite-row">
+                      <label className="video-new-meeting-invite-row video-invite-member-row">
                         <input type="checkbox" checked={selected.has(uid)} onChange={() => toggleUid(uid)} />
-                        <span>{getDisplayName(profile, uid)}</span>
+                        <VideoParticipantAvatar
+                          photoUrl={getProfilePictureUrl(profile)}
+                          nameHint={getDisplayName(profile, uid)}
+                          className="video-invite-member-avatar"
+                        />
+                        <span className="video-invite-member-name">{getDisplayName(profile, uid)}</span>
                       </label>
                     </li>
                   ))}
@@ -5291,12 +5615,13 @@ function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId,
           </>
         ) : (
           <p className="video-prejoin-sub video-invite-unavailable">
-            In-app notifications require a meeting linked to your organization.
+            In-app notifications need an organization meeting. Instant rooms without a saved meeting id can still use the
+            link above when available.
           </p>
         )}
-        <div className="video-prejoin-footer">
+        <div className="video-prejoin-footer video-invite-footer">
           <Button type="button" variant="ghost" onClick={() => !saving && onClose()} disabled={saving}>
-            Cancel
+            {saving ? 'Please wait…' : 'Close'}
           </Button>
           <Button
             type="button"
@@ -5304,7 +5629,7 @@ function InvitePeopleInMeetingModal({ isOpen, onClose, orgId, meetingId, userId,
             onClick={() => void handleNotify()}
             disabled={saving || !canNotify || selected.size === 0}
           >
-            {saving ? 'Sending…' : 'Send notifications'}
+            {saving ? 'Sending…' : 'Send invites'}
           </Button>
         </div>
       </div>
@@ -6228,6 +6553,84 @@ function VideoCallChat({
 function ParticipantTileOverflow({ menuKey, openKey, onOpenChange, variant = 'tile', items }) {
   const open = openKey === menuKey
   const sz = variant === 'filmstrip' ? 16 : 18
+  const isRoster = variant === 'roster'
+  const btnRef = useRef(null)
+  const [portalPos, setPortalPos] = useState(null)
+
+  useLayoutEffect(() => {
+    if (!open || !isRoster || !btnRef.current) {
+      setPortalPos(null)
+      return
+    }
+    const update = () => {
+      const el = btnRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const w = 268
+      let left = r.right - w
+      left = Math.max(10, Math.min(left, window.innerWidth - w - 10))
+      const rowH = 48
+      let top = r.bottom + 6
+      const estH = Math.min(items.length * rowH + 16, 360)
+      if (top + estH > window.innerHeight - 10) {
+        top = Math.max(10, r.top - estH - 6)
+      }
+      setPortalPos({ top, left, width: w })
+    }
+    update()
+    window.addEventListener('resize', update)
+    document.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      document.removeEventListener('scroll', update, true)
+    }
+  }, [open, isRoster, items.length])
+
+  const menuItems = items.map((it) => (
+    <button
+      key={it.key}
+      type="button"
+      role="menuitem"
+      className={[
+        'video-tile-overflow-item',
+        it.danger && 'video-tile-overflow-item--danger',
+        it.disabled && 'video-tile-overflow-item--disabled',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      disabled={it.disabled}
+      onClick={() => {
+        if (it.disabled) return
+        it.onClick?.()
+        onOpenChange(null)
+      }}
+    >
+      {it.label}
+    </button>
+  ))
+
+  const portalMenu =
+    open &&
+    isRoster &&
+    portalPos &&
+    typeof document !== 'undefined' &&
+    createPortal(
+      <div
+        className="video-tile-overflow-dropdown video-tile-overflow-dropdown--portal"
+        style={{
+          position: 'fixed',
+          top: portalPos.top,
+          left: portalPos.left,
+          width: portalPos.width,
+        }}
+        role="menu"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {menuItems}
+      </div>,
+      document.body
+    )
+
   return (
     <div
       className={[
@@ -6242,6 +6645,7 @@ function ParticipantTileOverflow({ menuKey, openKey, onOpenChange, variant = 'ti
         .join(' ')}
     >
       <button
+        ref={btnRef}
         type="button"
         className="video-tile-overflow-btn"
         aria-label="Participant actions"
@@ -6254,38 +6658,12 @@ function ParticipantTileOverflow({ menuKey, openKey, onOpenChange, variant = 'ti
       >
         <MoreVertical size={sz} strokeWidth={2.25} />
       </button>
-      {open && (
-        <div
-          className={['video-tile-overflow-dropdown', variant === 'roster' && 'video-tile-overflow-dropdown--roster']
-            .filter(Boolean)
-            .join(' ')}
-          role="menu"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {items.map((it) => (
-            <button
-              key={it.key}
-              type="button"
-              role="menuitem"
-              className={[
-                'video-tile-overflow-item',
-                it.danger && 'video-tile-overflow-item--danger',
-                it.disabled && 'video-tile-overflow-item--disabled',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              disabled={it.disabled}
-              onClick={() => {
-                if (it.disabled) return
-                it.onClick?.()
-                onOpenChange(null)
-              }}
-            >
-              {it.label}
-            </button>
-          ))}
+      {open && !isRoster && (
+        <div className="video-tile-overflow-dropdown" role="menu" onClick={(e) => e.stopPropagation()}>
+          {menuItems}
         </div>
       )}
+      {portalMenu}
     </div>
   )
 }
