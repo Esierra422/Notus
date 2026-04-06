@@ -3,6 +3,7 @@
  * Used from OrganizationsPage when clicking the info icon on an org card.
  */
 import { useState, useEffect } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { Link } from 'react-router-dom'
 import { getOrg, getMembership, getOrgMembers, canManageOrg, MEMBERSHIP_STATES } from '../../lib/orgService'
 import { getOrgTeams } from '../../lib/teamService'
@@ -40,6 +41,7 @@ export function OrgProfileModal({ orgId, userId, onClose }) {
 
   const isAdmin = membership ? canManageOrg(membership) : false
 
+  useScrollLock(Boolean(orgId))
   if (!orgId) return null
 
   return (

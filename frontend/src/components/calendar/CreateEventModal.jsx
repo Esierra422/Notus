@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { Timestamp } from 'firebase/firestore'
 import { Button } from '../ui/Button'
 import {
@@ -81,6 +82,7 @@ function RepeatModal({ isOpen, onClose, value, onSave, eventStartDateStr }) {
     }
   }, [isOpen, value])
 
+  useScrollLock(isOpen)
   if (!isOpen) return null
 
   const toggleDay = (d) => {
@@ -724,6 +726,7 @@ export function CreateEventModal({
     })
   }, [eventPlacement, notifyPolicy, members, inviteeIds, personalInviteSearch])
 
+  useScrollLock(isOpen)
   if (!isOpen) return null
 
   const repeatSummary =

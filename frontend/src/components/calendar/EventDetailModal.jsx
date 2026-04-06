@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { Link } from 'react-router-dom'
 import { Video } from 'lucide-react'
 import { doc, getDoc } from 'firebase/firestore'
@@ -164,6 +165,7 @@ export function EventDetailModal({
     }
   }, [isOpen, isOrgMeeting, canVideo, item?.orgId, realMeetingId, item])
 
+  useScrollLock(isOpen && Boolean(item))
   if (!isOpen || !item) return null
 
   const runDeleteEntireSeries = async () => {

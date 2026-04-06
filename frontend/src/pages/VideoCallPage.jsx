@@ -33,6 +33,7 @@ import {
   UserPlus,
   BarChart3,
   ChevronDown,
+  ChevronRight,
   Settings,
   Shield,
 } from 'lucide-react'
@@ -40,7 +41,7 @@ import {
 import * as videoApp from '../lib/videoAppService.js'
 import { getUserDoc, getProfilePictureUrl, getDisplayName } from '../lib/userService.js'
 import { getAiRestHttpBase } from '../lib/apiConfig.js'
-import { generateMeetingSummary } from '../lib/meetingSummaryService.js'
+import { generateMeetingSummary, getPastMeetingLobbyPreview } from '../lib/meetingSummaryService.js'
 import {
   canAccessMeeting,
   createInstantMeeting,
@@ -69,6 +70,7 @@ import {
   membershipHasCapability,
 } from '../lib/orgService.js'
 import { getOrgTeams, getTeamMembership, getTeamMembers, TEAM_STATES } from '../lib/teamService.js'
+import { useScrollLock } from '../hooks/useScrollLock.js'
 import { CreateEventModal } from '../components/calendar/CreateEventModal.jsx'
 import {
   subscribeMeetingChatMessages,
@@ -447,7 +449,6 @@ export function VideoCallPage() {
   const [newMeetingMembers, setNewMeetingMembers] = useState([])
   const [newMeetingTeamsList, setNewMeetingTeamsList] = useState([])
   const [newMeetingMembersLoading, setNewMeetingMembersLoading] = useState(false)
-  const [newMeetingAllowShareDraft, setNewMeetingAllowShareDraft] = useState(true)
   /** Title used for instant meeting create + pre-join header after step 1. */
   const [preJoinInstantMeetingTitle, setPreJoinInstantMeetingTitle] = useState('Quick meeting')
   /** Orgs available for video (global page) or single org when route is /app/org/:orgId/video */
@@ -487,6 +488,8 @@ export function VideoCallPage() {
   const [upcomingMeetings, setUpcomingMeetings] = useState([])
   const [upcomingMeetingsLoading, setUpcomingMeetingsLoading] = useState(false)
   const [upcomingReloadKey, setUpcomingReloadKey] = useState(0)
+  const [pastLobbyRows, setPastLobbyRows] = useState([])
+  const [pastLobbyLoading, setPastLobbyLoading] = useState(false)
   const [upcomingHorizonMenuOpen, setUpcomingHorizonMenuOpen] = useState(false)
   const upcomingHorizonWrapRef = useRef(null)
   /** Which participant tile menu is open: "local" or `remote-${agoraUid}` */
@@ -533,6 +536,35 @@ export function VideoCallPage() {
   const [newMeetingTeamNotify, setNewMeetingTeamNotify] = useState('everyone')
   const [newMeetingTeamPickMembers, setNewMeetingTeamPickMembers] = useState([])
   const [newMeetingTeamPickLoading, setNewMeetingTeamPickLoading] = useState(false)
+
+  const videoBlockingOverlaysOpen = useMemo(
+    () =>
+      generatingSummary ||
+      Boolean(waitingRoomPayload && !joined) ||
+      showLeaveModal ||
+      meetingInfoOpen ||
+      hostPermissionsOpen ||
+      hostHandsQueueOpen ||
+      meetingPollModalOpen ||
+      hostPrefsModalOpen ||
+      hostPolicyModal != null ||
+      hostConfirm != null,
+    [
+      generatingSummary,
+      waitingRoomPayload,
+      joined,
+      showLeaveModal,
+      meetingInfoOpen,
+      hostPermissionsOpen,
+      hostHandsQueueOpen,
+      meetingPollModalOpen,
+      hostPrefsModalOpen,
+      hostPolicyModal,
+      hostConfirm,
+    ]
+  )
+
+  useScrollLock(videoBlockingOverlaysOpen)
 
   /** Live transcription WebSocket only when AI backend URL is set (Express has no /ws/transcription). */
   const transcriptionWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
@@ -880,6 +912,32 @@ export function VideoCallPage() {
   ])
 
   useEffect(() => {
+    if (!user?.uid || joined || !videoOrgsLoaded || videoRouteForbidden || videoUserOrgs.length === 0) return
+    let cancelled = false
+    const loadPast = async () => {
+      setPastLobbyLoading(true)
+      try {
+        const rows = await getPastMeetingLobbyPreview(user.uid, {
+          routeOrgId: videoRouteOrgId || null,
+          limit: 4,
+        })
+        if (!cancelled) setPastLobbyRows(rows)
+      } catch (e) {
+        console.warn('[VideoCallPage] Past lobby preview:', e)
+        if (!cancelled) setPastLobbyRows([])
+      } finally {
+        if (!cancelled) setPastLobbyLoading(false)
+      }
+    }
+    loadPast()
+    const t = setInterval(loadPast, 120000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [user?.uid, joined, videoOrgsLoaded, videoRouteForbidden, videoUserOrgs.length, videoRouteOrgId])
+
+  useEffect(() => {
     if (!upcomingHorizonMenuOpen) return
     const onDown = (e) => {
       if (upcomingHorizonWrapRef.current && !upcomingHorizonWrapRef.current.contains(e.target)) {
@@ -976,7 +1034,6 @@ export function VideoCallPage() {
     setNewMeetingOrgNotify('everyone')
     setNewMeetingTeamNotify('everyone')
     setNewMeetingTeamPickMembers([])
-    setNewMeetingAllowShareDraft(true)
     setNewMeetingSettingsOpen(true)
   }
 
@@ -1141,7 +1198,7 @@ export function VideoCallPage() {
     }
     const t = newMeetingTitleDraft.trim() || 'Quick meeting'
     setPreJoinInstantMeetingTitle(t)
-    setPreJoinAllowRemoteShare(newMeetingAllowShareDraft)
+    setPreJoinAllowRemoteShare(true)
     setNewMeetingSettingsOpen(false)
     setPreJoinMode('instant')
     setPreJoinMicOn(true)
@@ -2797,6 +2854,7 @@ export function VideoCallPage() {
   if (!user) return null
 
   const calendarBasePath = videoRouteOrgId ? `/app/org/${videoRouteOrgId}/calendar` : '/app/calendar'
+  const meetingsBasePath = videoRouteOrgId ? `/app/org/${videoRouteOrgId}/video/meetings` : '/app/video/meetings'
 
   const buildRemoteParticipantMenuItems = (u, meta) => {
     const agoraUid = u.uid
@@ -3233,13 +3291,13 @@ export function VideoCallPage() {
                         onClick={joinMeetingById}
                         disabled={joinByIdLoading || !joinMeetingIdInput.trim()}
                       >
-                        {joinByIdLoading ? '…' : 'Load'}
+                        {joinByIdLoading ? '…' : 'Join'}
                       </Button>
                     </div>
                   </div>
                 </div>
 
-                <section className="video-call-ongoing-section" aria-labelledby="video-ongoing-heading">
+                <section className="video-call-lobby-panel video-call-ongoing-section" aria-labelledby="video-ongoing-heading">
                   <h3 id="video-ongoing-heading" className="video-call-ongoing-heading">
                     Ongoing meetings
                   </h3>
@@ -3301,9 +3359,9 @@ export function VideoCallPage() {
                   )}
                 </section>
 
-                <section className="video-call-upcoming-section" aria-labelledby="video-upcoming-heading">
+                <section className="video-call-lobby-panel video-call-upcoming-section" aria-labelledby="video-upcoming-heading">
                   <div className="video-call-upcoming-header">
-                    <h3 id="video-upcoming-heading" className="video-call-upcoming-heading">
+                    <h3 id="video-upcoming-heading" className="video-call-ongoing-heading">
                       Upcoming meetings
                     </h3>
                     <div className="video-call-upcoming-horizon-wrap" ref={upcomingHorizonWrapRef}>
@@ -3343,7 +3401,7 @@ export function VideoCallPage() {
                       )}
                     </div>
                   </div>
-                  <p className="video-call-upcoming-sub">
+                  <p className="video-call-ongoing-sub">
                     Calendar-scheduled video meetings only (quick ad-hoc meetings are not listed here), with a start time
                     from now through the next{' '}
                     {UPCOMING_HORIZON_OPTIONS.find((o) => o.days === upcomingHorizonDays)?.label ||
@@ -3374,24 +3432,72 @@ export function VideoCallPage() {
                       ))}
                     </ul>
                   )}
+                  <p className="video-call-lobby-calendar-hint video-call-lobby-calendar-hint--in-panel">
+                    Scheduled calls live on the{' '}
+                    <Link to={calendarBasePath} className="video-call-lobby-link">
+                      calendar
+                    </Link>
+                    . Open an event from there to join with a link, or paste its meeting ID above.
+                  </p>
+                </section>
+
+                <section className="video-call-lobby-panel video-call-past-lobby-section" aria-labelledby="video-past-lobby-heading">
+                  <h3 id="video-past-lobby-heading" className="video-call-ongoing-heading">
+                    Past meetings & transcripts
+                  </h3>
+                  <p className="video-call-ongoing-sub">
+                    Recent notes and saved transcripts. Open a row for the full recap, copy sections, exports, and Ask AI.
+                  </p>
+                  {pastLobbyLoading && pastLobbyRows.length === 0 ? (
+                    <p className="video-call-lobby-muted">Loading recent meetings…</p>
+                  ) : pastLobbyRows.length === 0 ? (
+                    <p className="video-call-lobby-muted">
+                      No past meetings yet. When you finish a call, the host can use <strong>End for everyone</strong> to generate
+                      notes (with the AI backend connected).
+                    </p>
+                  ) : (
+                    <ul className="video-call-past-lobby-list">
+                      {pastLobbyRows.map((row) => (
+                        <li key={row.key} className="video-call-past-lobby-row">
+                          <div className="video-call-past-lobby-row-main">
+                            <span className="video-call-past-lobby-title">{row.title}</span>
+                            <span className="video-call-past-lobby-meta">
+                              {formatMeetingStart({ startAt: row.startAt }) ? (
+                                <span>{formatMeetingStart({ startAt: row.startAt })}</span>
+                              ) : null}
+                              {!videoRouteOrgId && row.orgName ? (
+                                <span className="video-call-ongoing-org">{row.orgName}</span>
+                              ) : null}
+                              {row.hasAiNotes ? <span className="video-call-past-lobby-badge">AI notes</span> : null}
+                              {row.transcriptOnly ? (
+                                <span className="video-call-past-lobby-badge video-call-past-lobby-badge--muted">Transcript</span>
+                              ) : null}
+                              {!row.href ? <span className="video-call-past-lobby-badge video-call-past-lobby-badge--muted">No recap</span> : null}
+                            </span>
+                          </div>
+                          {row.href ? (
+                            <Button as={Link} to={row.href} variant="outline" size="sm" className="video-call-past-lobby-open">
+                              Open
+                            </Button>
+                          ) : (
+                            <span className="video-call-lobby-muted video-call-past-lobby-pending">—</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="video-call-past-lobby-footer">
+                    <Button as={Link} to={meetingsBasePath} variant="primary" size="sm" className="video-call-past-lobby-view-all">
+                      View all
+                      <ChevronRight size={17} strokeWidth={2.25} aria-hidden />
+                    </Button>
+                    <p className="video-call-past-lobby-footnote">
+                      Full list with search, filters, and exports lives on the dedicated past meetings page.
+                    </p>
+                  </div>
                 </section>
 
                 {error && <p className="auth-error video-call-lobby-error">{error}</p>}
-                <p className="video-call-lobby-muted video-call-lobby-calendar-hint">
-                  Scheduled calls live on the{' '}
-                  <Link to={calendarBasePath} className="video-call-lobby-link">
-                    calendar
-                  </Link>
-                  . Open an event from there to join with a link, or paste its meeting ID above.
-                </p>
-                <div className="video-call-previous-wrap">
-                  <Link to="/app/video/meetings" className="video-call-previous-link">
-                    Past Meetings & Transcripts →
-                  </Link>
-                  <p className="video-call-lobby-hint">
-                    After a call, use <strong>End for everyone</strong> as host to generate notes (when the AI backend is connected).
-                  </p>
-                </div>
               </>
             )}
               </>
@@ -3425,8 +3531,6 @@ export function VideoCallPage() {
             membersLoading={newMeetingMembersLoading}
             inviteeIds={newMeetingInviteeIds}
             onInviteeIdsChange={setNewMeetingInviteeIds}
-            allowRemoteScreenShare={newMeetingAllowShareDraft}
-            onAllowRemoteScreenShareChange={setNewMeetingAllowShareDraft}
             onContinue={continueNewMeetingToPreJoin}
             orgOptions={!videoRouteOrgId && videoUserOrgs.length > 1 ? videoUserOrgs : null}
             selectedOrgId={instantMeetingOrgId}
@@ -5291,6 +5395,7 @@ function ParticipantsRosterModal({
   onMuteAllRequest,
   onUnmuteAllRequest,
 }) {
+  useScrollLock(isOpen)
   if (!isOpen) return null
   return (
     <div className="video-prejoin-overlay video-roster-overlay" role="dialog" aria-modal="true" aria-labelledby="video-roster-title">
@@ -5517,6 +5622,7 @@ function InvitePeopleInMeetingModal({
     }
   }
 
+  useScrollLock(isOpen)
   if (!isOpen) return null
 
   const canNotify = Boolean(orgId && meetingId && userId)
@@ -5653,8 +5759,6 @@ function NewMeetingSettingsModal({
   membersLoading,
   inviteeIds,
   onInviteeIdsChange,
-  allowRemoteScreenShare,
-  onAllowRemoteScreenShareChange,
   onContinue,
   orgOptions,
   selectedOrgId,
@@ -5666,6 +5770,7 @@ function NewMeetingSettingsModal({
   teamPickMembers,
   teamPickMembersLoading,
 }) {
+  useScrollLock(isOpen)
   if (!isOpen) return null
   return (
     <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="new-meeting-settings-title">
@@ -5772,9 +5877,9 @@ function NewMeetingSettingsModal({
             </span>
           </label>
           {visibility === 'team' && (
-            <>
+            <div className="video-new-meeting-scope-stack">
               <select
-                className="auth-input video-new-meeting-org-select"
+                className="auth-input video-new-meeting-org-select video-new-meeting-org-select--flush"
                 value={teamId || ''}
                 onChange={(e) => onTeamIdChange(e.target.value)}
               >
@@ -5815,35 +5920,35 @@ function NewMeetingSettingsModal({
                   <span>Only selected people on the team</span>
                 </label>
               </div>
-            </>
-          )}
-          {visibility === 'team' && teamNotify === 'pick' && teamId && (
-            <div className="video-new-meeting-invite-block">
-              <span className="video-new-meeting-field-label">Choose people to notify</span>
-              <div className="video-new-meeting-invite-scroll">
-                {teamPickMembersLoading ? (
-                  <p className="video-prejoin-sub">Loading team…</p>
-                ) : (
-                  <ul className="video-new-meeting-invite-list">
-                    {(teamPickMembers || []).map(({ userId: uid, profile }) => (
-                      <li key={uid}>
-                        <label className="video-new-meeting-invite-row">
-                          <input
-                            type="checkbox"
-                            checked={inviteeIds.includes(uid)}
-                            onChange={() =>
-                              onInviteeIdsChange((prev) =>
-                                prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
-                              )
-                            }
-                          />
-                          <span>{getDisplayName(profile, uid)}</span>
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+              {teamNotify === 'pick' && teamId ? (
+                <div className="video-new-meeting-invite-block video-new-meeting-invite-block--tight">
+                  <span className="video-new-meeting-field-label">Choose people to notify</span>
+                  <div className="video-new-meeting-invite-scroll">
+                    {teamPickMembersLoading ? (
+                      <p className="video-prejoin-sub">Loading team…</p>
+                    ) : (
+                      <ul className="video-new-meeting-invite-list">
+                        {(teamPickMembers || []).map(({ userId: uid, profile }) => (
+                          <li key={uid}>
+                            <label className="video-new-meeting-invite-row">
+                              <input
+                                type="checkbox"
+                                checked={inviteeIds.includes(uid)}
+                                onChange={() =>
+                                  onInviteeIdsChange((prev) =>
+                                    prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+                                  )
+                                }
+                              />
+                              <span>{getDisplayName(profile, uid)}</span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
           <label className="video-new-meeting-radio">
@@ -5887,14 +5992,6 @@ function NewMeetingSettingsModal({
             </div>
           </div>
         )}
-        <label className="video-prejoin-host-option video-new-meeting-host-option">
-          <input
-            type="checkbox"
-            checked={allowRemoteScreenShare}
-            onChange={(e) => onAllowRemoteScreenShareChange(e.target.checked)}
-          />
-          <span>Allow participants to share their screen</span>
-        </label>
         <div className="video-prejoin-footer">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
@@ -5937,6 +6034,7 @@ function VideoPreJoinModal({
     }
   }, [previewStream, camOn])
 
+  useScrollLock(isOpen)
   if (!isOpen) return null
 
   return (

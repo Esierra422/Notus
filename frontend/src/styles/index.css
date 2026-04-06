@@ -134,3 +134,37 @@ input.notus-checkbox--sm:checked {
     display: none !important;
   }
 }
+
+/* Modal / overlay scroll lock (useScrollLock + lib/scrollLock.js) */
+html.notus-scroll-locked {
+  overflow: hidden !important;
+}
+
+html.notus-scroll-locked body {
+  overflow: hidden !important;
+  padding-right: var(--notus-scrollbar-gutter, 0px);
+}
+
+html.notus-scroll-locked .page-transition {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+html.notus-scroll-locked .app-layout-video .app-main.video-call-main--lobby {
+  overflow: hidden !important;
+}
+
+html.notus-scroll-locked .chats-layout,
+html.notus-scroll-locked .chats-container {
+  overflow: hidden !important;
+}
+
+html.notus-scroll-locked .chats-sidebar,
+html.notus-scroll-locked .chats-messages {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+html.notus-scroll-locked .calendar-day-slots {
+  overflow: hidden !important;
+}

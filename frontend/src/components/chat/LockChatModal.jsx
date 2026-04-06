@@ -2,6 +2,7 @@
  * Modal for creating or entering PIN to lock/unlock chat.
  */
 import { useState } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { LockIcon, XIcon } from '../ui/Icons'
 import { Button } from '../ui/Button'
 import './LockChatModal.css'
@@ -13,6 +14,8 @@ export function LockChatModal({ mode, onClose, onSubmit, error: externalError })
   const [loading, setLoading] = useState(false)
 
   const err = externalError || error
+
+  useScrollLock(true)
 
   const handleSubmit = async (e) => {
     e?.preventDefault()

@@ -1,3 +1,35 @@
+.meeting-transcript-hero.meeting-recap-hero {
+  margin-bottom: 1rem;
+}
+
+.meeting-transcript-tech {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.meeting-transcript-tech summary {
+  cursor: pointer;
+  color: rgba(228, 230, 235, 0.55);
+  user-select: none;
+}
+
+.meeting-transcript-tech summary:hover {
+  color: var(--accent);
+}
+
+.meeting-transcript-tech-body {
+  margin: 0.5rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.meeting-transcript-tech-body code {
+  font-size: 0.72rem;
+  word-break: break-all;
+  color: rgba(228, 230, 235, 0.65);
+}
+
 .meeting-transcript-page .meeting-transcript-header {
   margin-bottom: 1.5rem;
   padding-bottom: 1rem;
@@ -77,4 +109,11 @@
   line-height: 1.55;
   color: var(--text);
   word-break: break-word;
+}
+
+.meeting-transcript-lines--recap {
+  margin-top: 0;
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }

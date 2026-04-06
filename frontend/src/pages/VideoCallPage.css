@@ -1792,14 +1792,20 @@
   margin-bottom: 1.25rem;
 }
 
-.video-call-ongoing-section {
+/* Ongoing / upcoming / past — shared lobby card */
+.video-call-lobby-panel {
   width: 100%;
   margin-bottom: 1.5rem;
-  padding: 1rem 1.15rem;
+  padding: 1.1rem 1.2rem;
   border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--accent) 12%);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--bg-card) 94%, var(--accent) 5%) 0%,
+    var(--bg-card) 100%
+  );
   box-sizing: border-box;
+  box-shadow: 0 4px 28px rgba(0, 0, 0, 0.14);
 }
 
 .video-call-ongoing-heading {
@@ -2046,6 +2052,18 @@
   margin-inline: auto;
 }
 
+.video-call-lobby-calendar-hint--in-panel {
+  margin: 1rem 0 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: left;
+  max-width: none;
+  margin-inline: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 /* Pre-join (Zoom-style) modal */
 .video-prejoin-overlay {
   position: fixed;
@@ -2212,8 +2230,8 @@
   margin-top: 0.25rem;
 }
 
-.video-new-meeting-settings-modal .video-prejoin-host-option {
-  margin-top: 0.25rem;
+.video-new-meeting-org-select--flush {
+  margin-top: 0;
 }
 
 .video-new-meeting-field {
@@ -2238,6 +2256,8 @@
   max-width: 480px;
   max-height: min(92vh, 720px);
   overflow-y: auto;
+  padding: 1.35rem 1.5rem 1.3rem;
+  box-sizing: border-box;
 }
 
 .video-new-meeting-bio {
@@ -2259,18 +2279,30 @@
   padding: 0 0.35rem;
 }
 
+/* Grid: control column + label column so wrapped lines align with first line of text */
 .video-new-meeting-radio {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: var(--nm-control, 1.125rem) minmax(0, 1fr);
+  column-gap: var(--nm-gap, 0.625rem);
+  align-items: start;
   font-size: 0.88rem;
   color: var(--text);
-  margin: 0.35rem 0;
+  line-height: 1.45;
+  margin: 0.4rem 0;
   cursor: pointer;
 }
 
-.video-new-meeting-radio input {
-  margin-top: 0.2rem;
+.video-new-meeting-radio > span {
+  min-width: 0;
+}
+
+.video-new-meeting-radio input[type='radio'],
+.video-new-meeting-radio input[type='checkbox'] {
+  margin: 0.1875rem 0 0;
+  width: var(--nm-control, 1.125rem);
+  height: var(--nm-control, 1.125rem);
+  flex-shrink: 0;
+  accent-color: var(--accent);
 }
 
 .video-new-meeting-invite-block {
@@ -2293,12 +2325,23 @@
 }
 
 .video-new-meeting-invite-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: 1.125rem minmax(0, 1fr);
+  column-gap: 0.5rem;
+  align-items: start;
   padding: 0.35rem 0.75rem;
   font-size: 0.88rem;
   cursor: pointer;
+}
+
+.video-new-meeting-invite-row input[type='checkbox'] {
+  margin: 0.15rem 0 0;
+  accent-color: var(--accent);
+}
+
+.video-new-meeting-invite-row > span {
+  min-width: 0;
+  line-height: 1.4;
 }
 
 /* Host-only meeting ID (above control dock) */
@@ -2349,23 +2392,104 @@
   background: rgba(212, 168, 83, 0.2);
 }
 
-.video-call-previous-wrap {
-  margin-top: 1.5rem;
-  text-align: center;
+/* Past meetings preview (lobby) */
+.video-call-past-lobby-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.45rem;
 }
 
-.video-call-previous-link {
-  color: var(--accent);
+.video-call-past-lobby-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.video-call-past-lobby-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.video-call-past-lobby-title {
   font-weight: 600;
-  text-decoration: none;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.video-call-previous-link:hover {
-  text-decoration: underline;
+.video-call-past-lobby-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.video-call-past-lobby-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(212, 168, 83, 0.14);
+  border: 1px solid rgba(212, 168, 83, 0.35);
+  color: var(--accent);
+}
+
+.video-call-past-lobby-badge--muted {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(228, 230, 235, 0.55);
+}
+
+.video-call-past-lobby-open {
+  flex-shrink: 0;
+}
+
+.video-call-past-lobby-pending {
+  flex-shrink: 0;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+.video-call-past-lobby-footer {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.video-call-past-lobby-view-all.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.video-call-past-lobby-footnote {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  max-width: 32rem;
 }
 
 .video-call-leave-overlay {
@@ -3341,12 +3465,6 @@
 }
 
 /* Upcoming meetings + horizon menu (lobby) */
-.video-call-upcoming-section {
-  margin-top: 1.5rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--border);
-}
-
 .video-call-upcoming-header {
   display: flex;
   align-items: center;
@@ -3361,6 +3479,8 @@
   font-weight: 600;
   color: var(--text);
 }
+
+/* When upcoming uses .video-call-ongoing-heading, this is unused but kept for safety */
 
 .video-call-upcoming-horizon-wrap {
   position: relative;
@@ -3428,11 +3548,9 @@
   font-weight: 600;
 }
 
-.video-call-upcoming-sub {
-  margin: 0.45rem 0 0.65rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.4;
+.video-call-upcoming-section .video-call-ongoing-sub {
+  margin-top: 0;
+  margin-bottom: 0.85rem;
 }
 
 .video-call-upcoming-list {
@@ -3449,10 +3567,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg-card);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.15);
 }
 
 .video-call-upcoming-row-text {
@@ -4062,16 +4180,35 @@
 }
 
 .video-new-meeting-fieldset--card {
+  --nm-control: 1.125rem;
+  --nm-gap: 0.625rem;
+  --nm-label-offset: calc(var(--nm-control) + var(--nm-gap));
   border-color: color-mix(in srgb, var(--border) 90%, var(--accent) 10%);
   background: rgba(0, 0, 0, 0.12);
+  padding: 0.85rem 1rem 1rem;
+}
+
+.video-new-meeting-scope-stack {
+  padding-left: var(--nm-label-offset);
+  margin-top: 0.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .video-new-meeting-notify-block {
-  margin: 0.5rem 0 0.35rem 0.85rem;
-  padding: 0.5rem 0.65rem;
+  margin: 0.5rem 0 0.35rem var(--nm-label-offset);
+  padding: 0.55rem 0.75rem;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   background: rgba(0, 0, 0, 0.12);
+}
+
+.video-new-meeting-scope-stack .video-new-meeting-notify-block {
+  margin-left: 0;
+  margin-top: 0;
 }
 
 .video-new-meeting-field-label--inline {
@@ -4080,8 +4217,13 @@
 }
 
 .video-new-meeting-radio--compact {
-  font-size: 0.82rem;
-  margin: 0.25rem 0;
+  font-size: 0.8125rem;
+  margin: 0.28rem 0;
+  line-height: 1.42;
+}
+
+.video-new-meeting-invite-block--tight {
+  margin-top: 0;
 }
 
 .video-new-meeting-radio strong {

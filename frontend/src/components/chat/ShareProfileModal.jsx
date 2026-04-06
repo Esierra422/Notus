@@ -2,6 +2,7 @@
  * Share a user's profile with another org member.
  */
 import { useState, useEffect } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { getOrgMembersForChat } from '../../lib/conversationService'
 import { getOrCreateDM } from '../../lib/conversationService'
 import { sendMessage } from '../../lib/conversationService'
@@ -61,6 +62,8 @@ export function ShareProfileModal({
       setSending(null)
     }
   }
+
+  useScrollLock(true)
 
   return (
     <div className="share-profile-overlay" onClick={onClose} role="dialog" aria-modal="true">

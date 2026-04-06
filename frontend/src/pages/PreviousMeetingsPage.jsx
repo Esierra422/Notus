@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useOutletContext, Link, useParams } from 'react-router-dom'
+import { useOutletContext, Link, useParams, useNavigate } from 'react-router-dom'
+import { ChevronRight, Copy, FileDown } from 'lucide-react'
 import { getUserSummaries } from '../lib/meetingSummaryService'
 import {
   getMeetingsForUserInOrg,
@@ -65,9 +66,16 @@ function groupRowsByDate(rows) {
   return groups
 }
 
+function rowDetailPath(row) {
+  if (row.summary) return `/app/meeting-summary/${row.summary.id}`
+  if (row.transcriptSessionId) return `/app/meeting-transcript/${encodeURIComponent(row.transcriptSessionId)}`
+  return null
+}
+
 export function PreviousMeetingsPage() {
   const { user, activeOrgId } = useOutletContext() || {}
   const { orgId: routeOrgId } = useParams()
+  const navigate = useNavigate()
   const dataOrgId = routeOrgId || activeOrgId || null
 
   const videoBase = routeOrgId ? `/app/org/${routeOrgId}/video` : '/app/video'
@@ -81,6 +89,7 @@ export function PreviousMeetingsPage() {
   const [orgPick, setOrgPick] = useState('all')
   const [orgNameById, setOrgNameById] = useState({})
   const [exportBusy, setExportBusy] = useState(null)
+  const [copiedKey, setCopiedKey] = useState(null)
 
   useEffect(() => {
     if (!user?.uid) return
@@ -233,9 +242,13 @@ export function PreviousMeetingsPage() {
     }
   }, [])
 
-  const copyId = (id) => {
+  const copyId = (id, key) => {
     if (!id || !navigator.clipboard?.writeText) return
     navigator.clipboard.writeText(id).catch(() => {})
+    if (key) {
+      setCopiedKey(key)
+      window.setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1600)
+    }
   }
 
   if (loading) {
@@ -267,7 +280,7 @@ export function PreviousMeetingsPage() {
           <p className="prev-meetings-kicker">Meetings</p>
           <h1 className="prev-meetings-title">Past Meetings & Transcripts</h1>
           <p className="prev-meetings-lead">
-            AI notes, full transcripts, and calendar-linked calls. Export to PDF or Word from any card that has notes.
+            Open a meeting for notes, transcript, exports, and follow-up questions. Use the toolbar on each row for quick downloads.
           </p>
         </div>
         <Button as={Link} to={videoBase} variant="outline" size="sm" className="prev-meetings-back-video">
@@ -368,110 +381,120 @@ export function PreviousMeetingsPage() {
             <div key={dateLabel} className="prev-meetings-group">
               <h2 className="prev-meetings-date-label">{dateLabel}</h2>
               <ul className="prev-meetings-list">
-                {items.map((row) => (
-                  <li key={row.key} className="prev-meetings-card">
-                    <div className="prev-meetings-card-main">
-                      <div className="prev-meetings-card-top">
-                        <h3 className="prev-meetings-card-title">{row.title}</h3>
-                        <time className="prev-meetings-card-time" dateTime={new Date(rowStartMs(row)).toISOString()}>
-                          {formatRowTime(row.startAt)}
-                        </time>
-                      </div>
-                      <div className="prev-meetings-card-meta">
-                        {(row.orgName || row.orgId || row.summary?.orgId) && (
-                          <span className="prev-meetings-pill">
-                            {row.orgName || orgNameById[row.orgId || row.summary?.orgId] || 'Organization'}
+                {items.map((row) => {
+                  const detailPath = rowDetailPath(row)
+                  const openDetail = () => {
+                    if (detailPath) navigate(detailPath)
+                  }
+                  return (
+                    <li key={row.key} className="prev-meetings-card">
+                      <div
+                        className={['prev-meetings-card-body', detailPath && 'prev-meetings-card-body--clickable']
+                          .filter(Boolean)
+                          .join(' ')}
+                        role={detailPath ? 'button' : undefined}
+                        tabIndex={detailPath ? 0 : undefined}
+                        onClick={detailPath ? openDetail : undefined}
+                        onKeyDown={
+                          detailPath
+                            ? (e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  openDetail()
+                                }
+                              }
+                            : undefined
+                        }
+                      >
+                        <div className="prev-meetings-card-top">
+                          <h3 className="prev-meetings-card-title">{row.title}</h3>
+                          <time className="prev-meetings-card-time" dateTime={new Date(rowStartMs(row)).toISOString()}>
+                            {formatRowTime(row.startAt)}
+                          </time>
+                        </div>
+                        <div className="prev-meetings-card-meta">
+                          {(row.orgName || row.orgId || row.summary?.orgId) && (
+                            <span className="prev-meetings-pill">
+                              {row.orgName || orgNameById[row.orgId || row.summary?.orgId] || 'Organization'}
+                            </span>
+                          )}
+                          {row.summary && <span className="prev-meetings-pill prev-meetings-pill--accent">AI notes</span>}
+                          {row.transcriptSessionId && !row.summary && (
+                            <span className="prev-meetings-pill">Saved transcript</span>
+                          )}
+                          {row.kind === 'summary-only' && (
+                            <span className="prev-meetings-pill prev-meetings-pill--muted">Notes only</span>
+                          )}
+                        </div>
+                        {row.summary?.transcript && String(row.summary.transcript).trim() && (
+                          <p className="prev-meetings-transcript-snippet">{truncateText(row.summary.transcript, 160)}</p>
+                        )}
+                        {detailPath && (
+                          <span className="prev-meetings-open-hint">
+                            Open recap
+                            <ChevronRight size={16} strokeWidth={2.25} aria-hidden />
                           </span>
                         )}
-                        {row.summary && <span className="prev-meetings-pill prev-meetings-pill--accent">AI notes</span>}
-                        {row.transcriptSessionId && !row.summary && (
-                          <span className="prev-meetings-pill">Saved transcript</span>
-                        )}
-                        {row.kind === 'summary-only' && (
-                          <span className="prev-meetings-pill prev-meetings-pill--muted">Notes only</span>
+                        {!detailPath && (
+                          <p className="prev-meetings-card-empty-hint">No saved notes or transcript for this row yet.</p>
                         )}
                       </div>
-                      {row.kind === 'meeting' && row.meetingId && (
-                        <div className="prev-meetings-meeting-id-row">
-                          <span className="prev-meetings-meeting-id-label">Meeting ID</span>
-                          <code className="prev-meetings-meeting-id-code">{row.meetingId}</code>
-                          <Button
+                      <div
+                        className="prev-meetings-card-toolbar"
+                        onClick={(e) => e.stopPropagation()}
+                        role="group"
+                        aria-label="Meeting actions"
+                      >
+                        {row.kind === 'meeting' && row.meetingId ? (
+                          <button
                             type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="prev-meetings-copy-btn"
-                            onClick={() => copyId(row.meetingId)}
+                            className="prev-meetings-icon-btn"
+                            title="Copy meeting ID"
+                            aria-label={
+                              copiedKey === `id-${row.key}` ? 'Meeting ID copied' : `Copy meeting ID ${row.meetingId}`
+                            }
+                            onClick={() => copyId(row.meetingId, `id-${row.key}`)}
                           >
-                            Copy
-                          </Button>
-                        </div>
-                      )}
-                      {row.summary?.transcript && String(row.summary.transcript).trim() && (
-                        <p className="prev-meetings-transcript-snippet">{truncateText(row.summary.transcript, 220)}</p>
-                      )}
-                    </div>
-                    <div className="prev-meetings-card-actions">
-                      {row.summary ? (
-                        <>
-                          <div className="prev-meetings-action-links">
-                            <Link to={`/app/meeting-summary/${row.summary.id}`} className="prev-meetings-summary-link">
-                              Open notes
-                            </Link>
-                            {row.summary.transcript && String(row.summary.transcript).trim() && (
-                              <Link
-                                to={`/app/meeting-summary/${row.summary.id}#meeting-transcript`}
-                                className="prev-meetings-transcript-link"
-                              >
-                                Transcript
-                              </Link>
-                            )}
-                          </div>
-                          <div className="prev-meetings-export-row">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="prev-meetings-export-btn"
-                              disabled={!!exportBusy}
-                              onClick={() =>
-                                runExport(`${row.key}-pdf`, () => downloadMeetingSummaryPdf(row.summary))
-                              }
-                            >
-                              {exportBusy === `${row.key}-pdf` ? '…' : 'PDF'}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="prev-meetings-export-btn"
-                              disabled={!!exportBusy}
-                              onClick={() =>
-                                runExport(`${row.key}-docx`, () => downloadMeetingSummaryDocx(row.summary))
-                              }
-                            >
-                              {exportBusy === `${row.key}-docx` ? '…' : 'Word'}
-                            </Button>
-                          </div>
-                        </>
-                      ) : row.transcriptSessionId ? (
-                        <>
-                          <div className="prev-meetings-action-links">
-                            <Link
-                              to={`/app/meeting-transcript/${encodeURIComponent(row.transcriptSessionId)}`}
-                              className="prev-meetings-transcript-link"
-                            >
-                              Open transcript
-                            </Link>
-                            <span className="prev-meetings-no-summary prev-meetings-no-summary--inline">
-                              AI notes after host ends the call for everyone.
+                            <Copy size={17} strokeWidth={2} aria-hidden />
+                            <span className="prev-meetings-icon-btn-label">
+                              {copiedKey === `id-${row.key}` ? 'Copied' : 'ID'}
                             </span>
-                          </div>
-                          <div className="prev-meetings-export-row">
-                            <Button
+                          </button>
+                        ) : null}
+                        {row.summary ? (
+                          <>
+                            <button
                               type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="prev-meetings-export-btn"
+                              className="prev-meetings-icon-btn"
+                              title="Download PDF"
+                              disabled={!!exportBusy}
+                              onClick={() => runExport(`${row.key}-pdf`, () => downloadMeetingSummaryPdf(row.summary))}
+                            >
+                              <FileDown size={17} strokeWidth={2} aria-hidden />
+                              <span className="prev-meetings-icon-btn-label">
+                                {exportBusy === `${row.key}-pdf` ? '…' : 'PDF'}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="prev-meetings-icon-btn"
+                              title="Download Word"
+                              disabled={!!exportBusy}
+                              onClick={() => runExport(`${row.key}-docx`, () => downloadMeetingSummaryDocx(row.summary))}
+                            >
+                              <FileDown size={17} strokeWidth={2} aria-hidden />
+                              <span className="prev-meetings-icon-btn-label">
+                                {exportBusy === `${row.key}-docx` ? '…' : 'Word'}
+                              </span>
+                            </button>
+                          </>
+                        ) : null}
+                        {row.transcriptSessionId && !row.summary ? (
+                          <>
+                            <button
+                              type="button"
+                              className="prev-meetings-icon-btn"
+                              title="Transcript PDF"
                               disabled={!!exportBusy}
                               onClick={() =>
                                 runExport(`${row.key}-tr-pdf`, async () => {
@@ -481,13 +504,15 @@ export function PreviousMeetingsPage() {
                                 })
                               }
                             >
-                              {exportBusy === `${row.key}-tr-pdf` ? '…' : 'Transcript PDF'}
-                            </Button>
-                            <Button
+                              <FileDown size={17} strokeWidth={2} aria-hidden />
+                              <span className="prev-meetings-icon-btn-label">
+                                {exportBusy === `${row.key}-tr-pdf` ? '…' : 'PDF'}
+                              </span>
+                            </button>
+                            <button
                               type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="prev-meetings-export-btn"
+                              className="prev-meetings-icon-btn"
+                              title="Transcript Word"
                               disabled={!!exportBusy}
                               onClick={() =>
                                 runExport(`${row.key}-tr-docx`, async () => {
@@ -497,16 +522,17 @@ export function PreviousMeetingsPage() {
                                 })
                               }
                             >
-                              {exportBusy === `${row.key}-tr-docx` ? '…' : 'Transcript Word'}
-                            </Button>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="prev-meetings-no-summary">No notes or saved transcript for this row yet.</span>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                              <FileDown size={17} strokeWidth={2} aria-hidden />
+                              <span className="prev-meetings-icon-btn-label">
+                                {exportBusy === `${row.key}-tr-docx` ? '…' : 'Doc'}
+                              </span>
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           ))}

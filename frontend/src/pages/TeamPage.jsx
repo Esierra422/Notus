@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useScrollLock } from '../hooks/useScrollLock.js'
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import {
   getOrg,
@@ -94,6 +95,8 @@ export function TeamPage() {
   const [settingsAllowOpenJoin, setSettingsAllowOpenJoin] = useState(false)
   /** userId -> org membership fields for card labels */
   const [orgMemberMeta, setOrgMemberMeta] = useState({})
+
+  useScrollLock(showSettingsModal)
   const imageInputRef = useRef(null)
   const bannerInputRef = useRef(null)
   const memberMenuRef = useRef(null)

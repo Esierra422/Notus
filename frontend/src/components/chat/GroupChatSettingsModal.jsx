@@ -2,6 +2,7 @@
  * Group/Team chat settings modal — search, starred, notifications, export, members.
  */
 import { useState, useEffect } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { getUserDoc, getDisplayName, getProfilePictureUrl } from '../../lib/userService'
 import { SearchIcon, StarIcon, BellIcon, LockIcon, UsersIcon, DownloadIcon, XIcon } from '../ui/Icons'
 import './ChatSettingsModal.css'
@@ -47,6 +48,8 @@ export function GroupChatSettingsModal({
   }
 
   const title = conv?.name || (conv?.type === 'team' ? 'Team chat' : 'Group chat')
+
+  useScrollLock(true)
 
   return (
     <div className="chat-settings-overlay" onClick={onClose} role="dialog" aria-modal="true">

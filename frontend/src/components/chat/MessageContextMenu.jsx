@@ -2,6 +2,7 @@
  * Context menu for a message — Reactions on top, then Reply, Forward, Copy, Info, Star, Delete
  */
 import { useState, useCallback, useEffect } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { createPortal } from 'react-dom'
 import { ReplyIcon, ForwardIcon, ClipboardIcon, InfoIcon, StarIcon, TrashIcon } from '../ui/Icons'
 import './MessageContextMenu.css'
@@ -33,6 +34,8 @@ export function MessageContextMenu({
   const [showMoreReactions, setShowMoreReactions] = useState(false)
   const [isExiting, setIsExiting] = useState(false)
   const text = getCopyText(message)
+
+  useScrollLock(true)
 
   const performClose = useCallback(() => {
     if (isExiting) return

@@ -2,6 +2,7 @@
  * Chat settings / Contact view modal — email, video call, search, export, block, report, etc.
  */
 import { useState, useEffect } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { useNavigate } from 'react-router-dom'
 import { getActiveMemberships } from '../../lib/orgService'
 import { getOrg } from '../../lib/orgService'
@@ -121,6 +122,8 @@ export function ChatSettingsModal({
     onExportChat?.(withMedia)
     onClose?.()
   }
+
+  useScrollLock(true)
 
   return (
     <div className="chat-settings-overlay" onClick={onClose} role="dialog" aria-modal="true">

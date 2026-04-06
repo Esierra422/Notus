@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import {
   getMembership,
   updateMemberDisplayRole,
@@ -204,6 +205,8 @@ export function MemberManageModal({
       return next
     })
   }
+
+  useScrollLock(Boolean(orgId && userId))
 
   return (
     <div className="member-manage-backdrop" onClick={onClose}>

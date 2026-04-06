@@ -1,6 +1,43 @@
 import { collection, query, where, getDocs, getDoc, doc, orderBy } from 'firebase/firestore'
 import { db } from './firebase'
 import { getAiRestHttpBase } from './apiConfig.js'
+import { getMeetingsForUserInOrg, getMeetingsForUser, getMeetingTranscriptSessionId } from './meetingService.js'
+
+/**
+ * Ask the AI backend about a past or live meeting (same /api/ask RAG as in-call Ask AI).
+ * @param {{ channel?: string, sessionId?: string, uid?: string, orgId?: string, question?: string }} opts
+ * @returns {Promise<{ answer?: string, error?: string }>}
+ */
+export async function askMeetingRecap({ channel = '', sessionId = '', uid = '', orgId = '', question = '' } = {}) {
+  const q = String(question || '').trim()
+  if (!q) return { error: 'Enter a question.' }
+  let base = getAiRestHttpBase()
+  if (!base) return { error: 'AI service URL is not configured (set VITE_AI_HTTP_URL or VITE_AI_WS_URL).' }
+  if (base.startsWith('wss://')) base = `https://${base.slice(6)}`
+  else if (base.startsWith('ws://')) base = `http://${base.slice(5)}`
+  try {
+    const res = await fetch(`${base.replace(/\/$/, '')}/api/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: String(channel || '').trim(),
+        sessionId: String(sessionId || '').trim(),
+        question: q,
+        uid: String(uid || '').trim(),
+        orgId: String(orgId || '').trim(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    const answer = data.answer ?? data.error
+    if (!res.ok) {
+      return { error: typeof answer === 'string' ? answer : `Request failed (${res.status})` }
+    }
+    return { answer: typeof answer === 'string' ? answer : 'No answer returned.' }
+  } catch (e) {
+    return { error: e?.message || 'Could not reach the AI service.' }
+  }
+}
 
 /**
  * Trigger summary generation on the ai-backend.
@@ -149,4 +186,73 @@ export async function getMeetingTranscriptBySessionId(sessionId) {
     totalWordCount: d.totalWordCount ?? null,
     updatedAt: d.updatedAt ?? null,
   }
+}
+
+function pastRowStartMs(row) {
+  return row.startAt?.toMillis?.() ?? (row.startAt?.seconds ? row.startAt.seconds * 1000 : 0)
+}
+
+/**
+ * Recent past meetings for the video lobby (newest first). Mirrors PreviousMeetings merge logic.
+ * @param {string} uid
+ * @param {{ routeOrgId?: string | null, limit?: number }} opts
+ */
+export async function getPastMeetingLobbyPreview(uid, { routeOrgId = null, limit = 4 } = {}) {
+  if (!uid) return []
+  const lim = Math.min(Math.max(Number(limit) || 4, 1), 8)
+  const [summaries, meetings] = await Promise.all([
+    getUserSummaries(uid),
+    routeOrgId ? getMeetingsForUserInOrg(uid, routeOrgId, 400) : getMeetingsForUser(uid, 400),
+  ])
+  const videoMeetings = meetings.filter((m) => m.isVideoMeeting !== false)
+  const summaryBySession = new Map()
+  for (const s of summaries) {
+    const sid = (s.transcriptSessionId || '').trim()
+    if (sid) summaryBySession.set(sid, s)
+  }
+  const built = []
+  const usedSummaryIds = new Set()
+  for (const m of videoMeetings) {
+    const orgId = m.orgId || m._orgId || routeOrgId || ''
+    const sessionId = getMeetingTranscriptSessionId(m, orgId)
+    const summary = sessionId ? summaryBySession.get(sessionId) : null
+    if (summary) usedSummaryIds.add(summary.id)
+    built.push({
+      key: `m-${m.id}-${orgId}`,
+      meetingId: m.id,
+      transcriptSessionId: sessionId || null,
+      title: m.title || 'Meeting',
+      startAt: m.startAt,
+      summary,
+      orgName: m._orgName,
+    })
+  }
+  for (const s of summaries) {
+    if (usedSummaryIds.has(s.id)) continue
+    usedSummaryIds.add(s.id)
+    built.push({
+      key: `s-${s.id}`,
+      meetingId: null,
+      transcriptSessionId: (s.transcriptSessionId || '').trim() || null,
+      title: s.title || 'Meeting summary',
+      startAt: s.createdAt,
+      summary: s,
+      orgName: null,
+    })
+  }
+  built.sort((a, b) => pastRowStartMs(b) - pastRowStartMs(a))
+  return built.slice(0, lim).map((row) => {
+    let href = null
+    if (row.summary) href = `/app/meeting-summary/${row.summary.id}`
+    else if (row.transcriptSessionId) href = `/app/meeting-transcript/${encodeURIComponent(row.transcriptSessionId)}`
+    return {
+      key: row.key,
+      title: row.title,
+      startAt: row.startAt,
+      href,
+      orgName: row.orgName || null,
+      hasAiNotes: !!row.summary,
+      transcriptOnly: !!row.transcriptSessionId && !row.summary,
+    }
+  })
 }

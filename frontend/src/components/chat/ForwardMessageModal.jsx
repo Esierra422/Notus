@@ -2,6 +2,7 @@
  * Modal to select a conversation to forward a message to.
  */
 import { useState } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { createPortal } from 'react-dom'
 import { SearchIcon, XIcon } from '../ui/Icons'
 import './ForwardMessageModal.css'
@@ -44,6 +45,8 @@ export function ForwardMessageModal({
   }
 
   const text = message?.text || (message?.attachment?.type === 'image' ? '[Image]' : message?.attachment?.type === 'document' ? `[Document: ${message?.attachment?.fileName || 'File'}]` : '[Message]')
+
+  useScrollLock(true)
 
   return createPortal(
     <div className="forward-modal-dim" onClick={onClose} aria-hidden>

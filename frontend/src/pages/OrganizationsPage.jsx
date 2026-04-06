@@ -3,6 +3,7 @@
  * Click an org to go to its dashboard. Add new organization opens a modal.
  */
 import { useState, useEffect } from 'react'
+import { useScrollLock } from '../hooks/useScrollLock.js'
 import { Link, useOutletContext } from 'react-router-dom'
 import {
   getActiveMemberships,
@@ -33,6 +34,8 @@ export function OrganizationsPage() {
   const [createLoading, setCreateLoading] = useState(false)
   const [error, setError] = useState('')
   const [orgStats, setOrgStats] = useState({})
+
+  useScrollLock(showCreateModal)
 
   useEffect(() => {
     if (!user) return

@@ -4,6 +4,7 @@
  * Message button: getOrCreateDM and navigate to that chat.
  */
 import { useState, useEffect, useRef } from 'react'
+import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   getMembership,
@@ -131,6 +132,8 @@ export function MemberProfileModal({
   const canRemove = orgRemoval
     ? !isSelf && canRemoveOrgMember(myMembership, orgRole, isOwner)
     : !isSelf && showManage
+
+  useScrollLock(Boolean(userId && orgId))
 
   return (
     <div className="member-profile-modal-backdrop" onClick={onClose}>

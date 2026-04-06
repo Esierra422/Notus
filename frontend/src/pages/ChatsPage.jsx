@@ -65,6 +65,7 @@ import {
   setPin,
   verifyPin,
 } from '../lib/lockService'
+import { useScrollLock } from '../hooks/useScrollLock.js'
 import { MemberProfileModal } from '../components/member/MemberProfileModal'
 import { ChatSettingsModal } from '../components/chat/ChatSettingsModal'
 import { GroupChatSettingsModal } from '../components/chat/GroupChatSettingsModal'
@@ -322,6 +323,8 @@ function NewChatModal({
   const [selectedTeamId, setSelectedTeamId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  useScrollLock(true)
 
   useEffect(() => {
     if (!orgId || !userId) return
@@ -623,6 +626,8 @@ function PollModal({ onClose, onSubmit, sending }) {
   const [question, setQuestion] = useState('')
   const [options, setOptions] = useState(['', ''])
 
+  useScrollLock(true)
+
   const addOption = () => {
     if (options.length < 5) setOptions((o) => [...o, ''])
   }
@@ -694,6 +699,8 @@ function EventModal({ onClose, onSubmit, sending, userDoc }) {
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
+
+  useScrollLock(true)
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -837,6 +844,13 @@ export function ChatsPage() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [showForwardModal, setShowForwardModal] = useState(false)
   const [forwardMessage, setForwardMessage] = useState(null)
+
+  const chatsNonModalUiLock =
+    filterSortOpen ||
+    (showAttachmentMenu && !attachmentMenuClosing) ||
+    Boolean(orgId && chatId && lockedChatIds.has(`${orgId}_${chatId}`))
+
+  useScrollLock(chatsNonModalUiLock)
 
   useEffect(() => {
     if (paramOrgId) setOrgId(paramOrgId)
