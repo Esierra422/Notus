@@ -9,6 +9,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { getUserDoc } from '../lib/userService'
+import { getAppearanceTheme } from '../lib/userService'
 import { getActiveMemberships, getOrg, getMembership, canOpenMemberManagement } from '../lib/orgService'
 import { registerForPush, onForegroundMessage } from '../lib/messagingService'
 import { AppHeader, AppFooter, PROFILE_UPDATED_EVENT } from './app'
@@ -59,6 +60,14 @@ export function AppShell() {
     if (!user?.uid) return
     getUserDoc(user.uid).then(setUserDoc)
   }, [user?.uid])
+
+  useEffect(() => {
+    const theme = getAppearanceTheme(userDoc || {})
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem('notus_theme', theme)
+    } catch {}
+  }, [userDoc])
 
   // If user hasn't completed profile (e.g. after Google sign-in), send to signup to complete; then they return to /app
   useEffect(() => {

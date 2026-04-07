@@ -12,6 +12,8 @@ import {
   setMeetingPreferences,
   setTranscriptPreferences,
   setTranscriptRetention,
+  getAppearanceTheme,
+  setAppearanceTheme,
 } from '../lib/userService'
 import { PROFILE_UPDATED_EVENT } from '../components/app'
 import { UserIcon, LockIcon, BellIcon, PaletteIcon, ClipboardIcon, LogOutIcon, VideoIcon, FileTextIcon, ArrowLeftIcon } from '../components/ui/Icons'
@@ -34,9 +36,11 @@ export function SettingsPage() {
   const [passwordError, setPasswordError] = useState('')
   const [prefsSaving, setPrefsSaving] = useState(false)
   const [exportLoading, setExportLoading] = useState(false)
+  const [themeSaving, setThemeSaving] = useState(false)
   const [meetingPrefs, setMeetingPrefsState] = useState(() => getMeetingPreferences(userDoc || {}))
   const [transcriptPrefs, setTranscriptPrefsState] = useState(() => getTranscriptPreferences(userDoc || {}))
   const [transcriptRetention, setTranscriptRetentionValue] = useState(() => getTranscriptRetention(userDoc || {}))
+  const [appearanceTheme, setAppearanceThemeState] = useState(() => getAppearanceTheme(userDoc || {}))
   const { toast, showToast } = useInlineToast()
   const pushEnabled = userDoc?.notificationsPushEnabled === true
   const pushSupported = isPushSupported()
@@ -53,6 +57,7 @@ export function SettingsPage() {
     setMeetingPrefsState(getMeetingPreferences(userDoc || {}))
     setTranscriptPrefsState(getTranscriptPreferences(userDoc || {}))
     setTranscriptRetentionValue(getTranscriptRetention(userDoc || {}))
+    setAppearanceThemeState(getAppearanceTheme(userDoc || {}))
   }, [userDoc])
 
   const handleSaveMeetingPrefs = async () => {
@@ -169,6 +174,24 @@ export function SettingsPage() {
       showToast(err?.message || 'Unable to export data.', 'error')
     } finally {
       setExportLoading(false)
+    }
+  }
+
+  const handleSaveAppearanceTheme = async () => {
+    if (!user?.uid) return
+    setThemeSaving(true)
+    try {
+      await setAppearanceTheme(user.uid, appearanceTheme)
+      document.documentElement.setAttribute('data-theme', appearanceTheme)
+      try {
+        localStorage.setItem('notus_theme', appearanceTheme)
+      } catch {}
+      showToast('Appearance saved.')
+      window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT))
+    } catch (err) {
+      showToast(err?.message || 'Unable to save appearance.', 'error')
+    } finally {
+      setThemeSaving(false)
     }
   }
 
@@ -424,15 +447,47 @@ export function SettingsPage() {
                 </div>
               </div>
             )}
-            <div className="settings-card settings-card-disabled">
+            <button
+              type="button"
+              className="settings-card settings-card-button settings-card-link"
+              onClick={() => setOpenPanel((v) => (v === 'appearance' ? '' : 'appearance'))}
+            >
               <div className="settings-card-icon">
                 <PaletteIcon size={22} />
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Appearance</span>
-                <span className="settings-card-desc">Theme and display (coming soon).</span>
+                <span className="settings-card-desc">Select dark or light mode for your workspace.</span>
               </div>
-            </div>
+              <span className="settings-card-arrow">{openPanel === 'appearance' ? '−' : '+'}</span>
+            </button>
+            {openPanel === 'appearance' ? (
+              <div className="settings-panel">
+                <label className="settings-row-check">
+                  <input
+                    type="radio"
+                    name="appearanceTheme"
+                    checked={appearanceTheme === 'dark'}
+                    onChange={() => setAppearanceThemeState('dark')}
+                  />
+                  Dark mode
+                </label>
+                <label className="settings-row-check">
+                  <input
+                    type="radio"
+                    name="appearanceTheme"
+                    checked={appearanceTheme === 'light'}
+                    onChange={() => setAppearanceThemeState('light')}
+                  />
+                  Light mode
+                </label>
+                <div className="settings-panel-actions">
+                  <button type="button" className="btn btn-primary" disabled={themeSaving} onClick={handleSaveAppearanceTheme}>
+                    {themeSaving ? 'Saving…' : 'Save appearance'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </section>
 

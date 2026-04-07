@@ -47,3 +47,15 @@
   --layout-pad-x-mobile: 1rem;
   --layout-section-gap: 1.5rem;
 }
+
+:root[data-theme='light'] {
+  --bg: #f8f6f2;
+  --bg-elevated: #ffffff;
+  --bg-card: #ffffff;
+  --text: #1f1b16;
+  --text-muted: #6c6458;
+  --accent: #b48832;
+  --accent-dim: #8f6b27;
+  --border: rgba(31, 27, 22, 0.14);
+  --focus-ring: 0 0 0 3px rgba(180, 136, 50, 0.18);
+}

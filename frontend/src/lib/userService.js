@@ -293,3 +293,17 @@ export async function setTranscriptRetention(uid, value) {
     updatedAt: serverTimestamp(),
   })
 }
+
+export function getAppearanceTheme(userDoc) {
+  const value = (userDoc?.appearanceTheme || '').trim().toLowerCase()
+  return value === 'light' ? 'light' : 'dark'
+}
+
+export async function setAppearanceTheme(uid, theme) {
+  const value = theme === 'light' ? 'light' : 'dark'
+  const ref = doc(db, USERS_COLLECTION, uid)
+  await updateDoc(ref, {
+    appearanceTheme: value,
+    updatedAt: serverTimestamp(),
+  })
+}
