@@ -79,15 +79,13 @@ service cloud.firestore {
     /** Membership doc: always allow reading your own rows (lists orgs on login).
      *  Do not require orgId/userId keys on that path — older docs may omit a field and would
      *  otherwise make getUserMemberships() return permission-denied / empty.
-     *  For other members’ rows: any active member of that org may read (getOrgMembers query).
-     *  Requiring both orgId and userId on every doc broke queries when legacy rows omitted userId. */
+     *  For other members’ rows, require orgId + userId and active membership in that org. */
     function canReadMembershipDoc() {
       return request.auth != null
         && (
           resource.data.userId == request.auth.uid
           || (
-            'orgId' in resource.data
-            && resource.data.orgId is string
+            resource.data.keys().hasAll(['orgId', 'userId'])
             && activeOrgMember(resource.data.orgId)
           )
         );
@@ -298,8 +296,7 @@ service cloud.firestore {
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.keys().hasAll(['senderId', 'senderName', 'createdAt'])
           && (
-            !('audienceType' in request.resource.data)
-            || request.resource.data.audienceType == 'everyone'
+            request.resource.data.audienceType == 'everyone'
             || (request.resource.data.audienceType == 'direct'
               && request.resource.data.recipientId is string
               && request.resource.data.recipientId != ''

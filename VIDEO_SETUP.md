@@ -28,7 +28,7 @@ Put your backend on the internet for free using Render, then tell your frontend 
 1. In Render, click **New** → **Blueprint**.
 2. Connect your **GitHub** account if asked.
 3. Choose the **Notus** repo (the one that has the `render.yaml` file).
-4. Render will see `render.yaml` and may create **notus-api** (required for video tokens) and optionally **notus-signaling**. Click **Apply** (or **Create**).
+4. Render will see `render.yaml` and create a service named **notus-api**. Click **Apply** (or **Create**).
 5. Wait for the first deploy to finish (a few minutes). When it’s done, you’ll see a URL like:  
    `https://notus-api.onrender.com`  
    **Copy that URL** — you’ll need it in Step 4.
@@ -43,7 +43,7 @@ Put your backend on the internet for free using Render, then tell your frontend 
 
    | Name                 | Value |
    |----------------------|--------|
-   | `CLIENT_URL`         | Your real site origins, comma-separated, no spaces (e.g. `https://notusapp.com,https://notus-e026b.web.app`). If this doesn’t match the page where users open Video, the browser blocks the API (CORS). |
+   | `CLIENT_URL`         | `https://notusapp.com,https://notus-e026b.web.app` |
    | `AGORA_APP_ID`       | (paste your Agora App ID) |
    | `AGORA_APP_CERTIFICATE` | (paste your Agora App Certificate) |
 
@@ -81,8 +81,6 @@ Put your backend on the internet for free using Render, then tell your frontend 
 
 2. Wait for it to finish. That rebuilds the frontend with the backend URL and deploys it to Firebase.
 
-**Important:** Changing `VITE_API_URL` only affects the next production build. You must run `npm run deploy` again after editing `frontend/.env.production`.
-
 ---
 
 ## Done
@@ -103,5 +101,3 @@ Open your live site (e.g. notusapp.com), go to the video call page, and click **
 - [ ] Ran `npm run deploy` from project root  
 
 If something doesn’t work, say which step you’re on and what you see (e.g. error message or URL).
-
-**Debug tip:** On the live site, open DevTools → **Network**, try joining a call, and confirm a request goes to your Render host (e.g. `https://notus-api.onrender.com/api/video/token`). If it never appears, the build may be missing `VITE_API_URL`. If it’s red (failed), open the response: often CORS (fix `CLIENT_URL` on Render) or 503 (missing Agora env vars).
