@@ -275,10 +275,17 @@ function ChatListItem({
   return (
     <li>
       <div className="chats-list-item-wrap" ref={menuRef}>
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className={`chats-list-item ${isActive ? 'chats-list-item-active' : ''}`}
           onClick={onClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onClick?.(e)
+            }
+          }}
         >
           <div className="chats-list-avatar">
             {avatar}
@@ -304,7 +311,7 @@ function ChatListItem({
             {orgName && <p className="chats-list-org">{orgName}</p>}
             {lastPreview && <p className="chats-list-preview">{lastPreview}</p>}
           </div>
-        </button>
+        </div>
         {menuOpen && (
           <div className="chats-list-menu-panel">
               <button type="button" onClick={() => { onMenuAction?.(count > 0 ? 'markRead' : 'markUnread'); setMenuOpen(false) }}>
