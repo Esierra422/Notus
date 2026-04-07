@@ -259,3 +259,37 @@ export async function setNotificationsPushEnabled(uid, enabled) {
     updatedAt: serverTimestamp(),
   })
 }
+
+export async function setMeetingPreferences(uid, prefs) {
+  const ref = doc(db, USERS_COLLECTION, uid)
+  await updateDoc(ref, {
+    meetingPreferences: {
+      micOnByDefault: prefs?.micOnByDefault !== false,
+      camOnByDefault: prefs?.camOnByDefault !== false,
+      subtitleToggle: prefs?.subtitleToggle !== false,
+    },
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function setTranscriptPreferences(uid, prefs) {
+  const ref = doc(db, USERS_COLLECTION, uid)
+  await updateDoc(ref, {
+    transcriptPreferences: {
+      autoTranscribe: prefs?.autoTranscribe !== false,
+      language: (prefs?.language || 'en').trim() || 'en',
+      speakerLabeling: prefs?.speakerLabeling !== false,
+    },
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function setTranscriptRetention(uid, value) {
+  const allowed = new Set(TRANSCRIPT_RETENTION_OPTIONS.map((o) => o.value))
+  const retention = allowed.has(String(value)) ? String(value) : '30'
+  const ref = doc(db, USERS_COLLECTION, uid)
+  await updateDoc(ref, {
+    transcriptRetention: retention,
+    updatedAt: serverTimestamp(),
+  })
+}

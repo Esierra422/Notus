@@ -1,11 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
-import { signOut } from 'firebase/auth'
+import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { registerForPush, removeTokenFromFirestore, isPushSupported } from '../lib/messagingService'
-import { setNotificationsPushEnabled } from '../lib/userService'
+import {
+  setNotificationsPushEnabled,
+  getMeetingPreferences,
+  getTranscriptPreferences,
+  getTranscriptRetention,
+  TRANSCRIPT_RETENTION_OPTIONS,
+  setMeetingPreferences,
+  setTranscriptPreferences,
+  setTranscriptRetention,
+} from '../lib/userService'
 import { PROFILE_UPDATED_EVENT } from '../components/app'
 import { UserIcon, LockIcon, BellIcon, PaletteIcon, ClipboardIcon, LogOutIcon, VideoIcon, FileTextIcon, ArrowLeftIcon } from '../components/ui/Icons'
+import { InlineToast } from '../components/ui/InlineToast'
+import { useInlineToast } from '../hooks/useInlineToast.js'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './SettingsPage.css'
@@ -17,12 +28,149 @@ export function SettingsPage() {
   const navigate = useNavigate()
   const { user, userDoc, setNavExtra } = useOutletContext() || {}
   const [pushLoading, setPushLoading] = useState(false)
+  const [openPanel, setOpenPanel] = useState('')
+  const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' })
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
+  const [prefsSaving, setPrefsSaving] = useState(false)
+  const [exportLoading, setExportLoading] = useState(false)
+  const [meetingPrefs, setMeetingPrefsState] = useState(() => getMeetingPreferences(userDoc || {}))
+  const [transcriptPrefs, setTranscriptPrefsState] = useState(() => getTranscriptPreferences(userDoc || {}))
+  const [transcriptRetention, setTranscriptRetentionValue] = useState(() => getTranscriptRetention(userDoc || {}))
+  const { toast, showToast } = useInlineToast()
   const pushEnabled = userDoc?.notificationsPushEnabled === true
   const pushSupported = isPushSupported()
+  const hasPasswordProvider = useMemo(
+    () => (user?.providerData || []).some((p) => p.providerId === 'password'),
+    [user]
+  )
 
   useEffect(() => {
     if (setNavExtra) setNavExtra(null)
   }, [setNavExtra])
+
+  useEffect(() => {
+    setMeetingPrefsState(getMeetingPreferences(userDoc || {}))
+    setTranscriptPrefsState(getTranscriptPreferences(userDoc || {}))
+    setTranscriptRetentionValue(getTranscriptRetention(userDoc || {}))
+  }, [userDoc])
+
+  const handleSaveMeetingPrefs = async () => {
+    if (!user?.uid) return
+    setPrefsSaving(true)
+    try {
+      await setMeetingPreferences(user.uid, meetingPrefs)
+      showToast('Meeting preferences saved.')
+      window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT))
+    } catch (err) {
+      showToast(err?.message || 'Unable to save meeting preferences.', 'error')
+    } finally {
+      setPrefsSaving(false)
+    }
+  }
+
+  const handleSaveTranscriptPrefs = async () => {
+    if (!user?.uid) return
+    setPrefsSaving(true)
+    try {
+      await setTranscriptPreferences(user.uid, transcriptPrefs)
+      showToast('Transcript preferences saved.')
+      window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT))
+    } catch (err) {
+      showToast(err?.message || 'Unable to save transcript preferences.', 'error')
+    } finally {
+      setPrefsSaving(false)
+    }
+  }
+
+  const handleSaveRetention = async () => {
+    if (!user?.uid) return
+    setPrefsSaving(true)
+    try {
+      await setTranscriptRetention(user.uid, transcriptRetention)
+      showToast('Storage and privacy preferences saved.')
+      window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT))
+    } catch (err) {
+      showToast(err?.message || 'Unable to save storage and privacy settings.', 'error')
+    } finally {
+      setPrefsSaving(false)
+    }
+  }
+
+  const handlePasswordUpdate = async (e) => {
+    e.preventDefault()
+    if (!user?.email) return
+    setPasswordError('')
+    if (!passwordForm.next || passwordForm.next.length < 8) {
+      setPasswordError('Use at least 8 characters for the new password.')
+      return
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordError('New password and confirmation do not match.')
+      return
+    }
+    setPasswordSaving(true)
+    try {
+      const credential = EmailAuthProvider.credential(user.email, passwordForm.current)
+      await reauthenticateWithCredential(user, credential)
+      await updatePassword(user, passwordForm.next)
+      setPasswordForm({ current: '', next: '', confirm: '' })
+      showToast('Password updated successfully.')
+    } catch (err) {
+      if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/wrong-password') {
+        setPasswordError('Current password is incorrect.')
+      } else if (err?.code === 'auth/requires-recent-login') {
+        setPasswordError('Please sign in again, then retry changing your password.')
+      } else {
+        setPasswordError(err?.message || 'Unable to update password.')
+      }
+    } finally {
+      setPasswordSaving(false)
+    }
+  }
+
+  const handleSendReset = async () => {
+    if (!user?.email) return
+    try {
+      await sendPasswordResetEmail(auth, user.email)
+      showToast('Password reset email sent.')
+    } catch (err) {
+      showToast(err?.message || 'Unable to send reset email.', 'error')
+    }
+  }
+
+  const handleExportData = async () => {
+    if (!user) return
+    setExportLoading(true)
+    try {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        user: {
+          uid: user.uid,
+          email: user.email || '',
+          profile: userDoc || {},
+          meetingPreferences: getMeetingPreferences(userDoc || {}),
+          transcriptPreferences: getTranscriptPreferences(userDoc || {}),
+          transcriptRetention: getTranscriptRetention(userDoc || {}),
+          notificationsPushEnabled: userDoc?.notificationsPushEnabled === true,
+        },
+      }
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `notus-data-export-${user.uid}-${Date.now()}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      showToast('Data export downloaded.')
+    } catch (err) {
+      showToast(err?.message || 'Unable to export data.', 'error')
+    } finally {
+      setExportLoading(false)
+    }
+  }
 
   if (!user) return null
 
@@ -35,6 +183,7 @@ export function SettingsPage() {
           <h2>Settings</h2>
           <p className="settings-subtitle">Manage your account and preferences.</p>
         </div>
+        <InlineToast message={toast?.message} tone={toast?.tone} />
 
         <section className="settings-section">
           <h3 className="settings-section-title">Account</h3>
@@ -55,57 +204,171 @@ export function SettingsPage() {
         <section className="settings-section">
           <h3 className="settings-section-title">Security</h3>
           <div className="settings-cards">
-            <div className="settings-card settings-card-disabled">
+            <div className="settings-card">
               <div className="settings-card-icon">
                 <LockIcon size={22} />
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Connected accounts & Security</span>
-                <span className="settings-card-desc">Manage linked accounts and security settings (coming soon).</span>
+                <span className="settings-card-desc">
+                  Signed in with {(user.providerData || []).map((p) => p.providerId).join(', ') || 'email'}.
+                </span>
               </div>
             </div>
-            <div className="settings-card settings-card-disabled">
+            <button
+              type="button"
+              className="settings-card settings-card-button settings-card-link"
+              onClick={() => setOpenPanel((v) => (v === 'password' ? '' : 'password'))}
+            >
               <div className="settings-card-icon">
                 <LockIcon size={22} />
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Password</span>
-                <span className="settings-card-desc">Change your password (coming soon).</span>
+                <span className="settings-card-desc">Change your password and recovery workflow.</span>
               </div>
-            </div>
+              <span className="settings-card-arrow">{openPanel === 'password' ? '−' : '+'}</span>
+            </button>
+            {openPanel === 'password' ? (
+              <div className="settings-panel">
+                {hasPasswordProvider ? (
+                  <form className="settings-panel-form" onSubmit={handlePasswordUpdate}>
+                    <input
+                      type="password"
+                      className="auth-input"
+                      placeholder="Current password"
+                      value={passwordForm.current}
+                      onChange={(e) => setPasswordForm((p) => ({ ...p, current: e.target.value }))}
+                    />
+                    <input
+                      type="password"
+                      className="auth-input"
+                      placeholder="New password"
+                      value={passwordForm.next}
+                      onChange={(e) => setPasswordForm((p) => ({ ...p, next: e.target.value }))}
+                    />
+                    <input
+                      type="password"
+                      className="auth-input"
+                      placeholder="Confirm new password"
+                      value={passwordForm.confirm}
+                      onChange={(e) => setPasswordForm((p) => ({ ...p, confirm: e.target.value }))}
+                    />
+                    {passwordError ? <p className="auth-error">{passwordError}</p> : null}
+                    <div className="settings-panel-actions">
+                      <button type="submit" className="btn btn-primary" disabled={passwordSaving}>
+                        {passwordSaving ? 'Saving…' : 'Save password'}
+                      </button>
+                      <button type="button" className="btn btn-ghost" onClick={handleSendReset}>
+                        Send reset email
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="settings-panel-actions">
+                    <p className="settings-panel-note">This account uses social sign-in. Use reset email to set a password.</p>
+                    <button type="button" className="btn btn-primary" onClick={handleSendReset}>
+                      Send reset email
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </section>
 
         <section className="settings-section">
           <h3 className="settings-section-title">Meeting settings</h3>
           <div className="settings-cards">
-            <div className="settings-card settings-card-disabled">
+            <button
+              type="button"
+              className="settings-card settings-card-button settings-card-link"
+              onClick={() => setOpenPanel((v) => (v === 'meeting' ? '' : 'meeting'))}
+            >
               <div className="settings-card-icon">
                 <VideoIcon size={22} />
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Meeting preferences</span>
-                <span className="settings-card-desc">Microphone, camera, and subtitle defaults (coming soon).</span>
+                <span className="settings-card-desc">Microphone, camera, and subtitle defaults.</span>
               </div>
-            </div>
-            <div className="settings-card settings-card-disabled">
+              <span className="settings-card-arrow">{openPanel === 'meeting' ? '−' : '+'}</span>
+            </button>
+            {openPanel === 'meeting' ? (
+              <div className="settings-panel">
+                <label className="settings-row-check"><input type="checkbox" checked={meetingPrefs.micOnByDefault} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, micOnByDefault: e.target.checked }))} /> Microphone on by default</label>
+                <label className="settings-row-check"><input type="checkbox" checked={meetingPrefs.camOnByDefault} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, camOnByDefault: e.target.checked }))} /> Camera on by default</label>
+                <label className="settings-row-check"><input type="checkbox" checked={meetingPrefs.subtitleToggle} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, subtitleToggle: e.target.checked }))} /> Show subtitles by default</label>
+                <div className="settings-panel-actions">
+                  <button type="button" className="btn btn-primary" disabled={prefsSaving} onClick={handleSaveMeetingPrefs}>
+                    Save meeting preferences
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="settings-card settings-card-button settings-card-link"
+              onClick={() => setOpenPanel((v) => (v === 'transcript' ? '' : 'transcript'))}
+            >
               <div className="settings-card-icon">
                 <FileTextIcon size={22} />
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Transcript preferences</span>
-                <span className="settings-card-desc">Auto-transcribe, language, and speaker labeling (coming soon).</span>
+                <span className="settings-card-desc">Auto-transcribe, language, and speaker labeling.</span>
               </div>
-            </div>
-            <div className="settings-card settings-card-disabled">
+              <span className="settings-card-arrow">{openPanel === 'transcript' ? '−' : '+'}</span>
+            </button>
+            {openPanel === 'transcript' ? (
+              <div className="settings-panel">
+                <label className="settings-row-check"><input type="checkbox" checked={transcriptPrefs.autoTranscribe} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, autoTranscribe: e.target.checked }))} /> Auto-transcribe recordings</label>
+                <label className="settings-row-check"><input type="checkbox" checked={transcriptPrefs.speakerLabeling} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, speakerLabeling: e.target.checked }))} /> Enable speaker labeling</label>
+                <label className="settings-row-field">
+                  Default transcript language
+                  <input type="text" className="auth-input" value={transcriptPrefs.language || 'en'} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, language: e.target.value }))} placeholder="en" />
+                </label>
+                <div className="settings-panel-actions">
+                  <button type="button" className="btn btn-primary" disabled={prefsSaving} onClick={handleSaveTranscriptPrefs}>
+                    Save transcript preferences
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="settings-card settings-card-button settings-card-link"
+              onClick={() => setOpenPanel((v) => (v === 'storage' ? '' : 'storage'))}
+            >
               <div className="settings-card-icon">
                 <ClipboardIcon size={22} />
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Storage & privacy</span>
-                <span className="settings-card-desc">Transcript retention and personal data export (coming soon).</span>
+                <span className="settings-card-desc">Transcript retention and personal data export.</span>
               </div>
-            </div>
+              <span className="settings-card-arrow">{openPanel === 'storage' ? '−' : '+'}</span>
+            </button>
+            {openPanel === 'storage' ? (
+              <div className="settings-panel">
+                <label className="settings-row-field">
+                  Transcript retention
+                  <select className="auth-input" value={transcriptRetention} onChange={(e) => setTranscriptRetentionValue(e.target.value)}>
+                    {TRANSCRIPT_RETENTION_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="settings-panel-actions">
+                  <button type="button" className="btn btn-primary" disabled={prefsSaving} onClick={handleSaveRetention}>
+                    Save storage settings
+                  </button>
+                  <button type="button" className="btn btn-ghost" onClick={handleExportData} disabled={exportLoading}>
+                    {exportLoading ? 'Preparing…' : 'Export my data'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -176,15 +439,23 @@ export function SettingsPage() {
         <section className="settings-section">
           <h3 className="settings-section-title">Data & privacy</h3>
           <div className="settings-cards">
-            <div className="settings-card settings-card-disabled">
+            <button
+              type="button"
+              className="settings-card settings-card-button settings-card-link"
+              onClick={handleExportData}
+              disabled={exportLoading}
+            >
               <div className="settings-card-icon">
                 <ClipboardIcon size={22} />
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Export data</span>
-                <span className="settings-card-desc">Download your data (coming soon).</span>
+                <span className="settings-card-desc">
+                  Download your profile and settings as a JSON file.
+                </span>
               </div>
-            </div>
+              <span className="settings-card-arrow">{exportLoading ? '…' : '↓'}</span>
+            </button>
           </div>
         </section>
 
