@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useScrollLock } from '../hooks/useScrollLock.js'
+import { createPortal } from 'react-dom'
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import {
   getOrg,
@@ -35,6 +36,7 @@ import {
 } from '../lib/meetingService'
 import { compressImageToDataUrl } from '../lib/imageUtils'
 import { InlineToast } from '../components/ui/InlineToast'
+import { Skeleton } from '../components/ui/Skeleton'
 import { useInlineToast } from '../hooks/useInlineToast.js'
 import { formatMeetingRowWhen } from '../lib/dateUtils'
 import { EventDetailModal } from '../components/calendar/EventDetailModal'
@@ -78,24 +80,6 @@ export function TeamPage() {
   const [upcomingMeetings, setUpcomingMeetings] = useState([])
   const [upcomingMeetingsLoading, setUpcomingMeetingsLoading] = useState(true)
   const [eventDetailItem, setEventDetailItem] = useState(null)
-  const UPCOMING_HORIZON_KEY = 'notus_team_upcoming_horizon_days'
-  const UPCOMING_HORIZON_OPTIONS = [
-    { days: 7, label: '7 days' },
-    { days: 14, label: '14 days' },
-    { days: 30, label: '30 days' },
-    { days: 90, label: '90 days' },
-  ]
-  const [upcomingHorizonDays, setUpcomingHorizonDays] = useState(() => {
-    try {
-      const v = Number(localStorage.getItem(UPCOMING_HORIZON_KEY))
-      if (Number.isFinite(v) && v >= 1) return v
-    } catch {
-      /* ignore */
-    }
-    return 30
-  })
-  const [upcomingHorizonMenuOpen, setUpcomingHorizonMenuOpen] = useState(false)
-  const upcomingHorizonWrapRef = useRef(null)
   const [userProfiles, setUserProfiles] = useState({})
   const [showCreateMeeting, setShowCreateMeeting] = useState(false)
   const [newMeetingTitle, setNewMeetingTitle] = useState('')
@@ -214,29 +198,18 @@ export function TeamPage() {
     setUpcomingMeetingsLoading(true)
     try {
       const list = await getUpcomingTeamMeetingsForUser(user.uid, orgId, teamId, {
-        horizonDays: upcomingHorizonDays,
+        horizonDays: 30,
         maxResults: 12,
       })
       setUpcomingMeetings(list)
     } finally {
       setUpcomingMeetingsLoading(false)
     }
-  }, [orgId, teamId, user?.uid, upcomingHorizonDays])
+  }, [orgId, teamId, user?.uid])
 
   useEffect(() => {
     reloadUpcomingMeetings()
   }, [reloadUpcomingMeetings])
-
-  useEffect(() => {
-    if (!upcomingHorizonMenuOpen) return
-    const onDown = (e) => {
-      if (upcomingHorizonWrapRef.current && !upcomingHorizonWrapRef.current.contains(e.target)) {
-        setUpcomingHorizonMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [upcomingHorizonMenuOpen])
 
   const handleCreateMeeting = async (e) => {
     e.preventDefault()
@@ -613,7 +586,7 @@ export function TeamPage() {
                     {isAdmin && (
                       <button
                         type="button"
-                        className="dashboard-widget-link team-dashboard-settings-link dashboard-enterprise-settings"
+                        className="team-dashboard-settings-link dashboard-enterprise-settings"
                         onClick={() => setShowSettingsModal(true)}
                         aria-label="Team settings"
                         title="Team settings"
@@ -631,8 +604,15 @@ export function TeamPage() {
                 <div className="team-dashboard-about-header">
                   <span className="team-dashboard-about-label">About</span>
                   {isAdmin && !isEditingDesc && (
-                    <button type="button" className="profile-pencil-btn" onClick={startEditDesc} title="Edit" aria-label="Edit description">
-                      <PencilIcon size={16} />
+                    <button
+                      type="button"
+                      className="team-dashboard-about-edit-btn"
+                      onClick={startEditDesc}
+                      title="Edit description"
+                      aria-label="Edit description"
+                    >
+                      <PencilIcon size={14} />
+                      Edit
                     </button>
                   )}
                 </div>
@@ -711,51 +691,15 @@ export function TeamPage() {
               <CalendarIcon size={20} />
               Upcoming team meetings
             </h3>
-            <div className="team-upcoming-horizon-wrap" ref={upcomingHorizonWrapRef}>
-              <button
-                type="button"
-                className="team-upcoming-horizon-btn"
-                aria-label="Upcoming range"
-                aria-expanded={upcomingHorizonMenuOpen}
-                aria-haspopup="menu"
-                onClick={() => setUpcomingHorizonMenuOpen((o) => !o)}
-              >
-                <MoreVerticalIcon size={18} />
-              </button>
-              {upcomingHorizonMenuOpen && (
-                <div className="team-upcoming-horizon-menu" role="menu" aria-label="Upcoming range menu">
-                  <div className="team-upcoming-horizon-menu-label">Show upcoming</div>
-                  {UPCOMING_HORIZON_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.days}
-                      type="button"
-                      role="menuitem"
-                      className={[
-                        'team-upcoming-horizon-item',
-                        upcomingHorizonDays === opt.days ? 'team-upcoming-horizon-item--active' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      onClick={() => {
-                        setUpcomingHorizonDays(opt.days)
-                        try {
-                          localStorage.setItem(UPCOMING_HORIZON_KEY, String(opt.days))
-                        } catch {
-                          /* ignore */
-                        }
-                        setUpcomingHorizonMenuOpen(false)
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <Link
+              to={`/app/org/${encodeURIComponent(orgId)}/calendar?filter=team&teamId=${encodeURIComponent(teamId)}`}
+              className="dashboard-widget-link"
+            >
+              Calendar →
+            </Link>
           </div>
           <p className="dashboard-section-desc team-dashboard-meetings-desc">
-            Scheduled team meetings for the next{' '}
-            {UPCOMING_HORIZON_OPTIONS.find((o) => o.days === upcomingHorizonDays)?.label || `${upcomingHorizonDays} days`}.{' '}
+            Scheduled team meetings for the next 30 days.{' '}
             Calendar-only items open details; video meetings open the lobby ready to join.
           </p>
           {teamMembership?.state === TEAM_STATES.active && (
@@ -806,9 +750,19 @@ export function TeamPage() {
             </div>
           )}
           {upcomingMeetingsLoading ? (
-            <p className="dashboard-widget-empty">Loading…</p>
+            <div className="dashboard-widget-empty" aria-label="Loading upcoming team meetings">
+              <Skeleton lines={3} />
+            </div>
           ) : upcomingMeetings.length === 0 ? (
-            <p className="dashboard-widget-empty">No upcoming team meetings in this range.</p>
+            <p className="dashboard-widget-empty">
+              No upcoming team meetings are scheduled.{' '}
+              <Link
+                to={`/app/org/${encodeURIComponent(orgId)}/calendar?filter=team&teamId=${encodeURIComponent(teamId)}`}
+                className="dashboard-widget-link"
+              >
+                Create a team meeting in Calendar.
+              </Link>
+            </p>
           ) : (
             <ul className="dashboard-upcoming-list">
               {upcomingMeetings.map((m) => {
@@ -845,16 +799,6 @@ export function TeamPage() {
               })}
             </ul>
           )}
-          <p className="dashboard-widget-empty" style={{ marginTop: '0.85rem' }}>
-            Need the full view? Open{' '}
-            <Link
-              className="dashboard-inline-action"
-              to={`/app/org/${encodeURIComponent(orgId)}/calendar?filter=team&teamId=${encodeURIComponent(teamId)}`}
-            >
-              Calendar
-            </Link>{' '}
-            for scheduling, conflicts, and recurring rules.
-          </p>
         </section>
 
         {isAdmin && (
@@ -1143,7 +1087,7 @@ export function TeamPage() {
         }}
       />
 
-      {showSettingsModal && (
+      {showSettingsModal && createPortal(
         <div
           className="team-settings-overlay"
           onClick={() => setShowSettingsModal(false)}
@@ -1198,7 +1142,8 @@ export function TeamPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {profileModalMember && (

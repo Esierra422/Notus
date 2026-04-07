@@ -182,11 +182,14 @@
 .team-settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1200;
+  padding: 1rem;
 }
 
 .team-settings-modal {
@@ -194,8 +197,8 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 0;
-  max-width: 420px;
-  width: 90%;
+  max-width: 560px;
+  width: min(560px, 100%);
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
 }
 
@@ -243,20 +246,38 @@
 }
 
 .team-settings-modal-body {
-  padding: 1.25rem 1.5rem;
+  padding: 1.35rem 1.5rem 1.4rem;
 }
 
 .team-settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
   margin: 0;
-  padding: 0.75rem 0;
+  padding: 0.75rem 0 0.95rem;
+  font-family: var(--font-body, inherit);
+  font-size: 0.98rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
   cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.team-settings-row span {
+  flex: 1;
+  min-width: 0;
 }
 
 .team-settings-checkbox {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
+  width: 20px;
+  height: 20px;
+  margin-top: 0.1rem;
+  border-radius: 6px;
+  accent-color: var(--accent, #d4a853);
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .team-settings-actions {
@@ -266,4 +287,53 @@
   margin-top: 1.25rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border);
+}
+
+.team-settings-actions .profile-btn {
+  min-width: 96px;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.team-settings-actions .profile-btn.profile-btn-ghost {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.team-settings-actions .profile-btn.profile-btn-ghost:hover:not(:disabled) {
+  border-color: rgba(212, 168, 83, 0.28);
+  background: rgba(212, 168, 83, 0.08);
+  transform: translateY(-1px);
+}
+
+.team-settings-actions .profile-btn.profile-btn-primary {
+  border: 1px solid rgba(212, 168, 83, 0.34);
+  background: linear-gradient(145deg, rgba(212, 168, 83, 0.28) 0%, rgba(212, 168, 83, 0.18) 100%);
+  color: var(--text);
+  box-shadow: 0 10px 20px rgba(212, 168, 83, 0.14);
+}
+
+.team-settings-actions .profile-btn.profile-btn-primary:hover:not(:disabled) {
+  border-color: rgba(212, 168, 83, 0.5);
+  background: linear-gradient(145deg, rgba(212, 168, 83, 0.36) 0%, rgba(212, 168, 83, 0.24) 100%);
+  transform: translateY(-1px);
+}
+
+.team-settings-actions .profile-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--focus-ring);
+}
+
+.team-settings-actions .profile-btn:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
