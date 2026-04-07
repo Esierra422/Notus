@@ -191,7 +191,7 @@ export function getTranscriptPreferences(userDoc) {
 }
 
 export function getTranscriptRetention(userDoc) {
-  return userDoc?.transcriptRetention ?? '30'
+  return userDoc?.transcriptRetention ?? 'forever'
 }
 
 /**
@@ -286,7 +286,7 @@ export async function setTranscriptPreferences(uid, prefs) {
 
 export async function setTranscriptRetention(uid, value) {
   const allowed = new Set(TRANSCRIPT_RETENTION_OPTIONS.map((o) => o.value))
-  const retention = allowed.has(String(value)) ? String(value) : '30'
+  const retention = allowed.has(String(value)) ? String(value) : 'forever'
   const ref = doc(db, USERS_COLLECTION, uid)
   await updateDoc(ref, {
     transcriptRetention: retention,

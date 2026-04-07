@@ -3,7 +3,7 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, rgba(12, 11, 10, 1) 0%, #0a0908 50%, rgba(11, 10, 9, 1) 100%);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
 }

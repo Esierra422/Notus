@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
-import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword, sendPasswordResetEmail } from 'firebase/auth'
+import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { registerForPush, removeTokenFromFirestore, isPushSupported } from '../lib/messagingService'
 import {
@@ -17,6 +17,7 @@ import {
 } from '../lib/userService'
 import { PROFILE_UPDATED_EVENT } from '../components/app'
 import { UserIcon, LockIcon, BellIcon, PaletteIcon, ClipboardIcon, LogOutIcon, VideoIcon, FileTextIcon, ArrowLeftIcon } from '../components/ui/Icons'
+import { Button } from '../components/ui/Button'
 import { InlineToast } from '../components/ui/InlineToast'
 import { useInlineToast } from '../hooks/useInlineToast.js'
 import '../styles/variables.css'
@@ -134,16 +135,6 @@ export function SettingsPage() {
     }
   }
 
-  const handleSendReset = async () => {
-    if (!user?.email) return
-    try {
-      await sendPasswordResetEmail(auth, user.email)
-      showToast('Password reset email sent.')
-    } catch (err) {
-      showToast(err?.message || 'Unable to send reset email.', 'error')
-    }
-  }
-
   const handleExportData = async () => {
     if (!user) return
     setExportLoading(true)
@@ -193,6 +184,30 @@ export function SettingsPage() {
     } finally {
       setThemeSaving(false)
     }
+  }
+
+  const handleSendTestNotification = async () => {
+    if (!('Notification' in window)) {
+      showToast('Browser notifications are not supported in this browser.', 'error')
+      return
+    }
+    if (Notification.permission === 'default') {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        showToast('Notification permission was not granted.', 'error')
+        return
+      }
+    }
+    if (Notification.permission !== 'granted') {
+      showToast('Enable browser notifications in your browser settings.', 'error')
+      return
+    }
+    const note = new Notification('Notus notifications are enabled', {
+      body: 'You will receive alerts for new messages and invites.',
+      icon: '/favicon.svg',
+    })
+    setTimeout(() => note.close(), 5000)
+    showToast('Test notification sent.')
   }
 
   if (!user) return null
@@ -279,21 +294,13 @@ export function SettingsPage() {
                     />
                     {passwordError ? <p className="auth-error">{passwordError}</p> : null}
                     <div className="settings-panel-actions">
-                      <button type="submit" className="btn btn-primary" disabled={passwordSaving}>
+                      <Button type="submit" variant="primary" size="sm" disabled={passwordSaving}>
                         {passwordSaving ? 'Saving…' : 'Save password'}
-                      </button>
-                      <button type="button" className="btn btn-ghost" onClick={handleSendReset}>
-                        Send reset email
-                      </button>
+                      </Button>
                     </div>
                   </form>
                 ) : (
-                  <div className="settings-panel-actions">
-                    <p className="settings-panel-note">This account uses social sign-in. Use reset email to set a password.</p>
-                    <button type="button" className="btn btn-primary" onClick={handleSendReset}>
-                      Send reset email
-                    </button>
-                  </div>
+                  <p className="settings-panel-note">This account uses social sign-in. Password changes are managed by your provider.</p>
                 )}
               </div>
             ) : null}
@@ -319,13 +326,13 @@ export function SettingsPage() {
             </button>
             {openPanel === 'meeting' ? (
               <div className="settings-panel">
-                <label className="settings-row-check"><input type="checkbox" checked={meetingPrefs.micOnByDefault} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, micOnByDefault: e.target.checked }))} /> Microphone on by default</label>
-                <label className="settings-row-check"><input type="checkbox" checked={meetingPrefs.camOnByDefault} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, camOnByDefault: e.target.checked }))} /> Camera on by default</label>
-                <label className="settings-row-check"><input type="checkbox" checked={meetingPrefs.subtitleToggle} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, subtitleToggle: e.target.checked }))} /> Show subtitles by default</label>
+                <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={meetingPrefs.micOnByDefault} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, micOnByDefault: e.target.checked }))} /> Microphone on by default</label>
+                <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={meetingPrefs.camOnByDefault} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, camOnByDefault: e.target.checked }))} /> Camera on by default</label>
+                <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={meetingPrefs.subtitleToggle} onChange={(e) => setMeetingPrefsState((p) => ({ ...p, subtitleToggle: e.target.checked }))} /> Show subtitles by default</label>
                 <div className="settings-panel-actions">
-                  <button type="button" className="btn btn-primary" disabled={prefsSaving} onClick={handleSaveMeetingPrefs}>
+                  <Button type="button" variant="primary" size="sm" disabled={prefsSaving} onClick={handleSaveMeetingPrefs}>
                     Save meeting preferences
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : null}
@@ -345,16 +352,16 @@ export function SettingsPage() {
             </button>
             {openPanel === 'transcript' ? (
               <div className="settings-panel">
-                <label className="settings-row-check"><input type="checkbox" checked={transcriptPrefs.autoTranscribe} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, autoTranscribe: e.target.checked }))} /> Auto-transcribe recordings</label>
-                <label className="settings-row-check"><input type="checkbox" checked={transcriptPrefs.speakerLabeling} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, speakerLabeling: e.target.checked }))} /> Enable speaker labeling</label>
+                <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={transcriptPrefs.autoTranscribe} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, autoTranscribe: e.target.checked }))} /> Auto-transcribe recordings</label>
+                <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={transcriptPrefs.speakerLabeling} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, speakerLabeling: e.target.checked }))} /> Enable speaker labeling</label>
                 <label className="settings-row-field">
                   Default transcript language
                   <input type="text" className="auth-input" value={transcriptPrefs.language || 'en'} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, language: e.target.value }))} placeholder="en" />
                 </label>
                 <div className="settings-panel-actions">
-                  <button type="button" className="btn btn-primary" disabled={prefsSaving} onClick={handleSaveTranscriptPrefs}>
+                  <Button type="button" variant="primary" size="sm" disabled={prefsSaving} onClick={handleSaveTranscriptPrefs}>
                     Save transcript preferences
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : null}
@@ -383,12 +390,12 @@ export function SettingsPage() {
                   </select>
                 </label>
                 <div className="settings-panel-actions">
-                  <button type="button" className="btn btn-primary" disabled={prefsSaving} onClick={handleSaveRetention}>
+                  <Button type="button" variant="primary" size="sm" disabled={prefsSaving} onClick={handleSaveRetention}>
                     Save storage settings
-                  </button>
-                  <button type="button" className="btn btn-ghost" onClick={handleExportData} disabled={exportLoading}>
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={handleExportData} disabled={exportLoading}>
                     {exportLoading ? 'Preparing…' : 'Export my data'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : null}
@@ -399,7 +406,12 @@ export function SettingsPage() {
           <h3 className="settings-section-title">Preferences</h3>
           <div className="settings-cards">
             {pushSupported ? (
-              <div className="settings-card settings-card-link">
+              <>
+              <button
+                type="button"
+                className="settings-card settings-card-button settings-card-link"
+                onClick={() => setOpenPanel((v) => (v === 'push' ? '' : 'push'))}
+              >
                 <div className="settings-card-icon">
                   <BellIcon size={22} />
                 </div>
@@ -409,33 +421,53 @@ export function SettingsPage() {
                     Receive notifications for new messages and invites when the app is in the background.
                   </span>
                 </div>
-                <label className="settings-card-toggle" aria-label="Enable push notifications">
-                  <input
-                    type="checkbox"
-                    checked={pushEnabled}
-                    disabled={pushLoading}
-                    onChange={async (e) => {
-                      const enabled = e.target.checked
-                      setPushLoading(true)
-                      try {
-                        if (enabled) {
-                          const { granted } = await registerForPush(user.uid)
-                          await setNotificationsPushEnabled(user.uid, granted)
-                        } else {
-                          await removeTokenFromFirestore(user.uid)
-                          await setNotificationsPushEnabled(user.uid, false)
+                <span className="settings-card-arrow">{openPanel === 'push' ? '−' : '+'}</span>
+              </button>
+              {openPanel === 'push' ? (
+                <div className="settings-panel">
+                  <label className="settings-row-check" aria-label="Enable push notifications">
+                    <input
+                      className="notus-checkbox notus-checkbox--sm"
+                      type="checkbox"
+                      checked={pushEnabled}
+                      disabled={pushLoading}
+                      onChange={async (e) => {
+                        const enabled = e.target.checked
+                        setPushLoading(true)
+                        try {
+                          if (enabled) {
+                            const { granted } = await registerForPush(user.uid)
+                            await setNotificationsPushEnabled(user.uid, granted)
+                            if (!granted) showToast('Notification permission was not granted.', 'error')
+                          } else {
+                            await removeTokenFromFirestore(user.uid)
+                            await setNotificationsPushEnabled(user.uid, false)
+                          }
+                          window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT))
+                        } catch (err) {
+                          console.error(err)
+                          showToast('Unable to update push notification settings.', 'error')
+                        } finally {
+                          setPushLoading(false)
                         }
-                        window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT))
-                      } catch (err) {
-                        console.error(err)
-                      } finally {
-                        setPushLoading(false)
-                      }
-                    }}
-                  />
-                  <span className="settings-card-toggle-slider" />
-                </label>
-              </div>
+                      }}
+                    />
+                    Enable browser notifications
+                  </label>
+                  <div className="settings-panel-actions">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSendTestNotification}
+                      disabled={pushLoading || !pushEnabled}
+                    >
+                      Send test notification
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              </>
             ) : (
               <div className="settings-card settings-card-disabled">
                 <div className="settings-card-icon">
@@ -465,6 +497,7 @@ export function SettingsPage() {
               <div className="settings-panel">
                 <label className="settings-row-check">
                   <input
+                    className="settings-radio"
                     type="radio"
                     name="appearanceTheme"
                     checked={appearanceTheme === 'dark'}
@@ -474,6 +507,7 @@ export function SettingsPage() {
                 </label>
                 <label className="settings-row-check">
                   <input
+                    className="settings-radio"
                     type="radio"
                     name="appearanceTheme"
                     checked={appearanceTheme === 'light'}
@@ -482,9 +516,9 @@ export function SettingsPage() {
                   Light mode
                 </label>
                 <div className="settings-panel-actions">
-                  <button type="button" className="btn btn-primary" disabled={themeSaving} onClick={handleSaveAppearanceTheme}>
+                  <Button type="button" variant="primary" size="sm" disabled={themeSaving} onClick={handleSaveAppearanceTheme}>
                     {themeSaving ? 'Saving…' : 'Save appearance'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : null}

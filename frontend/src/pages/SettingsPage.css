@@ -158,6 +158,8 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.92rem;
+  color: var(--text);
+  cursor: pointer;
 }
 
 .settings-row-field {
@@ -165,7 +167,45 @@
   flex-direction: column;
   gap: 0.4rem;
   font-size: 0.9rem;
-  color: var(--text-muted);
+  color: var(--text);
+}
+
+.settings-radio {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  position: relative;
+  margin: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.settings-radio::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform 0.14s ease;
+}
+
+.settings-radio:checked {
+  border-color: var(--accent);
+}
+
+.settings-radio:checked::after {
+  transform: scale(1);
+}
+
+.settings-radio:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
 }
 
 .settings-card-toggle {
