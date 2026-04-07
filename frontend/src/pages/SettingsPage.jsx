@@ -242,17 +242,6 @@ export function SettingsPage() {
         <section className="settings-section">
           <h3 className="settings-section-title">Security</h3>
           <div className="settings-cards">
-            <div className="settings-card">
-              <div className="settings-card-icon">
-                <LockIcon size={22} />
-              </div>
-              <div className="settings-card-content">
-                <span className="settings-card-title">Connected accounts & Security</span>
-                <span className="settings-card-desc">
-                  Signed in with {(user.providerData || []).map((p) => p.providerId).join(', ') || 'email'}.
-                </span>
-              </div>
-            </div>
             <button
               type="button"
               className="settings-card settings-card-button settings-card-link"
