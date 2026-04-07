@@ -2,7 +2,7 @@
 # 1. Push this repo to GitHub and connect it in Render: https://dashboard.render.com
 # 2. Create a new "Blueprint" and point it at this repo (Render will detect render.yaml).
 # 3. In the backend service, set Environment variables in the dashboard:
-#    - CLIENT_URL = https://notusapp.com,https://notus-e026b.web.app  (your frontend URLs, comma-separated)
+#    - CLIENT_URL = https://notusapp.com,https://www.notusapp.com,https://notus-e026b.web.app  (exact origins, comma-separated)
 #    - AGORA_APP_ID = (from https://console.agora.io)
 #    - AGORA_APP_CERTIFICATE = (from https://console.agora.io)
 # 4. After deploy, copy the backend URL (e.g. https://notus-api.onrender.com).

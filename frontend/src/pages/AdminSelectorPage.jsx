@@ -1,5 +1,5 @@
 /**
- * Admin selector — lists orgs user can administer.
+ * Admin selector: lists orgs the user can administer.
  * Click an org to go to its admin page.
  */
 import { useState, useEffect } from 'react'
@@ -9,7 +9,7 @@ import {
   getOrg,
   getOrgMembers,
   getPendingRequests,
-  canManageOrg,
+  canOpenMemberManagement,
   MEMBERSHIP_STATES,
 } from '../lib/orgService'
 import { getOrgTeams } from '../lib/teamService'
@@ -32,7 +32,7 @@ export function AdminSelectorPage() {
     if (!user) return
     const load = async () => {
       const memberships = await getActiveMemberships(user.uid)
-      const admins = memberships.filter((m) => canManageOrg(m))
+      const admins = memberships.filter((m) => canOpenMemberManagement(m))
       const orgList = await Promise.all(
         admins.map(async (m) => {
           const orgData = await getOrg(m.orgId)
@@ -87,7 +87,7 @@ export function AdminSelectorPage() {
           <ArrowLeftIcon size={18} /> Back to dashboard
         </Link>
         <h2>Admin</h2>
-        <p className="app-muted">You are not an admin of any organization.</p>
+        <p className="app-muted">You do not have admin access for any organization.</p>
       </main>
     )
   }

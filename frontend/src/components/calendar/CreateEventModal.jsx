@@ -254,7 +254,7 @@ function RepeatModal({ isOpen, onClose, value, onSave, eventStartDateStr }) {
 }
 
 /**
- * Create org calendar event — choose calendar vs video, bio, timezone, repeat, invites (notifications).
+ * Create org calendar event  -  choose calendar vs video, bio, timezone, repeat, invites (notifications).
  */
 export function CreateEventModal({
   isOpen,
@@ -951,7 +951,7 @@ export function CreateEventModal({
             <h2 id="create-event-title" className="create-event-heading">
               Create Event
             </h2>
-            <p className="create-event-lead">Choose what you’re scheduling — you can add details on the next step.</p>
+            <p className="create-event-lead">Choose what you are scheduling; you can add details on the next step.</p>
             <div className="create-event-type-grid">
               <button
                 type="button"
@@ -963,7 +963,7 @@ export function CreateEventModal({
               >
                 <span className="create-event-type-kicker">Calendar</span>
                 <span className="create-event-type-title">Calendar Event</span>
-                <span className="create-event-type-desc">Block time, notes, optional invites — no video room.</span>
+                <span className="create-event-type-desc">Block time, notes, and optional invites. No video room.</span>
               </button>
               <button
                 type="button"
@@ -1309,7 +1309,7 @@ export function CreateEventModal({
                       }}
                       disabled={saving}
                     />
-                    <span>Just me — don&apos;t notify anyone else</span>
+                    <span>Just me (do not notify anyone else)</span>
                   </label>
                   <label className="create-event-notify-row">
                     <input
@@ -1323,7 +1323,7 @@ export function CreateEventModal({
                       }}
                       disabled={saving}
                     />
-                    <span>Invite people (search by name or email — active org members only)</span>
+                    <span>Invite people (search by name or email; active org members only)</span>
                   </label>
                   {notifyPolicy === 'emails' && (
                     <div className="create-event-personal-invite-picker">
@@ -1405,7 +1405,7 @@ export function CreateEventModal({
                           <ul className="create-event-member-suggest-list">
                             {personalInviteSearchResults.map(({ userId: uid, profile }) => {
                               const name = getDisplayName(profile, uid)
-                              const email = (profile?.email || '').trim() || '—'
+                              const email = (profile?.email || '').trim() || 'Not provided'
                               const photo = getProfilePictureUrl(profile)
                               return (
                                 <li key={uid} className="create-event-member-suggest-item">

@@ -34,6 +34,8 @@ import {
   MEETING_CREATED_VIA,
 } from '../lib/meetingService'
 import { compressImageToDataUrl } from '../lib/imageUtils'
+import { InlineToast } from '../components/ui/InlineToast'
+import { useInlineToast } from '../hooks/useInlineToast.js'
 import { formatMeetingRowWhen } from '../lib/dateUtils'
 import { EventDetailModal } from '../components/calendar/EventDetailModal'
 import {
@@ -76,6 +78,24 @@ export function TeamPage() {
   const [upcomingMeetings, setUpcomingMeetings] = useState([])
   const [upcomingMeetingsLoading, setUpcomingMeetingsLoading] = useState(true)
   const [eventDetailItem, setEventDetailItem] = useState(null)
+  const UPCOMING_HORIZON_KEY = 'notus_team_upcoming_horizon_days'
+  const UPCOMING_HORIZON_OPTIONS = [
+    { days: 7, label: '7 days' },
+    { days: 14, label: '14 days' },
+    { days: 30, label: '30 days' },
+    { days: 90, label: '90 days' },
+  ]
+  const [upcomingHorizonDays, setUpcomingHorizonDays] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem(UPCOMING_HORIZON_KEY))
+      if (Number.isFinite(v) && v >= 1) return v
+    } catch {
+      /* ignore */
+    }
+    return 30
+  })
+  const [upcomingHorizonMenuOpen, setUpcomingHorizonMenuOpen] = useState(false)
+  const upcomingHorizonWrapRef = useRef(null)
   const [userProfiles, setUserProfiles] = useState({})
   const [showCreateMeeting, setShowCreateMeeting] = useState(false)
   const [newMeetingTitle, setNewMeetingTitle] = useState('')
@@ -84,6 +104,7 @@ export function TeamPage() {
   const [loading, setLoading] = useState({})
   const [isEditingDesc, setIsEditingDesc] = useState(false)
   const [editDesc, setEditDesc] = useState('')
+  const { toast, showToast } = useInlineToast()
   const [savingDesc, setSavingDesc] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
@@ -192,16 +213,30 @@ export function TeamPage() {
     }
     setUpcomingMeetingsLoading(true)
     try {
-      const list = await getUpcomingTeamMeetingsForUser(user.uid, orgId, teamId)
+      const list = await getUpcomingTeamMeetingsForUser(user.uid, orgId, teamId, {
+        horizonDays: upcomingHorizonDays,
+        maxResults: 12,
+      })
       setUpcomingMeetings(list)
     } finally {
       setUpcomingMeetingsLoading(false)
     }
-  }, [orgId, teamId, user?.uid])
+  }, [orgId, teamId, user?.uid, upcomingHorizonDays])
 
   useEffect(() => {
     reloadUpcomingMeetings()
   }, [reloadUpcomingMeetings])
+
+  useEffect(() => {
+    if (!upcomingHorizonMenuOpen) return
+    const onDown = (e) => {
+      if (upcomingHorizonWrapRef.current && !upcomingHorizonWrapRef.current.contains(e.target)) {
+        setUpcomingHorizonMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [upcomingHorizonMenuOpen])
 
   const handleCreateMeeting = async (e) => {
     e.preventDefault()
@@ -292,6 +327,7 @@ export function TeamPage() {
       await updateTeam(orgId, teamId, { description: editDesc }, user.uid)
       setTeam((t) => (t ? { ...t, description: editDesc } : null))
       setIsEditingDesc(false)
+      showToast('Team profile saved.')
     } catch (err) {
       setInviteError(err?.message || 'Failed to save.')
     } finally {
@@ -305,7 +341,7 @@ export function TeamPage() {
     setUploadingImage(true)
     setInviteError('')
     try {
-      const dataUrl = await compressImageToDataUrl(file)
+      const dataUrl = await compressImageToDataUrl(file, { maxSize: 420, maxDataSize: 360 * 1024 })
       await updateTeam(orgId, teamId, { imageUrl: dataUrl }, user.uid)
       setTeam((t) => (t ? { ...t, imageUrl: dataUrl } : null))
     } catch (err) {
@@ -335,7 +371,7 @@ export function TeamPage() {
     setUploadingImage(true)
     setInviteError('')
     try {
-      const dataUrl = await compressImageToDataUrl(file)
+      const dataUrl = await compressImageToDataUrl(file, { maxSize: 1400, quality: 0.78, maxDataSize: 520 * 1024 })
       await updateTeam(orgId, teamId, { bannerUrl: dataUrl }, user.uid)
       setTeam((t) => (t ? { ...t, bannerUrl: dataUrl } : null))
     } catch (err) {
@@ -471,6 +507,7 @@ export function TeamPage() {
 
   return (
     <main className="app-main dashboard-main org-dashboard-main team-dashboard-main">
+      <InlineToast message={toast?.message} tone={toast?.tone} />
       <Link to={`/app/org/${orgId}`} className="page-back-btn">
         <ArrowLeftIcon size={18} /> Back to {org?.name}
       </Link>
@@ -540,44 +577,55 @@ export function TeamPage() {
                     </>
                   )}
                 </div>
-                {isAdmin && team.imageUrl && (
-                  <button
-                    type="button"
-                    className="org-profile-remove-photo"
-                    onClick={handleRemoveImage}
-                    disabled={uploadingImage}
-                  >
-                    Remove photo
-                  </button>
-                )}
-                {isAdmin && team.bannerUrl && (
-                  <button
-                    type="button"
-                    className="org-profile-remove-photo"
-                    onClick={handleRemoveBanner}
-                    disabled={uploadingImage}
-                  >
-                    Remove cover
-                  </button>
+                {isAdmin && (team.imageUrl || team.bannerUrl) && (
+                  <div className="team-dashboard-media-actions">
+                    {team.imageUrl && (
+                      <button
+                        type="button"
+                        className="team-dashboard-media-btn"
+                        onClick={handleRemoveImage}
+                        disabled={uploadingImage}
+                      >
+                        Remove photo
+                      </button>
+                    )}
+                    {team.bannerUrl && (
+                      <button
+                        type="button"
+                        className="team-dashboard-media-btn"
+                        onClick={handleRemoveBanner}
+                        disabled={uploadingImage}
+                      >
+                        Remove cover
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="dashboard-enterprise-hero-copy">
                 <div className="dashboard-enterprise-title-row">
                   <h2 className="dashboard-enterprise-name">{team.name}</h2>
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      className="dashboard-widget-link team-dashboard-settings-link dashboard-enterprise-settings"
-                      onClick={() => setShowSettingsModal(true)}
-                    >
-                      <SettingsIcon size={16} />
-                      Settings
-                    </button>
-                  )}
+                  <div className="team-dashboard-hero-actions">
+                    <span className="team-dashboard-hero-metric" aria-label={`${members.length} team members`}>
+                      <UsersIcon size={16} aria-hidden />
+                      <span className="team-dashboard-hero-metric__value">{members.length}</span>
+                    </span>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        className="dashboard-widget-link team-dashboard-settings-link dashboard-enterprise-settings"
+                        onClick={() => setShowSettingsModal(true)}
+                        aria-label="Team settings"
+                        title="Team settings"
+                      >
+                        <SettingsIcon size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p className="dashboard-enterprise-subtitle">Team · {org.name}</p>
                 <div className="team-dashboard-profile-badges dashboard-enterprise-badges">
-                  <span className="profile-badge profile-badge-org">{org.name}</span>
+                  <span className="profile-badge profile-badge-org">{members.length} members</span>
                   {team.allowOpenJoin && <span className="profile-badge">Open to join</span>}
                 </div>
                 <div className="team-dashboard-about-header">
@@ -604,40 +652,27 @@ export function TeamPage() {
                     </div>
                   </form>
                 ) : (
-                  <p className="team-dashboard-about-text">{team.description || 'No description yet.'}</p>
+                  <p className="team-dashboard-about-text">{team.description || 'No description has been added yet.'}</p>
                 )}
               </div>
             </div>
           </div>
         </section>
 
-        <div className="dashboard-stats">
-          <div className="dashboard-stat-card">
-            <span className="dashboard-stat-value">{members.length}</span>
-            <span className="dashboard-stat-label">Team members</span>
-          </div>
-          <div className="dashboard-stat-card">
-            <span className="dashboard-stat-value">{upcomingMeetings.length}</span>
-            <span className="dashboard-stat-label">Upcoming</span>
-          </div>
-          {isAdmin && pending.length > 0 && (
+        {isAdmin && pending.length > 0 && (
+          <div className="dashboard-stats">
             <a href="#team-dashboard-pending" className="dashboard-stat-card dashboard-stat-card-action team-dashboard-stat-pending">
               <span className="dashboard-stat-value">{pending.length}</span>
               <span className="dashboard-stat-label">Pending requests</span>
             </a>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="dashboard-shortcuts">
-          <Link to={`/app/org/${orgId}`} className="dashboard-shortcut">
-            <span className="dashboard-shortcut-icon"><BuildingIcon size={24} /></span>
-            <span className="dashboard-shortcut-label">{org.name}</span>
-            <span className="dashboard-shortcut-hint">Organization dashboard</span>
-          </Link>
           <Link to={`/app/org/${orgId}/calendar`} className="dashboard-shortcut">
             <span className="dashboard-shortcut-icon"><CalendarIcon size={24} /></span>
             <span className="dashboard-shortcut-label">Calendar</span>
-            <span className="dashboard-shortcut-hint">Org calendar — use Team view for this roster</span>
+            <span className="dashboard-shortcut-hint">Org calendar · use Team view for this roster</span>
           </Link>
           <Link to={`/app/chats?org=${encodeURIComponent(orgId)}`} className="dashboard-shortcut">
             <span className="dashboard-shortcut-icon"><MessageSquareIcon size={24} /></span>
@@ -649,24 +684,79 @@ export function TeamPage() {
             <span className="dashboard-shortcut-label">Video Call</span>
             <span className="dashboard-shortcut-hint">{org.name} meetings</span>
           </Link>
-          {isOrgAdmin && (
-            <Link to={`/app/org/${orgId}/admin`} className="dashboard-shortcut">
+          {isAdmin && (
+            <button
+              type="button"
+              className="dashboard-shortcut"
+              onClick={() => {
+                setShowSettingsModal(true)
+                // Bring admins to the roster area after the modal is closed.
+                setTimeout(() => {
+                  const el = document.getElementById('team-dashboard-members')
+                  el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+                }, 0)
+              }}
+              aria-label="Team admin"
+            >
               <span className="dashboard-shortcut-icon"><SettingsIcon size={24} /></span>
-              <span className="dashboard-shortcut-label">Organization admin</span>
-              <span className="dashboard-shortcut-hint">Members, teams & invites</span>
-            </Link>
+              <span className="dashboard-shortcut-label">Team admin</span>
+              <span className="dashboard-shortcut-hint">Settings, roster & requests</span>
+            </button>
           )}
         </div>
 
-        <section className="dashboard-widget dashboard-widget-wide dashboard-upcoming-meetings-widget">
+        <section className="dashboard-widget dashboard-widget-wide dashboard-upcoming-meetings-widget team-upcoming-widget">
           <div className="dashboard-widget-header">
             <h3 className="dashboard-widget-title">
               <CalendarIcon size={20} />
-              Upcoming meetings
+              Upcoming team meetings
             </h3>
+            <div className="team-upcoming-horizon-wrap" ref={upcomingHorizonWrapRef}>
+              <button
+                type="button"
+                className="team-upcoming-horizon-btn"
+                aria-label="Upcoming range"
+                aria-expanded={upcomingHorizonMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setUpcomingHorizonMenuOpen((o) => !o)}
+              >
+                <MoreVerticalIcon size={18} />
+              </button>
+              {upcomingHorizonMenuOpen && (
+                <div className="team-upcoming-horizon-menu" role="menu" aria-label="Upcoming range menu">
+                  <div className="team-upcoming-horizon-menu-label">Show upcoming</div>
+                  {UPCOMING_HORIZON_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.days}
+                      type="button"
+                      role="menuitem"
+                      className={[
+                        'team-upcoming-horizon-item',
+                        upcomingHorizonDays === opt.days ? 'team-upcoming-horizon-item--active' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() => {
+                        setUpcomingHorizonDays(opt.days)
+                        try {
+                          localStorage.setItem(UPCOMING_HORIZON_KEY, String(opt.days))
+                        } catch {
+                          /* ignore */
+                        }
+                        setUpcomingHorizonMenuOpen(false)
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <p className="dashboard-section-desc team-dashboard-meetings-desc">
-            Scheduled team events and video meetings. Calendar-only items open details; video meetings open the lobby ready to join.
+            Scheduled team meetings for the next{' '}
+            {UPCOMING_HORIZON_OPTIONS.find((o) => o.days === upcomingHorizonDays)?.label || `${upcomingHorizonDays} days`}.{' '}
+            Calendar-only items open details; video meetings open the lobby ready to join.
           </p>
           {teamMembership?.state === TEAM_STATES.active && (
             <div className="team-dashboard-meetings-actions">
@@ -682,7 +772,7 @@ export function TeamPage() {
                       : undefined
                   }
                 >
-                  Create meeting
+                  Create Meeting
                 </button>
               ) : (
                 <form onSubmit={handleCreateMeeting} className="org-create-team-form">
@@ -718,7 +808,7 @@ export function TeamPage() {
           {upcomingMeetingsLoading ? (
             <p className="dashboard-widget-empty">Loading…</p>
           ) : upcomingMeetings.length === 0 ? (
-            <p className="dashboard-widget-empty">No upcoming team meetings.</p>
+            <p className="dashboard-widget-empty">No upcoming team meetings in this range.</p>
           ) : (
             <ul className="dashboard-upcoming-list">
               {upcomingMeetings.map((m) => {
@@ -728,7 +818,9 @@ export function TeamPage() {
                   <li key={m.id} className="dashboard-upcoming-row">
                     <div className="dashboard-upcoming-row-main">
                       <span className="dashboard-upcoming-title">{m.title || 'Untitled'}</span>
-                      <span className="dashboard-upcoming-when">{formatMeetingRowWhen(m.startAt, userDoc)}</span>
+                      <span className="dashboard-upcoming-when">
+                        <span>{formatMeetingRowWhen(m.startAt, userDoc)}</span>
+                      </span>
                     </div>
                     <div className="dashboard-upcoming-row-actions">
                       {isCalOnly ? (
@@ -737,7 +829,7 @@ export function TeamPage() {
                           className="org-admin-btn org-admin-btn-approve dashboard-upcoming-action-btn"
                           onClick={() => setEventDetailItem(m)}
                         >
-                          Details
+                          Open
                         </button>
                       ) : (
                         <Link
@@ -753,6 +845,16 @@ export function TeamPage() {
               })}
             </ul>
           )}
+          <p className="dashboard-widget-empty" style={{ marginTop: '0.85rem' }}>
+            Need the full view? Open{' '}
+            <Link
+              className="dashboard-inline-action"
+              to={`/app/org/${encodeURIComponent(orgId)}/calendar?filter=team&teamId=${encodeURIComponent(teamId)}`}
+            >
+              Calendar
+            </Link>{' '}
+            for scheduling, conflicts, and recurring rules.
+          </p>
         </section>
 
         {isAdmin && (
@@ -770,7 +872,7 @@ export function TeamPage() {
                 disabled={inviteLoading}
               />
               <button type="submit" className="org-admin-btn org-admin-btn-approve" disabled={inviteLoading}>
-                {inviteLoading ? 'Sending…' : 'Send invitation'}
+                {inviteLoading ? 'Sending…' : 'Send Invitation'}
               </button>
             </form>
             <p className="org-admin-invite-hint">Only people already in the organization can be invited.</p>
@@ -793,7 +895,7 @@ export function TeamPage() {
             Roster for this team. Organization role labels come from the org directory; team admins control this roster.
           </p>
           {members.length === 0 ? (
-            <p className="dashboard-widget-empty">No active members yet.</p>
+            <p className="dashboard-widget-empty">No active members are currently assigned to this team.</p>
           ) : (
             <>
               <input

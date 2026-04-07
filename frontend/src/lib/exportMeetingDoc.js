@@ -1,6 +1,13 @@
 /**
  * Client-side export of meeting notes / transcripts to PDF (jspdf) and Word (docx).
  */
+import { getSummaryTranscriptCopyText, stripTranscriptArtifacts } from './meetingSummaryService.js'
+
+function transcriptTextForExport(summary) {
+  const structured = getSummaryTranscriptCopyText(summary)
+  if (String(structured || '').trim()) return structured
+  return stripTranscriptArtifacts(String(summary?.transcript || ''))
+}
 
 function safeFileBase(title) {
   return (
@@ -99,7 +106,7 @@ export async function downloadMeetingSummaryPdf(summary) {
       y = addWrappedText(doc, `• ${p}`, margin, y, pageW)
     }
   }
-  const tr = String(summary?.transcript || '').trim()
+  const tr = transcriptTextForExport(summary).trim()
   if (tr) {
     doc.setFontSize(12)
     doc.setFont('helvetica', 'bold')
@@ -150,7 +157,7 @@ export async function downloadMeetingSummaryDocx(summary) {
       children.push(new Paragraph({ text: `• ${p}` }))
     }
   }
-  const tr = String(summary?.transcript || '').trim()
+  const tr = transcriptTextForExport(summary).trim()
   if (tr) {
     children.push(new Paragraph({ text: 'Full transcript', heading: HeadingLevel.HEADING_2 }))
     for (const chunk of tr.match(/[\s\S]{1,5000}/g) || [tr]) {
@@ -165,7 +172,7 @@ export async function downloadMeetingSummaryDocx(summary) {
 /**
  * @param {string} title
  * @param {string} fullText
- * @param {{ timeLabel?: string, speaker?: string, text: string }[]} [segments] — optional structured lines
+ * @param {{ timeLabel?: string, speaker?: string, text: string }[]} [segments]  -  optional structured lines
  */
 export async function downloadTranscriptPdf(title, fullText, segments) {
   const { default: jsPDF } = await import('jspdf')

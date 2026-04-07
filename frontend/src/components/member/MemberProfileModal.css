@@ -1,4 +1,4 @@
-/* Member profile modal — shared by Admin and Chats */
+/* Member profile modal  -  shared by Admin and Chats */
 .member-profile-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -201,7 +201,10 @@
 }
 
 .member-profile-modal-email-copy {
-  display: inline;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.35rem;
   background: none;
   border: none;
   padding: 0;
@@ -216,10 +219,15 @@
   text-decoration: underline;
 }
 
+.member-profile-modal-copied-check {
+  color: #8fdf9e;
+  flex-shrink: 0;
+}
+
 .member-profile-modal-copied {
   font-size: 0.8rem;
-  color: var(--accent);
-  opacity: 0.9;
+  font-weight: 600;
+  color: #8fdf9e;
 }
 
 .member-profile-modal-actions {

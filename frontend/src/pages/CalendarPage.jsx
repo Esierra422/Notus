@@ -482,23 +482,6 @@ export function CalendarPage() {
       <div className="calendar-header-row">
         <div className="calendar-title-block">
           <h2 className="calendar-title">Calendar</h2>
-          <p className="calendar-scope-hint">
-            {routeOrgId
-              ? org?.name
-                ? `${org.name} — scheduled meetings & events`
-                : 'Organization Calendar'
-              : filter === 'personal'
-                ? 'Your tasks, imports, and scheduled meetings across organizations (quick ad-hoc meetings are hidden)'
-                : filter === 'combined'
-                  ? org?.name
-                    ? `${org.name} — tasks, imports, and all org & team events you can access (color-coded)`
-                    : 'Pick an organization to see all calendars together'
-                  : filter === 'team'
-                    ? 'Scheduled team events for the selected organization and team'
-                    : org?.name
-                      ? `${org.name} — organization-wide scheduled events`
-                      : 'Pick an organization in the toolbar'}
-          </p>
         </div>
         {activeOrgId && (
           <Button
@@ -525,6 +508,24 @@ export function CalendarPage() {
           </Button>
         )}
       </div>
+
+      <p className="calendar-scope-hint">
+        {routeOrgId
+          ? org?.name
+            ? `${org.name}: scheduled meetings and events`
+            : 'Organization Calendar'
+          : filter === 'personal'
+            ? 'Your tasks, imported calendars, and scheduled meetings across organizations.'
+            : filter === 'combined'
+              ? org?.name
+                ? `${org.name}: tasks, imported calendars, and all organization and team events you can access. Items are color coded by source.`
+                : 'Select an organization to view all calendars together'
+              : filter === 'team'
+                ? 'Scheduled team events for the selected organization and team'
+                : org?.name
+                  ? `${org.name}: organization-wide scheduled events`
+                  : 'Select an organization in the toolbar'}
+      </p>
 
       <div className="calendar-toolbar">
         <div className="calendar-toolbar-top">

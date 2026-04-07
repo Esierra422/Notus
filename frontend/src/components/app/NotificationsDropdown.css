@@ -21,6 +21,12 @@
   background: var(--bg-elevated);
 }
 
+.notifications-trigger:focus-visible,
+.notifications-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .notifications-trigger--unread {
   color: var(--text);
 }
@@ -34,6 +40,19 @@
   border-radius: 50%;
   background: #e53935;
   box-shadow: 0 0 0 2px var(--bg-card, #1a1a1a);
+}
+
+.notifications-item-from {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.notifications-item-from-sep {
+  opacity: 0.65;
+  font-weight: 400;
 }
 
 .notifications-item-sub {
@@ -159,4 +178,8 @@
 .notifications-btn-decline:hover:not(:disabled) {
   color: #e57373;
   border-color: #e57373;
+}
+
+.notifications-btn:focus-visible {
+  box-shadow: var(--focus-ring);
 }

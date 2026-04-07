@@ -11,7 +11,7 @@ import './AppLayout.css'
 import './SettingsPage.css'
 
 /**
- * Settings page — enterprise-level app preferences and account management.
+ * Settings page: app preferences and account management.
  */
 export function SettingsPage() {
   const navigate = useNavigate()
@@ -61,7 +61,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Connected accounts & Security</span>
-                <span className="settings-card-desc">Manage linked accounts and security settings — coming soon</span>
+                <span className="settings-card-desc">Manage linked accounts and security settings (coming soon).</span>
               </div>
             </div>
             <div className="settings-card settings-card-disabled">
@@ -70,7 +70,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Password</span>
-                <span className="settings-card-desc">Change your password — coming soon</span>
+                <span className="settings-card-desc">Change your password (coming soon).</span>
               </div>
             </div>
           </div>
@@ -85,7 +85,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Meeting preferences</span>
-                <span className="settings-card-desc">Microphone, camera, and subtitles defaults — coming soon</span>
+                <span className="settings-card-desc">Microphone, camera, and subtitle defaults (coming soon).</span>
               </div>
             </div>
             <div className="settings-card settings-card-disabled">
@@ -94,7 +94,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Transcript preferences</span>
-                <span className="settings-card-desc">Auto-transcribe, language, and speaker labeling — coming soon</span>
+                <span className="settings-card-desc">Auto-transcribe, language, and speaker labeling (coming soon).</span>
               </div>
             </div>
             <div className="settings-card settings-card-disabled">
@@ -103,7 +103,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Storage & privacy</span>
-                <span className="settings-card-desc">Transcript retention and download my data — coming soon</span>
+                <span className="settings-card-desc">Transcript retention and personal data export (coming soon).</span>
               </div>
             </div>
           </div>
@@ -167,7 +167,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Appearance</span>
-                <span className="settings-card-desc">Theme and display — coming soon</span>
+                <span className="settings-card-desc">Theme and display (coming soon).</span>
               </div>
             </div>
           </div>
@@ -182,7 +182,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-card-content">
                 <span className="settings-card-title">Export data</span>
-                <span className="settings-card-desc">Download your data — coming soon</span>
+                <span className="settings-card-desc">Download your data (coming soon).</span>
               </div>
             </div>
           </div>

@@ -1,0 +1,32 @@
+.notus-skeleton,
+.notus-skeleton-line {
+  display: block;
+  width: 100%;
+  height: 0.95rem;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  background-size: 200% 100%;
+  animation: notus-skeleton-wave 1.2s ease-in-out infinite;
+}
+
+.notus-skeleton-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notus-skeleton-block .notus-skeleton-line:nth-child(2n) {
+  width: 82%;
+}
+
+@keyframes notus-skeleton-wave {
+  0% { background-position: 180% 0; }
+  100% { background-position: -20% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notus-skeleton,
+  .notus-skeleton-line {
+    animation: none;
+  }
+}

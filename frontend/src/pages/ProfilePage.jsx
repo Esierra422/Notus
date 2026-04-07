@@ -16,6 +16,7 @@ import { validateBirthdate, formatBirthdateForDisplay } from '../lib/inputFormat
 import { formatDate, getTimeZone, getLocale } from '../lib/dateUtils'
 import { formatPhoneForDisplay, parseE164 } from '../lib/countryCodes'
 import { PhoneInput } from '../components/ui/PhoneInput'
+import { Check } from 'lucide-react'
 import {
   CameraIcon,
   PencilIcon,
@@ -28,7 +29,7 @@ import './ProfilePage.css'
 const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', member: 'Member' }
 
 /**
- * Profile page — top section always visible, account meta, quick actions, Notus preferences.
+ * Profile page  -  top section always visible, account meta, quick actions, Notus preferences.
  */
 export function ProfilePage() {
   const { user, setNavExtra } = useOutletContext() || {}
@@ -284,7 +285,13 @@ export function ProfilePage() {
             title="Copy email"
           >
             {email || 'No email'}
-            {copied && <span> · Copied!</span>}
+            {copied && (
+              <>
+                {' '}
+                <Check size={15} strokeWidth={2.5} className="profile-hero-email-check" aria-hidden />
+                <span className="profile-hero-copied-label">Copied</span>
+              </>
+            )}
           </button>
           <div className="profile-hero-badges">
             {roleLabel && <span className="profile-badge">{roleLabel}</span>}
@@ -300,7 +307,7 @@ export function ProfilePage() {
         </section>
       </div>
 
-      {/* Personal information — always visible, pencil to edit */}
+      {/* Personal information  -  always visible, pencil to edit */}
       <section className="profile-card">
         <div className="profile-card-header">
           <h3 className="profile-card-title">Personal information</h3>
@@ -378,7 +385,7 @@ function ProfileFieldView({ field, value }) {
   return (
     <div className="profile-field">
       <span className="profile-label">{label}</span>
-      <span className="profile-value">{displayValue || '—'}</span>
+      <span className="profile-value">{displayValue || 'Not set'}</span>
     </div>
   )
 }

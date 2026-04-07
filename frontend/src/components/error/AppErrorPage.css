@@ -1,0 +1,33 @@
+.app-error-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.app-error-card {
+  width: min(680px, 100%);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 1.25rem;
+}
+
+.app-error-title {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+
+.app-error-message {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.app-error-actions {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}

@@ -3,6 +3,8 @@ import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom
 import { getOrg, getMembership, getOrgMembers, updateOrg, canManageOrg, MEMBERSHIP_STATES } from '../lib/orgService'
 import { getOrgTeams } from '../lib/teamService'
 import { compressImageToDataUrl } from '../lib/imageUtils'
+import { InlineToast } from '../components/ui/InlineToast'
+import { useInlineToast } from '../hooks/useInlineToast.js'
 import { BuildingIcon, PencilIcon, UsersIcon, ArrowLeftIcon, MoreVerticalIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AppLayout.css'
@@ -23,6 +25,7 @@ export function OrgProfilePage() {
   const teamMenuRef = useRef(null)
   const [isEditingDesc, setIsEditingDesc] = useState(false)
   const [editDesc, setEditDesc] = useState('')
+  const { toast, showToast } = useInlineToast()
   const [savingDesc, setSavingDesc] = useState(false)
   const [error, setError] = useState('')
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -95,6 +98,7 @@ export function OrgProfilePage() {
       await updateOrg(orgId, { description: editDesc }, user.uid)
       setOrg((o) => (o ? { ...o, description: editDesc } : null))
       setIsEditingDesc(false)
+      showToast('Organization profile saved.')
     } catch (err) {
       setError(err?.message || 'Failed to save.')
     } finally {
@@ -108,7 +112,7 @@ export function OrgProfilePage() {
     setUploadingImage(true)
     setError('')
     try {
-      const dataUrl = await compressImageToDataUrl(file)
+      const dataUrl = await compressImageToDataUrl(file, { maxSize: 420, maxDataSize: 360 * 1024 })
       await updateOrg(orgId, { imageUrl: dataUrl }, user.uid)
       setOrg((o) => (o ? { ...o, imageUrl: dataUrl } : null))
     } catch (err) {
@@ -138,7 +142,7 @@ export function OrgProfilePage() {
     setUploadingImage(true)
     setError('')
     try {
-      const dataUrl = await compressImageToDataUrl(file)
+      const dataUrl = await compressImageToDataUrl(file, { maxSize: 1400, quality: 0.78, maxDataSize: 520 * 1024 })
       await updateOrg(orgId, { bannerUrl: dataUrl }, user.uid)
       setOrg((o) => (o ? { ...o, bannerUrl: dataUrl } : null))
     } catch (err) {
@@ -170,6 +174,7 @@ export function OrgProfilePage() {
 
   return (
     <main className="app-main profile-main org-profile-main">
+      <InlineToast message={toast?.message} tone={toast?.tone} />
       <Link to={`/app/org/${orgId}`} className="page-back-btn">
         <ArrowLeftIcon size={18} /> Back to {org.name}
       </Link>
@@ -291,7 +296,7 @@ export function OrgProfilePage() {
               </form>
             ) : (
               <p className="profile-hero-meta" style={{ margin: 0, textAlign: 'left', width: '100%' }}>
-                {org.description || 'No description yet.'}
+                {org.description || 'No description has been added yet.'}
               </p>
             )}
           </div>
@@ -346,7 +351,7 @@ export function OrgProfilePage() {
             </li>
           ))}
           {teams.length === 0 && (
-            <li className="org-teams-empty">No teams yet</li>
+            <li className="org-teams-empty">No teams are available.</li>
           )}
         </ul>
       </section>

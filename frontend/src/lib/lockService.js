@@ -1,5 +1,5 @@
 /**
- * Lock chat — PIN-protected chats. Data stored in localStorage.
+ * Lock chat  -  PIN-protected chats. Data stored in localStorage.
  * Key format: notus_lock_* (scoped per userId for multi-account).
  */
 

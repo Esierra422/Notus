@@ -1,0 +1,163 @@
+@import './AppCompanyPages.css';
+
+/* Narrower measure for policy text */
+.app-legal-main.app-co-main {
+  max-width: 52rem;
+}
+
+.app-legal-meta {
+  margin: 0 0 0 1rem;
+  padding-bottom: 1.5rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.app-legal-meta strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.app-legal-disclaimer {
+  margin: 0 0 2rem;
+  padding: 1rem 1.15rem;
+  background: rgba(212, 168, 83, 0.08);
+  border: 1px solid rgba(212, 168, 83, 0.2);
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.app-legal-disclaimer strong {
+  color: var(--accent-dim);
+}
+
+.app-legal-prose {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.app-legal-block {
+  padding: 1.35rem 1.45rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.app-legal-block h2 {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.app-legal-block h3 {
+  margin: 1.1rem 0 0.45rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.app-legal-block h3:first-of-type {
+  margin-top: 0;
+}
+
+.app-legal-block p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+.app-legal-block p + p {
+  margin-top: 0.65rem;
+}
+
+.app-legal-block ul,
+.app-legal-block ol {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.app-legal-block li + li {
+  margin-top: 0.35rem;
+}
+
+.app-legal-block a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.app-legal-block a:hover {
+  text-decoration: underline;
+}
+
+.app-legal-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.app-legal-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-dim);
+  background: rgba(212, 168, 83, 0.1);
+  border: 1px solid rgba(212, 168, 83, 0.2);
+  border-radius: 999px;
+  text-decoration: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.app-legal-pill:hover {
+  border-color: rgba(212, 168, 83, 0.4);
+  background: rgba(212, 168, 83, 0.14);
+}
+
+.app-legal-table-wrap {
+  margin-top: 0.75rem;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.app-legal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.app-legal-table th,
+.app-legal-table td {
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-legal-table th {
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.app-legal-table td {
+  color: var(--text-muted);
+}
+
+.app-legal-table tr:last-child td {
+  border-bottom: none;
+}

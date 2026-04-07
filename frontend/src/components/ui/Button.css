@@ -2,11 +2,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.6rem 1.25rem;
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-4);
   font-family: var(--font-body);
-  font-size: 0.95rem;
-  font-weight: 500;
-  border-radius: 10px;
+  font-size: var(--text-md);
+  font-weight: 600;
+  border-radius: var(--radius-md);
   text-decoration: none;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
@@ -45,11 +46,13 @@
 }
 
 .btn-sm {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.875rem;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
 }
 
 .btn-lg {
-  padding: 0.875rem 1.75rem;
-  font-size: 1rem;
+  min-height: var(--control-h-lg);
+  padding: 0 var(--space-5);
+  font-size: var(--text-lg);
 }

@@ -231,3 +231,29 @@
 .message-context-item-danger:hover {
   background: rgba(229, 115, 115, 0.1);
 }
+
+.message-context-emoji-btn:focus-visible,
+.message-context-plus-btn:focus-visible,
+.message-context-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-context-dim,
+  .message-context-dim--exiting,
+  .message-context-panel,
+  .message-context-panel--exiting,
+  .message-context-reactions-enter,
+  .message-context-menu-enter .message-context-item {
+    animation: none !important;
+  }
+
+  .message-context-emoji-btn,
+  .message-context-plus-btn,
+  .message-context-item {
+    transition: none !important;
+    transform: none !important;
+  }
+}

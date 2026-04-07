@@ -1,0 +1,403 @@
+/* Shared company pages  -  dark shell, gold accents, Syne headlines */
+
+.app-co-main {
+  max-width: 920px;
+  margin: 0 auto;
+  padding-bottom: 2.5rem;
+}
+
+.app-co-back {
+  margin-bottom: 1.25rem;
+}
+
+.app-co-hero {
+  position: relative;
+  padding: 1.5rem 0 2.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-co-hero::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  bottom: 1.5rem;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--accent) 0%, rgba(212, 168, 83, 0.25) 100%);
+}
+
+.app-co-kicker {
+  margin: 0 0 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-dim);
+}
+
+.app-co-title {
+  margin: 0 0 0.65rem 1rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.85rem, 4vw, 2.35rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.app-co-subtitle {
+  margin: 0 0 0 1rem;
+  max-width: 36rem;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* Stats row */
+.app-co-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin: 2rem 0 2.5rem;
+}
+
+@media (max-width: 640px) {
+  .app-co-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app-co-stat {
+  padding: 1.25rem 1.35rem;
+  background: linear-gradient(145deg, rgba(22, 21, 19, 0.95) 0%, var(--bg-card) 100%);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  text-align: left;
+}
+
+.app-co-stat-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 0.35rem;
+}
+
+.app-co-stat-label {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Section blocks */
+.app-co-section {
+  margin-bottom: 2.75rem;
+}
+
+.app-co-section-head {
+  margin: 0 0 1.25rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.app-co-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 700px) {
+  .app-co-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app-co-panel {
+  padding: 1.35rem 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.app-co-panel:hover {
+  border-color: rgba(212, 168, 83, 0.28);
+  box-shadow: 0 0 0 1px rgba(212, 168, 83, 0.06);
+}
+
+.app-co-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.app-co-panel p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.app-co-values {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.app-co-value-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1.1rem 1.25rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.app-co-value-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(212, 168, 83, 0.12);
+  border: 1px solid rgba(212, 168, 83, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.app-co-value-body h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.app-co-value-body p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* Careers  -  role cards */
+.app-co-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-co-role {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.35rem 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.app-co-role-info h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.app-co-role-info p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.app-co-pill {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-dim);
+  background: rgba(212, 168, 83, 0.1);
+  border-radius: 6px;
+}
+
+.app-co-cta-band {
+  margin-top: 2.5rem;
+  padding: 1.75rem 1.5rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(212, 168, 83, 0.12) 0%, rgba(22, 21, 19, 0.9) 45%, var(--bg-card) 100%);
+  border: 1px solid rgba(212, 168, 83, 0.22);
+  text-align: center;
+}
+
+.app-co-cta-band h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.app-co-cta-band p {
+  margin: 0 0 1.25rem;
+  font-size: 0.92rem;
+  color: var(--text-muted);
+  max-width: 28rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Contact layout */
+.app-co-contact-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 2rem;
+  align-items: start;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 800px) {
+  .app-co-contact-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app-co-contact-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-co-contact-card {
+  padding: 1.25rem 1.35rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.app-co-contact-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.app-co-contact-card a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.app-co-contact-card a:hover {
+  text-decoration: underline;
+}
+
+.app-co-contact-card p {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.app-co-form-wrap {
+  padding: 1.5rem 1.5rem 1.65rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.app-co-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.app-co-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.app-co-field input,
+.app-co-field select,
+.app-co-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.95rem;
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.app-co-field input:focus,
+.app-co-field select:focus,
+.app-co-field textarea:focus {
+  border-color: rgba(212, 168, 83, 0.45);
+  box-shadow: 0 0 0 3px rgba(212, 168, 83, 0.12);
+}
+
+.app-co-field textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.app-co-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.app-co-form-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.app-co-form-success {
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.88rem;
+  color: var(--text);
+  background: rgba(212, 168, 83, 0.12);
+  border: 1px solid rgba(212, 168, 83, 0.25);
+  border-radius: 10px;
+}
+
+.app-co-inline-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.app-co-inline-links a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.app-co-inline-links a:hover {
+  text-decoration: underline;
+}

@@ -10,4 +10,40 @@
   --border: rgba(212, 168, 83, 0.15);
   --font-display: 'Syne', sans-serif;
   --font-body: 'DM Sans', sans-serif;
+
+  /* Design system sizing + spacing tokens */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+
+  --control-h-sm: 34px;
+  --control-h-md: 40px;
+  --control-h-lg: 46px;
+
+  --card-padding: 1rem;
+  --modal-padding: 1.25rem;
+  --dropdown-padding: 0.5rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 0.95rem;
+  --text-lg: 1rem;
+
+  --focus-ring: 0 0 0 3px rgba(212, 168, 83, 0.18);
+
+  /* Layout consistency tokens */
+  --layout-content-max: 800px;
+  --layout-wide-max: 1120px;
+  --layout-pad-x: 1.5rem;
+  --layout-pad-y: 1.5rem;
+  --layout-pad-x-mobile: 1rem;
+  --layout-section-gap: 1.5rem;
 }

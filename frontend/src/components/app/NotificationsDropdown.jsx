@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getPendingInvitationsForEmail, acceptInvitation, rejectInvitation } from '../../lib/invitationService'
 import {
@@ -26,6 +26,9 @@ export function NotificationsDropdown({ user }) {
   const [loading, setLoading] = useState(false)
   const [actioning, setActioning] = useState({})
   const containerRef = useRef(null)
+  const triggerRef = useRef(null)
+  const panelRef = useRef(null)
+  const panelId = useId()
 
   const invitations = [
     ...orgInvitations.map((i) => ({ ...i, type: 'org' })),
@@ -106,6 +109,31 @@ export function NotificationsDropdown({ user }) {
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const firstAction = panelRef.current?.querySelector('button')
+    firstAction?.focus()
+  }, [open])
+
+  const handleTriggerKeyDown = (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      setOpen(true)
+      return
+    }
+    if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
+  const handlePanelKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+  }
 
   const handleAcceptOrg = async (inv) => {
     setActioning((a) => ({ ...a, [inv.id]: true }))
@@ -208,11 +236,16 @@ export function NotificationsDropdown({ user }) {
   return (
     <div className="notifications-dropdown" ref={containerRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={['notifications-trigger', hasUnread ? 'notifications-trigger--unread' : ''].filter(Boolean).join(' ')}
         onClick={() => setOpen(!open)}
+        onKeyDown={handleTriggerKeyDown}
         title="Notifications"
         aria-label={`Notifications${hasUnread ? ' (unread)' : ''}`}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? panelId : undefined}
       >
         <BellIcon size={20} />
         {hasUnread && <span className="notifications-unread-dot" aria-hidden />}
@@ -221,7 +254,14 @@ export function NotificationsDropdown({ user }) {
         )}
       </button>
       {open && (
-        <div className="notifications-panel">
+        <div
+          className="notifications-panel"
+          id={panelId}
+          role="dialog"
+          aria-label="Notifications"
+          ref={panelRef}
+          onKeyDown={handlePanelKeyDown}
+        >
           <h4 className="notifications-title">Notifications</h4>
           {loading && (
             <p className="notifications-empty notifications-panel-hint">Updating invitations…</p>
@@ -237,6 +277,26 @@ export function NotificationsDropdown({ user }) {
                             n.type === NOTIFICATION_TYPES.instantMeetingInvite ||
                             n.type === NOTIFICATION_TYPES.calendarEventInvite) && (
                             <>
+                              {(n.senderDisplayName || n.orgName) && (
+                                <span className="notifications-item-from">
+                                  {n.senderDisplayName ? (
+                                    <>
+                                      <strong>{n.senderDisplayName}</strong>
+                                      {n.orgName ? (
+                                        <>
+                                          {' '}
+                                          <span className="notifications-item-from-sep" aria-hidden>
+                                            ·
+                                          </span>{' '}
+                                          {n.orgName}
+                                        </>
+                                      ) : null}
+                                    </>
+                                  ) : (
+                                    <strong>{n.orgName}</strong>
+                                  )}
+                                </span>
+                              )}
                               <strong>{n.title || 'Meeting'}</strong>
                               <br />
                               <span className="notifications-item-sub">{n.body}</span>

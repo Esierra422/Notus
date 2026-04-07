@@ -1,5 +1,5 @@
 /**
- * Organizations selector — lists all orgs user belongs to.
+ * Organizations selector: lists all orgs the user belongs to.
  * Click an org to go to its dashboard. Add new organization opens a modal.
  */
 import { useState, useEffect } from 'react'
@@ -175,7 +175,7 @@ export function OrganizationsPage() {
           </div>
         ))}
         {orgs.length === 0 && !pendingOrg && (
-          <p className="app-muted">No organizations yet. Create one to get started.</p>
+          <p className="app-muted">No organizations are available yet. Create an organization to get started.</p>
         )}
       </div>
 

@@ -15,26 +15,26 @@ const FOOTER_COLUMNS = [
     title: 'Resources',
     links: [
       { to: '/app/how-it-works', label: 'How it works' },
-      { href: '#', label: 'Help Center' },
-      { href: '#', label: 'Blog' },
-      { href: '#', label: 'Community' },
+      { to: '/app/help', label: 'Help Center' },
+      { to: '/app/blog', label: 'Blog' },
+      { to: '/app/community', label: 'Community' },
     ],
   },
   {
     title: 'Company',
     links: [
-      { href: '#', label: 'About' },
-      { href: '#', label: 'Careers' },
-      { href: '#', label: 'Contact' },
+      { to: '/app/about', label: 'About' },
+      { to: '/app/careers', label: 'Careers' },
+      { to: '/app/contact', label: 'Contact' },
     ],
   },
   {
     title: 'Legal',
     links: [
-      { href: '#', label: 'Privacy' },
-      { href: '#', label: 'Terms' },
-      { href: '#', label: 'Security' },
-      { href: '#', label: 'Cookies' },
+      { to: '/app/privacy', label: 'Privacy' },
+      { to: '/app/terms', label: 'Terms' },
+      { to: '/app/security', label: 'Security' },
+      { to: '/app/cookies', label: 'Cookies' },
     ],
   },
 ]

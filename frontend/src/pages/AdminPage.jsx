@@ -337,7 +337,7 @@ export function AdminPage() {
             disabled={inviteLoading}
           />
           <button type="submit" className="org-admin-btn org-admin-btn-approve" disabled={inviteLoading}>
-            {inviteLoading ? 'Sending…' : 'Send invitation'}
+            {inviteLoading ? 'Sending…' : 'Send Invitation'}
           </button>
         </form>
           {inviteError && <p className="org-admin-error">{inviteError}</p>}
@@ -656,7 +656,7 @@ export function AdminPage() {
           ))}
           {filteredTeams.length === 0 && (
             <li className="org-teams-empty">
-              {teamSearch ? `No teams match "${teamSearch}"` : 'No teams yet. Create one above.'}
+              {teamSearch ? `No teams match "${teamSearch}"` : 'No teams are available yet. Create a team above to get started.'}
             </li>
           )}
         </ul>

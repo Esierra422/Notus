@@ -1,5 +1,5 @@
 /**
- * User service — canonical user doc at users/{uid} only.
+ * User service: canonical user doc at users/{uid} only.
  *
  * Architecture (see Documentation/ARCHITECTURE.md):
  * - User profiles live ONLY at users/{uid}. uid from Firebase Auth.
@@ -77,7 +77,7 @@ export function getDisplayName(userDoc, fallbackUserId = '', authUser = null) {
 }
 
 /**
- * Format full display: "First Last — email" (name, then email).
+ * Format full display: "First Last · email" (name, then email).
  * authUser: optional Firebase Auth user when profile has no name/email.
  */
 export function getDisplayLabel(userDoc, fallbackUserId = '', authUser = null) {
@@ -89,17 +89,17 @@ export function getDisplayLabel(userDoc, fallbackUserId = '', authUser = null) {
   const parts = []
   if (name) parts.push(name)
   if (email) parts.push(email)
-  if (parts.length > 0) return parts.join(' — ')
+  if (parts.length > 0) return parts.join(' · ')
   if (displayName && !userDoc) return displayName
   return fallbackUserId ? `User ${fallbackUserId.slice(0, 8)}…` : ''
 }
 
 /**
- * Format member/request line: "First Last — email — role"
+ * Format member/request line: "First Last · email · role"
  */
 export function getMemberDisplayLine(userDoc, userId, authUser, role) {
   const base = getDisplayLabel(userDoc, userId, authUser)
-  return role ? `${base} — ${role}` : base
+  return role ? `${base} · ${role}` : base
 }
 
 /**

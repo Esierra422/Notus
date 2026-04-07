@@ -19,7 +19,7 @@ import { db } from './firebase'
 export const NOTIFICATION_TYPES = {
   meetingInvite: 'meeting_invite',
   instantMeetingInvite: 'instant_meeting_invite',
-  /** Scheduled calendar-only event — invite adds the event to the recipient’s calendar view. */
+  /** Scheduled calendar-only event  -  invite adds the event to the recipient’s calendar view. */
   calendarEventInvite: 'calendar_event_invite',
 }
 
@@ -34,6 +34,10 @@ export async function createMeetingInviteNotifications({
   meetingId,
   title,
   body,
+  /** Shown in the bell UI (who sent the invite). */
+  senderDisplayName,
+  /** Organization name for context in the bell UI. */
+  orgName,
   isInstant = false,
   /** When not instant: calendar-only events vs video / lobby meetings. */
   inviteKind = 'video_meeting',
@@ -44,6 +48,8 @@ export async function createMeetingInviteNotifications({
       ? NOTIFICATION_TYPES.calendarEventInvite
       : NOTIFICATION_TYPES.meetingInvite
   const ids = [...new Set((recipientUids || []).filter(Boolean))].filter((id) => id !== fromUid)
+  const sender = typeof senderDisplayName === 'string' ? senderDisplayName.trim() : ''
+  const org = typeof orgName === 'string' ? orgName.trim() : ''
   await Promise.all(
     ids.map((toUid) =>
       addDoc(notifCol(toUid), {
@@ -55,6 +61,8 @@ export async function createMeetingInviteNotifications({
         meetingId,
         title: title || 'Meeting',
         body: body || 'You were invited to a meeting.',
+        ...(sender ? { senderDisplayName: sender } : {}),
+        ...(org ? { orgName: org } : {}),
       })
     )
   )

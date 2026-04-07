@@ -1,20 +1,24 @@
 /**
- * Organization dashboard — org-scoped overview with stats, teams, shortcuts.
+ * Organization dashboard: org-scoped overview with stats, teams, shortcuts.
  * Distinct from OrgProfilePage (org profile/editing).
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { getOrg, getMembership, getOrgMembers, getPendingRequests, canManageOrg, MEMBERSHIP_STATES } from '../lib/orgService'
 import { getOrgTeams, getTeamMembership } from '../lib/teamService'
 import { getUpcomingMeetingsInHorizonForUserInOrg } from '../lib/meetingService'
 import { formatMeetingRowWhen } from '../lib/dateUtils'
-import { CalendarIcon, VideoIcon, MessageSquareIcon, SettingsIcon, BuildingIcon, UsersIcon } from '../components/ui/Icons'
-import { EventDetailModal } from '../components/calendar/EventDetailModal'
+import { CalendarIcon, VideoIcon, MessageSquareIcon, SettingsIcon, BuildingIcon, UsersIcon, PencilIcon } from '../components/ui/Icons'
+import { Skeleton } from '../components/ui/Skeleton'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './Dashboard.css'
 import './OrgPage.css'
 import './OrgProfilePage.css'
+
+const EventDetailModal = lazy(() =>
+  import('../components/calendar/EventDetailModal').then((m) => ({ default: m.EventDetailModal }))
+)
 
 export function OrgDashboardPage() {
   const { orgId } = useParams()
@@ -149,43 +153,68 @@ export function OrgDashboardPage() {
                     </div>
                   )}
                 </div>
-                {isAdmin && (
-                  <Link to={`/app/org/${orgId}/profile`} className="dashboard-enterprise-edit-profile-link">
-                    Edit profile & cover
-                  </Link>
-                )}
               </div>
               <div className="dashboard-enterprise-hero-copy">
-                <h2 className="dashboard-enterprise-name">{org.name}</h2>
+                <div className="dashboard-enterprise-title-row">
+                  <h2 className="dashboard-enterprise-name">{org.name}</h2>
+                  <div className="org-dashboard-hero-actions">
+                    {isAdmin ? (
+                      <div className="org-dashboard-hero-metrics" aria-label="Organization metrics">
+                        <span className="org-dashboard-metric">
+                          <span className="org-dashboard-metric__value">{members.length}</span>
+                          <span className="org-dashboard-metric__label">Members</span>
+                        </span>
+                        <span className="org-dashboard-metric">
+                          <span className="org-dashboard-metric__value">{teams.length}</span>
+                          <span className="org-dashboard-metric__label">Teams</span>
+                        </span>
+                        {pendingCount > 0 ? (
+                          <span className="org-dashboard-metric org-dashboard-metric--accent">
+                            <span className="org-dashboard-metric__value">{pendingCount}</span>
+                            <span className="org-dashboard-metric__label">Pending</span>
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {isAdmin ? (
+                      <Link to={`/app/org/${orgId}/profile`} className="org-dashboard-edit-btn">
+                        <PencilIcon size={16} />
+                        Edit profile
+                      </Link>
+                    ) : null}
+                    {isAdmin ? (
+                      <Link to={`/app/org/${orgId}/admin`} className="org-dashboard-edit-btn org-dashboard-edit-btn--ghost">
+                        <SettingsIcon size={16} />
+                        Admin
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
                 <p className="dashboard-enterprise-subtitle">Organization dashboard</p>
-                <p className="dashboard-enterprise-about">{org.description || 'No description yet.'}</p>
+                <div className="dashboard-enterprise-badges">
+                  <span className="profile-badge profile-badge-org">{teams.length} teams</span>
+                  <span className="profile-badge profile-badge-org">{isAdmin ? members.length : '—'} members</span>
+                  {isAdmin && pendingCount > 0 ? <span className="profile-badge">Pending: {pendingCount}</span> : null}
+                </div>
+                <p className="dashboard-enterprise-about">
+                  {org.description ? (
+                    org.description
+                  ) : isAdmin ? (
+                    <>
+                      Add a short description to help members understand what this organization is for.{' '}
+                      <Link to={`/app/org/${orgId}/profile`} className="org-dashboard-inline-link">
+                        Add description
+                      </Link>
+                      .
+                    </>
+                  ) : (
+                    'No description provided.'
+                  )}
+                </p>
               </div>
             </div>
           </div>
         </section>
-
-        {isAdmin && (
-          <div className="dashboard-stats">
-            <div className="dashboard-stat-card">
-              <span className="dashboard-stat-value">{members.length}</span>
-              <span className="dashboard-stat-label">Members</span>
-            </div>
-            <div className="dashboard-stat-card">
-              <span className="dashboard-stat-value">{teams.length}</span>
-              <span className="dashboard-stat-label">Teams</span>
-            </div>
-            <div className="dashboard-stat-card">
-              <span className="dashboard-stat-value">{upcomingMeetings.length}</span>
-              <span className="dashboard-stat-label">Upcoming</span>
-            </div>
-            {pendingCount > 0 && (
-              <Link to={`/app/org/${orgId}/admin`} className="dashboard-stat-card dashboard-stat-card-action">
-                <span className="dashboard-stat-value">{pendingCount}</span>
-                <span className="dashboard-stat-label">Pending</span>
-              </Link>
-            )}
-          </div>
-        )}
 
         <div className="dashboard-shortcuts">
           <Link to={`/app/chats?org=${encodeURIComponent(orgId)}`} className="dashboard-shortcut">
@@ -229,9 +258,16 @@ export function OrgDashboardPage() {
             Events and meetings you can access in this organization. Calendar-only items open details; video meetings open the lobby ready to join.
           </p>
           {upcomingMeetingsLoading ? (
-            <p className="dashboard-widget-empty">Loading…</p>
+            <div className="dashboard-widget-empty" aria-label="Loading upcoming meetings">
+              <Skeleton lines={3} />
+            </div>
           ) : upcomingMeetings.length === 0 ? (
-            <p className="dashboard-widget-empty">No upcoming meetings.</p>
+            <p className="dashboard-widget-empty">
+              No upcoming meetings are scheduled.{' '}
+              <Link to={`/app/org/${orgId}/calendar`} className="dashboard-widget-link">
+                Create a meeting in Calendar.
+              </Link>
+            </p>
           ) : (
             <ul className="dashboard-upcoming-list">
               {upcomingMeetings.map((m) => {
@@ -287,25 +323,29 @@ export function OrgDashboardPage() {
               </li>
             ))}
             {teams.length === 0 && (
-              <li className="org-teams-empty">No teams yet{isAdmin && ' — create one in Admin'}</li>
+              <li className="org-teams-empty">
+                No teams are available{isAdmin ? '. Create a team in Admin to get started.' : '.'}
+              </li>
             )}
           </ul>
         </section>
       </div>
 
-      <EventDetailModal
-        item={eventDetailItem}
-        isOpen={Boolean(eventDetailItem)}
-        onClose={() => setEventDetailItem(null)}
-        user={user}
-        userDoc={userDoc}
-        canManageOrg={isAdmin}
-        onUpdated={() => reloadUpcoming()}
-        onDeleted={() => {
-          reloadUpcoming()
-          setEventDetailItem(null)
-        }}
-      />
+      <Suspense fallback={null}>
+        <EventDetailModal
+          item={eventDetailItem}
+          isOpen={Boolean(eventDetailItem)}
+          onClose={() => setEventDetailItem(null)}
+          user={user}
+          userDoc={userDoc}
+          canManageOrg={isAdmin}
+          onUpdated={() => reloadUpcoming()}
+          onDeleted={() => {
+            reloadUpcoming()
+            setEventDetailItem(null)
+          }}
+        />
+      </Suspense>
     </main>
   )
 }

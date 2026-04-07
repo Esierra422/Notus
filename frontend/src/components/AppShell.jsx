@@ -9,10 +9,11 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { getUserDoc } from '../lib/userService'
-import { getActiveMemberships, getOrg, getMembership, canManageOrg } from '../lib/orgService'
+import { getActiveMemberships, getOrg, getMembership, canOpenMemberManagement } from '../lib/orgService'
 import { registerForPush, onForegroundMessage } from '../lib/messagingService'
 import { AppHeader, AppFooter, PROFILE_UPDATED_EVENT } from './app'
 import { PageTransition } from './PageTransition'
+import { CookieConsentManager } from './CookieConsent/CookieConsentManager'
 import '../styles/variables.css'
 import '../pages/AppLayout.css'
 
@@ -29,7 +30,7 @@ export function AppShell() {
   const [userDoc, setUserDoc] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const isChatsPage = /\/org\/[^/]+\/chats/.test(location.pathname)
-  /** Full-height video shell (lobby + in-call only). Past meetings uses normal scroll layout. */
+  /** Full-height video shell for /video lobby + in-call route (not /video/meetings). Footer shows on lobby only  -  hidden in-room via videoCallSuppressAppHeader. */
   const isVideoImmersiveLayout =
     location.pathname === '/app/video' || /^\/app\/org\/[^/]+\/video$/.test(location.pathname)
   const [activeOrg, setActiveOrg] = useState(null)
@@ -92,8 +93,8 @@ export function AppShell() {
   useEffect(() => {
     if (!user?.uid) return
     getActiveMemberships(user.uid).then(async (memberships) => {
-      const admins = memberships.filter((m) => canManageOrg(m))
-      setIsAdmin(admins.length > 0)
+      const canSeeAdmin = memberships.filter((m) => canOpenMemberManagement(m))
+      setIsAdmin(canSeeAdmin.length > 0)
       if (memberships.length === 0) {
         setActiveOrg(null)
         lastOrgRef.current = null
@@ -110,6 +111,8 @@ export function AppShell() {
 
   const displayedOrg = activeOrg ?? (lastOrgRef.current ? { name: lastOrgRef.current } : null)
   const activeOrgId = activeOrg?.id ?? null
+  /** Video lobby shows the global footer; in-call hides it  -  layout needs a taller flex middle to pin the footer. */
+  const videoLobbyWithFooter = isVideoImmersiveLayout && !videoCallSuppressAppHeader
 
   const currentPageTitle = (() => {
     const p = location.pathname
@@ -175,7 +178,14 @@ export function AppShell() {
   return (
     <NavExtraContext.Provider value={setNavExtraOverride}>
       <div
-        className={`app-layout ${isChatsPage ? 'app-layout-chats' : ''} ${isVideoImmersiveLayout ? 'app-layout-video' : ''}`}
+        className={[
+          'app-layout',
+          isChatsPage ? 'app-layout-chats' : '',
+          isVideoImmersiveLayout ? 'app-layout-video' : '',
+          videoLobbyWithFooter ? 'app-layout-video--footer' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
       >
         <AppHeader
           user={user}
@@ -197,7 +207,8 @@ export function AppShell() {
             }}
           />
         </PageTransition>
-        {!isChatsPage && !isVideoImmersiveLayout && <AppFooter />}
+        <CookieConsentManager />
+        {!isChatsPage && !(isVideoImmersiveLayout && videoCallSuppressAppHeader) && <AppFooter />}
       </div>
     </NavExtraContext.Provider>
   )

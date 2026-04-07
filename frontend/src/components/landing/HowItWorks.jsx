@@ -5,7 +5,7 @@ const STEPS = [
   {
     num: 1,
     title: 'Sign up in seconds',
-    desc: 'Create your account with Google or email. No credit card required. Pick a display name and profile photo. You can add more details—birthdate, phone, timezone—later in your profile.',
+    desc: 'Create your account with Google or email. No credit card required. Choose a display name and profile photo. Add birthdate, phone, and time zone later in your profile.',
   },
   {
     num: 2,
@@ -15,7 +15,7 @@ const STEPS = [
   {
     num: 3,
     title: 'Invite teammates',
-    desc: 'Invite colleagues by email—they’ll get a link to join your org. Once in, add them to teams. You can also create teams that are “open to join” so org members can join without an invite.',
+    desc: 'Invite colleagues by email; they receive a link to join your org. Then add them to teams, or create open-to-join teams so org members can join without a direct invite.',
   },
   {
     num: 4,
@@ -45,7 +45,7 @@ export function HowItWorks() {
       <ScrollReveal>
         <h2 className="section-title">Simple by design</h2>
         <p className="section-subtitle">
-          From signup to your first meeting—here’s how Notus works.
+          From signup to your first meeting: how Notus works.
         </p>
       </ScrollReveal>
       <div className="how-steps how-steps--vertical">

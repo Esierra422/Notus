@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth'
 import { auth, googleProvider, isSafari } from '../lib/firebase'
+import { applyPublicMeta } from '../lib/seo'
 import {
   ensureUserDoc,
   getUserDoc,
@@ -21,6 +22,7 @@ import {
   AuthStepProfile,
   AuthStepProfilePicture,
 } from '../components/auth'
+import { Nav } from '../components/landing/Nav'
 import { ArrowLeftIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AuthPage.css'
@@ -39,6 +41,14 @@ export function SignUpPage() {
   const [googleLoading, setGoogleLoading] = useState(false)
 
   const isProcessingRedirect = location.state?.fromRedirect && location.state?.provider === 'google' && auth.currentUser && !userDoc
+
+  useEffect(() => {
+    applyPublicMeta({
+      title: 'Sign Up | Notus',
+      description: 'Create a Notus account and start collaborating with your team across chat, meetings, and calendar.',
+      path: '/signup',
+    })
+  }, [])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -194,6 +204,7 @@ export function SignUpPage() {
 
   return (
     <div className="auth-page">
+      <Nav />
       <Link to="/" className="auth-back">
         <ArrowLeftIcon size={18} />
         Back

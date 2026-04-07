@@ -2,6 +2,7 @@ import AgoraRTC from 'agora-rtc-sdk-ng'
 import { getApiUrl, getEffectiveApiBase } from './apiConfig.js'
 import { getFunctionsApp } from './firebase.js'
 import { httpsCallable } from 'firebase/functions'
+import { normalizeApiError } from './apiErrors.js'
 
 // --- RTC state ---
 let client = null
@@ -16,6 +17,10 @@ let localUid = 0
 let onUserJoined = null
 let onUserLeft = null
 let onAudioPublished = null
+/** Sync React state from client.remoteUsers when mute/unmute does not replace user object references. */
+let onRemoteUsersRefresh = null
+/** Fires when screen capture ends from the browser/OS so UI can clear banner + layout. */
+let onScreenShareEnded = null
 
 function initializeClient() {
   if (isClientInitialized) return
@@ -35,6 +40,8 @@ function setupEventListeners() {
     if (mediaType === 'video' || mediaType === 'audio') {
       // Audio-only (camera off) must still add the remote user; video-off must not remove them.
       onUserJoined?.(user)
+      // Pull canonical remoteUsers from SDK so track mute / unpublish state matches UI (mic + share end).
+      onRemoteUsersRefresh?.()
     }
     if (mediaType === 'audio') {
       user.audioTrack?.play()
@@ -43,8 +50,21 @@ function setupEventListeners() {
   })
 
   client.on('user-unpublished', (user, mediaType) => {
-    if (mediaType === 'video') {
+    // Audio: setMuted(true) triggers user-unpublished("audio") on remotes  -  must refresh tiles (mic icon).
+    if (mediaType === 'video' || mediaType === 'audio') {
       onUserJoined?.(user)
+      onRemoteUsersRefresh?.()
+    }
+  })
+
+  client.on('user-info-updated', (_uid, msg) => {
+    if (
+      msg === 'mute-audio' ||
+      msg === 'unmute-audio' ||
+      msg === 'mute-video' ||
+      msg === 'unmute-video'
+    ) {
+      onRemoteUsersRefresh?.()
     }
   })
 
@@ -62,14 +82,37 @@ async function fetchToken(channelName, uid) {
     if (contentType.includes('application/json')) {
       const data = await res.json()
       if (res.ok) return data
-      throw new Error(data.error || 'Failed to get token')
+      throw new Error(
+        normalizeApiError(data.error || '', {
+          status: res.status,
+          fallback: 'Could not fetch a video access token.',
+          actionHint: 'Confirm backend credentials and try again.',
+        })
+      )
     }
-    if (!res.ok) throw new Error(`Token request failed (${res.status})`)
+    if (!res.ok) {
+      throw new Error(
+        normalizeApiError('', {
+          status: res.status,
+          fallback: 'Video token request failed.',
+          actionHint: 'Retry in a moment.',
+        })
+      )
+    }
     throw new Error('Server did not return JSON. Is the backend running and configured for video?')
   }
-  const getAgoraToken = httpsCallable(getFunctionsApp(), 'getAgoraToken')
-  const { data } = await getAgoraToken({ channel: channelName, uid })
-  return data
+  try {
+    const getAgoraToken = httpsCallable(getFunctionsApp(), 'getAgoraToken')
+    const { data } = await getAgoraToken({ channel: channelName, uid })
+    return data
+  } catch (err) {
+    throw new Error(
+      normalizeApiError(err, {
+        fallback: 'Could not request an Agora token.',
+        actionHint: 'Check Firebase Functions deployment and permissions.',
+      })
+    )
+  }
 }
 
 async function joinChannel(channelName, options = {}) {
@@ -84,12 +127,56 @@ async function joinChannel(channelName, options = {}) {
 
   await client.join(data.appId, channelName, data.token, data.uid)
 
-  localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack()
-  localVideoTrack = await AgoraRTC.createCameraVideoTrack()
+  if (localAudioTrack) {
+    try {
+      localAudioTrack.close()
+    } catch (e) {
+      console.warn('Stale audio track close:', e)
+    }
+    localAudioTrack = null
+  }
+  if (localVideoTrack) {
+    try {
+      localVideoTrack.close()
+    } catch (e) {
+      console.warn('Stale video track close:', e)
+    }
+    localVideoTrack = null
+  }
 
-  await client.publish([localAudioTrack, localVideoTrack])
-  localAudioTrack.setMuted(micMuted)
-  localVideoTrack.setMuted(videoMuted)
+  const toPublish = []
+
+  try {
+    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack()
+    localAudioTrack.setMuted(micMuted)
+    toPublish.push(localAudioTrack)
+  } catch (e) {
+    if (micOn) {
+      throw new Error(
+        'Microphone access failed. Check browser permissions, or turn the microphone off in the preview and try again.'
+      )
+    }
+    console.warn('Microphone unavailable (joining without mic):', e)
+    localAudioTrack = null
+  }
+
+  localVideoTrack = null
+  if (videoOn) {
+    try {
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack()
+      localVideoTrack.setMuted(videoMuted)
+      toPublish.push(localVideoTrack)
+    } catch (e) {
+      console.warn('Camera unavailable:', e)
+      throw new Error(
+        'Camera access failed. Turn the camera off in the preview to join audio-only, then turn video on from the toolbar if you want.'
+      )
+    }
+  }
+
+  if (toPublish.length) {
+    await client.publish(toPublish)
+  }
 
   return { uid: data.uid, audioTrack: localAudioTrack, videoTrack: localVideoTrack }
 }
@@ -146,7 +233,18 @@ async function startScreenShare() {
   await client.unpublish([localVideoTrack])
   await client.publish([localScreenTrack])
   localScreenTrack.on('track-ended', () => {
-    stopScreenShare().catch(() => {})
+    void (async () => {
+      try {
+        await stopScreenShare()
+      } catch (e) {
+        console.warn('stopScreenShare after track-ended:', e)
+      }
+      try {
+        onScreenShareEnded?.()
+      } catch (e) {
+        console.warn('onScreenShareEnded:', e)
+      }
+    })()
   })
   return localScreenTrack
 }
@@ -201,10 +299,29 @@ function toggleMic() {
   return micMuted
 }
 
-function toggleVideo() {
-  if (!localVideoTrack) return videoMuted
-  videoMuted = !videoMuted
-  localVideoTrack.setMuted(videoMuted)
+async function toggleVideo() {
+  initializeClient()
+  if (!client) return videoMuted
+
+  if (localVideoTrack) {
+    videoMuted = !videoMuted
+    localVideoTrack.setMuted(videoMuted)
+    return videoMuted
+  }
+
+  if (videoMuted) {
+    try {
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack()
+      await client.publish([localVideoTrack])
+      videoMuted = false
+      localVideoTrack.setMuted(false)
+      return false
+    } catch (e) {
+      console.warn('Could not start camera:', e)
+      throw e
+    }
+  }
+
   return videoMuted
 }
 
@@ -234,10 +351,18 @@ function getRemoteUsers() {
   }
 }
 
-function setCallbacks({ onJoined, onLeft, onAudioPublished: onAudioPub }) {
+function setCallbacks({
+  onJoined,
+  onLeft,
+  onAudioPublished: onAudioPub,
+  onRemoteUsersRefresh: onRefresh,
+  onScreenShareEnded: onShareEnd,
+}) {
   onUserJoined = onJoined || null
   onUserLeft = onLeft || null
   onAudioPublished = onAudioPub || null
+  onRemoteUsersRefresh = onRefresh || null
+  onScreenShareEnded = onShareEnd || null
 }
 
 export {

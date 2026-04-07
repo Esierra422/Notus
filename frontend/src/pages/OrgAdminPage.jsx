@@ -165,7 +165,7 @@ export function OrgAdminPage() {
               disabled={inviteLoading}
             />
             <button type="submit" className="org-admin-btn org-admin-btn-approve" disabled={inviteLoading}>
-              {inviteLoading ? 'Sending…' : 'Send invitation'}
+              {inviteLoading ? 'Sending…' : 'Send Invitation'}
             </button>
           </form>
           {inviteError && <p className="org-admin-error">{inviteError}</p>}

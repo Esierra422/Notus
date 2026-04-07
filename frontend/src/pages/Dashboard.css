@@ -23,7 +23,7 @@
 .dashboard-overview {
   display: flex;
   flex-direction: column;
-  gap: 1.75rem;
+  gap: var(--layout-section-gap);
 }
 
 .dashboard-stats {
@@ -210,6 +210,10 @@
   opacity: 0.92;
 }
 
+.dashboard-stat-today-quote cite {
+  font-style: normal;
+}
+
 .dashboard-stat-today-weekday {
   font-size: 0.8rem;
   font-weight: 500;
@@ -363,6 +367,7 @@
 }
 
 .dashboard-shortcut {
+  appearance: none;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -372,6 +377,8 @@
   border-radius: 12px;
   text-decoration: none;
   color: inherit;
+  font: inherit;
+  text-align: left;
   transition: border-color 0.2s, background 0.2s;
 }
 
@@ -505,6 +512,38 @@
   font-size: 0.9rem;
   color: var(--text-muted);
   margin: 0;
+}
+
+.dashboard-inline-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.55rem;
+  margin: 0 0.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  line-height: 1.1;
+  transition: transform 120ms ease, border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.dashboard-inline-action:hover {
+  border-color: rgba(212, 168, 83, 0.35);
+  background: rgba(212, 168, 83, 0.08);
+  transform: translateY(-1px);
+}
+
+.dashboard-inline-action:active {
+  transform: translateY(0);
+}
+
+.dashboard-inline-action:focus-visible {
+  outline: 2px solid rgba(212, 168, 83, 0.55);
+  outline-offset: 2px;
 }
 
 .dashboard-todo-list-compact .dashboard-todo-item {
@@ -785,11 +824,12 @@
   border: 1px solid var(--border);
   background: var(--bg-card);
   overflow: hidden;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.26);
 }
 
 .dashboard-enterprise-banner {
   position: relative;
-  height: clamp(120px, 22vw, 200px);
+  height: clamp(160px, 23vw, 224px);
   background-color: var(--bg-elevated);
   background-image: linear-gradient(
     120deg,
@@ -801,8 +841,24 @@
   background-position: center;
 }
 
+.dashboard-enterprise-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 18% 35%, rgba(212, 168, 83, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 10%, rgba(0, 0, 0, 0.28) 0%, transparent 55%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.45) 100%);
+  opacity: 0.95;
+}
+
 .dashboard-enterprise-banner--image {
   background-image: none;
+}
+
+.dashboard-enterprise-banner--image::after {
+  opacity: 0.55;
 }
 
 .dashboard-enterprise-banner-edit {
@@ -832,8 +888,8 @@
 }
 
 .dashboard-enterprise-hero-body {
-  padding: 0 1.35rem 1.35rem;
-  margin-top: -52px;
+  padding: 0 1.5rem 1.5rem;
+  margin-top: -46px;
 }
 
 @media (min-width: 640px) {
@@ -845,7 +901,7 @@
 .dashboard-enterprise-hero-main {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.15rem;
+  gap: 1.25rem;
   align-items: flex-start;
 }
 
@@ -854,7 +910,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.55rem;
 }
 
 .team-dashboard-enterprise-avatar-wrap .profile-avatar-btn {
@@ -864,8 +920,8 @@
 
 .dashboard-enterprise-avatar,
 .dashboard-enterprise-avatar-placeholder {
-  width: 96px;
-  height: 96px;
+  width: 104px;
+  height: 104px;
   border-radius: 50%;
   object-fit: cover;
   border: 4px solid var(--bg-card);
@@ -883,7 +939,7 @@
 .dashboard-enterprise-hero-copy {
   flex: 1;
   min-width: min(100%, 220px);
-  padding-top: 2.85rem;
+  padding-top: 2.1rem;
 }
 
 @media (min-width: 640px) {
@@ -902,23 +958,24 @@
 
 .dashboard-enterprise-name {
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-size: clamp(1.42rem, 2.1vw, 1.82rem);
+  font-weight: 700;
   color: var(--text);
   letter-spacing: -0.02em;
 }
 
 .dashboard-enterprise-subtitle {
-  margin: 0.2rem 0 0;
+  margin: 0.3rem 0 0;
   font-size: 0.9rem;
   color: var(--text-muted);
 }
 
 .dashboard-enterprise-about {
-  margin: 0.75rem 0 0;
+  margin: 0.85rem 0 0;
   font-size: 0.95rem;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--text);
+  max-width: 70ch;
 }
 
 .dashboard-enterprise-settings {
@@ -926,16 +983,110 @@
 }
 
 .dashboard-enterprise-badges {
-  margin-top: 0.65rem;
+  margin-top: 0.78rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
 }
 
-.dashboard-enterprise-edit-profile-link {
-  font-size: 0.82rem;
+.profile-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.org-dashboard-hero-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.org-dashboard-hero-metrics {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0.45rem;
+  margin-right: 0.25rem;
+}
+
+.org-dashboard-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.org-dashboard-metric--accent {
+  border-color: rgba(212, 168, 83, 0.28);
+  background: rgba(212, 168, 83, 0.12);
+}
+
+.org-dashboard-metric__value {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.org-dashboard-metric__label {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.org-dashboard-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 168, 83, 0.28);
+  background: rgba(212, 168, 83, 0.12);
   color: var(--accent);
   text-decoration: none;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-.dashboard-enterprise-edit-profile-link:hover {
+.org-dashboard-edit-btn:hover {
+  border-color: rgba(212, 168, 83, 0.45);
+  background: rgba(212, 168, 83, 0.16);
+}
+
+.org-dashboard-edit-btn--ghost {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.org-dashboard-edit-btn--ghost:hover {
+  border-color: rgba(212, 168, 83, 0.28);
+}
+
+.org-dashboard-inline-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.org-dashboard-inline-link:hover {
   text-decoration: underline;
 }
 

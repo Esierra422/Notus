@@ -1,7 +1,7 @@
 # How to get video calls working on your live website
 
 **The problem:**  
-Video works on your computer (localhost) because your backend runs there. On the real site (e.g. notusapp.com), there is no backend—so "Join call" has nowhere to get a token and it fails.
+Video works on your computer (localhost) because your backend runs there. On the real site (e.g. notusapp.com), there is no backend - so "Join call" has nowhere to get a token and it fails.
 
 **The fix:**  
 Put your backend on the internet for free using Render, then tell your frontend to use that URL. After that, the live site can get tokens and video will work.
@@ -31,7 +31,7 @@ Put your backend on the internet for free using Render, then tell your frontend 
 4. Render will see `render.yaml` and create a service named **notus-api**. Click **Apply** (or **Create**).
 5. Wait for the first deploy to finish (a few minutes). When it’s done, you’ll see a URL like:  
    `https://notus-api.onrender.com`  
-   **Copy that URL** — you’ll need it in Step 4.
+   **Copy that URL**  -  you’ll need it in Step 4.
 
 ---
 
@@ -43,11 +43,23 @@ Put your backend on the internet for free using Render, then tell your frontend 
 
    | Name                 | Value |
    |----------------------|--------|
-   | `CLIENT_URL`         | `https://notusapp.com,https://notus-e026b.web.app` |
+   | `CLIENT_URL`         | Comma-separated **exact** origins your users use (scheme + host, no path). Example: `https://notusapp.com,https://www.notusapp.com,https://notus-e026b.web.app` |
    | `AGORA_APP_ID`       | (paste your Agora App ID) |
    | `AGORA_APP_CERTIFICATE` | (paste your Agora App Certificate) |
 
 4. Save. Render will redeploy with the new values.
+
+If the browser shows **“Couldn’t reach the video server”**, it is usually **CORS**: the page’s origin (e.g. `https://www.notusapp.com`) must appear in `CLIENT_URL`. Add every hostname you use (with and without `www`).
+
+### Quick check (after deploy)
+
+Replace the URL with your **notus-api** service URL from the Render dashboard:
+
+```bash
+curl -sS "https://YOUR-SERVICE.onrender.com/api/health"
+```
+
+You should see JSON like `{"status":"ok",...}`. If that fails, the service is not up or the URL is wrong - update `VITE_API_URL` to match the URL Render shows (it may not be exactly `notus-api.onrender.com`).
 
 ---
 
@@ -55,7 +67,7 @@ Put your backend on the internet for free using Render, then tell your frontend 
 
 1. On your computer, open the Notus project.
 2. In the **frontend** folder, create a file named **`.env.production`** (if it doesn’t exist).
-3. Put this line in it (use **your** Render URL from Step 2, no trailing slash):
+3. Put this line in it (copy the **exact** **notus-api** URL from Render → your service → URL; no trailing slash):
 
    ```
    VITE_API_URL=https://notus-api.onrender.com
@@ -66,6 +78,8 @@ Put your backend on the internet for free using Render, then tell your frontend 
    ```
    VITE_API_URL=https://notus-api-xyz.onrender.com
    ```
+
+   The value is **baked in at build time**. After you change it, you must run **`npm run deploy`** again from the project root so Firebase Hosting serves a new bundle.
 
 4. Save the file.
 

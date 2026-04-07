@@ -18,8 +18,8 @@ export function Hero() {
       </ScrollReveal>
       <ScrollReveal delay={160}>
         <p className="hero-subtitle">
-          Video calls, real-time transcripts, AI notes, and collaborative tools—
-          all in one workspace. Stop juggling apps. Start building together.
+          Video, transcripts, AI notes, and collaboration in one workspace. Fewer tools to manage. Clearer teamwork
+          from day one.
         </p>
       </ScrollReveal>
       <ScrollReveal delay={240}>

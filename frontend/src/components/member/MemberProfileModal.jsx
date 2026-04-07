@@ -17,6 +17,7 @@ import { getTeamsForUserInOrg } from '../../lib/teamService'
 import { getUserDoc, getDisplayName, getProfilePictureUrl } from '../../lib/userService'
 import { getOrCreateDM } from '../../lib/conversationService'
 import { formatDate, getTimeZone, getLocale } from '../../lib/dateUtils'
+import { Check } from 'lucide-react'
 import { MessageSquareIcon, CalendarIcon, SettingsIcon, ClockIcon, MailIcon, GlobeIcon, BuildingIcon, UsersIcon } from '../ui/Icons'
 import './MemberProfileModal.css'
 
@@ -112,7 +113,7 @@ export function MemberProfileModal({
     ? orgRole.charAt(0).toUpperCase() + orgRole.slice(1).toLowerCase()
     : ''
   const timeZone = userDoc?.timeZone ? (TZ_LABELS[userDoc.timeZone] || userDoc.timeZone) : 'Browser default'
-  const language = LANG_MAP[userDoc?.language] || userDoc?.language || '—'
+  const language = LANG_MAP[userDoc?.language] || userDoc?.language || 'Not set'
   const memTz = getTimeZone(userDoc)
   const memLocale = getLocale(userDoc)
   const memDateOpts = { timeZone: memTz, locale: memLocale }
@@ -122,12 +123,6 @@ export function MemberProfileModal({
   const lastActiveStr = lastActive ? formatDate(lastActive, { ...memDateOpts, month: 'short', day: 'numeric' }) : null
 
   const isOwner = orgRole === MEMBERSHIP_ROLES.owner
-  const isAdmin = orgRole === MEMBERSHIP_ROLES.admin
-  const isMember = orgRole === MEMBERSHIP_ROLES.member
-  const iAmOwner = myMembership?.role === MEMBERSHIP_ROLES.owner
-  const iAmAdmin = myMembership?.role === MEMBERSHIP_ROLES.admin
-  const canMakeAdmin = (iAmOwner && isMember) || (iAmAdmin && isMember)
-  const canMakeMember = iAmOwner && isAdmin
   const isSelf = userId === currentUser?.uid
   const canRemove = orgRemoval
     ? !isSelf && canRemoveOrgMember(myMembership, orgRole, isOwner)
@@ -172,7 +167,13 @@ export function MemberProfileModal({
                   <span className="member-profile-modal-meta-label">Email</span>
                   <button type="button" className="member-profile-modal-email-copy" onClick={handleCopyEmail}>
                     {email}
-                    {copied && <span className="member-profile-modal-copied"> · Copied</span>}
+                    {copied && (
+                      <>
+                        {' '}
+                        <Check size={14} strokeWidth={2.5} className="member-profile-modal-copied-check" aria-hidden />
+                        <span className="member-profile-modal-copied">Copied</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -272,30 +273,6 @@ export function MemberProfileModal({
                 </button>
                 {manageOpen && (
                   <div className="member-profile-modal-manage-panel">
-                    {canMakeAdmin && (
-                      <button
-                        type="button"
-                        className="member-profile-modal-manage-item"
-                        onClick={() => {
-                          setManageOpen(false)
-                          onRoleChange?.(userId, MEMBERSHIP_ROLES.admin)
-                        }}
-                      >
-                        Make admin
-                      </button>
-                    )}
-                    {canMakeMember && (
-                      <button
-                        type="button"
-                        className="member-profile-modal-manage-item"
-                        onClick={() => {
-                          setManageOpen(false)
-                          onRoleChange?.(userId, MEMBERSHIP_ROLES.member)
-                        }}
-                      >
-                        Make member
-                      </button>
-                    )}
                     <Link
                       to={`/app/org/${orgId}/admin`}
                       className="member-profile-modal-manage-item"

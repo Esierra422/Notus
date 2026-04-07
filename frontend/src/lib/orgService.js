@@ -1,6 +1,6 @@
 /**
  * Organization and membership services.
- * No invite codes or links — request/approve in app only.
+ * No invite codes or links  -  request/approve in app only.
  */
 import {
   collection,
@@ -138,7 +138,7 @@ export async function getUserMemberships(userId) {
 }
 
 /**
- * Request to join org — create membership with state=pending.
+ * Request to join org  -  create membership with state=pending.
  */
 export async function requestToJoinOrg(orgId, userId) {
   const id = membershipId(orgId, userId)
@@ -323,7 +323,10 @@ export function normalizeMemberCapabilities(raw) {
  * Open “manage member” UI (labels + capability toggles): admins or `manageMembers`.
  */
 export function canOpenMemberManagement(actor) {
-  return canManageOrg(actor) || membershipHasCapability(actor, 'manageMembers')
+  if (canManageOrg(actor)) return true
+  if (!actor || actor.state !== MEMBERSHIP_STATES.active) return false
+  const caps = normalizeMemberCapabilities(actor.capabilities)
+  return Object.values(caps).some(Boolean)
 }
 
 /**
@@ -399,7 +402,7 @@ export function membershipHasCapability(membership, cap) {
   }
 
   // Require explicit true whenever a capabilities object exists (matches admin toggles + normalizeMemberCapabilities).
-  // Missing keys are not treated as allow — that bypassed orgCalendar/teamCalendar off when keys were omitted in Firestore.
+  // Missing keys are not treated as allow  -  that bypassed orgCalendar/teamCalendar off when keys were omitted in Firestore.
   if (cap === 'orgCalendar') {
     return c.orgCalendar === true
   }
@@ -413,7 +416,7 @@ export function membershipHasCapability(membership, cap) {
 }
 
 /**
- * Custom label shown on member cards (does not replace owner/admin/member access — use role for that).
+ * Custom label shown on member cards (does not replace owner/admin/member access  -  use role for that).
  */
 export async function updateMemberDisplayRole(orgId, targetUserId, actorUserId, displayRoleName) {
   const actor = await getMembership(orgId, actorUserId)

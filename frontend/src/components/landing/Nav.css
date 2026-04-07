@@ -47,6 +47,10 @@
   color: var(--accent);
 }
 
+.nav-link--active {
+  color: var(--text) !important;
+}
+
 .nav-actions {
   display: flex;
   gap: 0.75rem;

@@ -1,9 +1,19 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, Link, useOutletContext } from 'react-router-dom'
-import { Copy, Check, Send, Sparkles } from 'lucide-react'
-import { getSummary, askMeetingRecap } from '../lib/meetingSummaryService'
-import { downloadMeetingSummaryPdf, downloadMeetingSummaryDocx } from '../lib/exportMeetingDoc'
+import { Copy, Check, Send, Sparkles, Paperclip, Download } from 'lucide-react'
+import {
+  getSummary,
+  askMeetingRecap,
+  getSummaryTranscriptDisplaySegments,
+  getSummaryTranscriptCopyText,
+  formatSummarySegmentTime,
+  labelForSummarySegment,
+} from '../lib/meetingSummaryService'
+import { fetchMeetingSharedDocuments } from '../lib/meetingRoomChatService'
 import { Button } from '../components/ui/Button'
+import { Skeleton } from '../components/ui/Skeleton'
+import { InlineToast } from '../components/ui/InlineToast'
+import { useInlineToast } from '../hooks/useInlineToast.js'
 import { ArrowLeftIcon, CalendarIcon, LayoutDashboardIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AppLayout.css'
@@ -22,11 +32,24 @@ function formatDate(ts) {
   })
 }
 
-function copyText(text, setCopied, key) {
+function formatSharedFileTime(ts) {
+  if (!ts) return ''
+  const ms = ts?.toMillis?.() ?? (ts?.seconds ? ts.seconds * 1000 : ts)
+  if (!ms) return ''
+  return new Date(ms).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function copyText(text, setCopied, key, onDone) {
   const t = String(text || '').trim()
   if (!t || !navigator.clipboard?.writeText) return
   navigator.clipboard.writeText(t).catch(() => {})
   setCopied(key)
+  onDone?.()
   window.setTimeout(() => setCopied((k) => (k === key ? null : k)), 2000)
 }
 
@@ -56,6 +79,10 @@ export function MeetingSummaryPage() {
   const [aiQuestion, setAiQuestion] = useState('')
   const [aiMessages, setAiMessages] = useState([])
   const [aiLoading, setAiLoading] = useState(false)
+  const [sharedDocs, setSharedDocs] = useState([])
+  const [sharedDocsLoading, setSharedDocsLoading] = useState(false)
+  const [sharedDocsError, setSharedDocsError] = useState('')
+  const { toast, showToast } = useInlineToast()
 
   useEffect(() => {
     if (!summaryId) return
@@ -72,12 +99,60 @@ export function MeetingSummaryPage() {
       .finally(() => setLoading(false))
   }, [summaryId])
 
+  useEffect(() => {
+    const ch = (summary?.channelName || '').trim()
+    const uid = user?.uid
+    if (!ch || !uid) {
+      setSharedDocs([])
+      setSharedDocsError('')
+      setSharedDocsLoading(false)
+      return undefined
+    }
+    let cancelled = false
+    setSharedDocsLoading(true)
+    setSharedDocsError('')
+    fetchMeetingSharedDocuments(ch, uid)
+      .then((docs) => {
+        if (!cancelled) setSharedDocs(docs)
+      })
+      .catch((err) => {
+        console.warn('[MeetingSummaryPage] Shared files:', err)
+        if (!cancelled) {
+          setSharedDocs([])
+          setSharedDocsError(err?.message || 'Could not load shared files from the meeting chat.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSharedDocsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [summary?.channelName, user?.uid])
+
   const keyPointsText = summary?.keyPoints?.length
     ? summary.keyPoints.map((p) => `• ${p}`).join('\n')
     : ''
   const actionItemsText = summary?.actionItems?.length
     ? summary.actionItems.map((p) => `• ${p}`).join('\n')
     : ''
+
+  const transcriptSegments = useMemo(
+    () => (summary ? getSummaryTranscriptDisplaySegments(summary) : []),
+    [summary]
+  )
+  const transcriptUniqueUids = useMemo(
+    () => new Set(transcriptSegments.map((s) => s.uid).filter(Boolean)),
+    [transcriptSegments]
+  )
+  const transcriptCopyText = useMemo(
+    () => (summary ? getSummaryTranscriptCopyText(summary) : ''),
+    [summary]
+  )
+  const hasTranscriptSection = transcriptSegments.length > 0
+  const showSharedFilesSection =
+    Boolean((summary?.channelName || '').trim() && user?.uid) &&
+    (sharedDocsLoading || !!sharedDocsError || sharedDocs.length > 0)
 
   const sendAiQuestion = useCallback(async () => {
     const q = aiQuestion.trim()
@@ -105,7 +180,7 @@ export function MeetingSummaryPage() {
     return (
       <div className="summary-page meeting-recap-page">
         <div className="summary-loading">
-          <div className="summary-loading-spinner" />
+          <Skeleton lines={3} />
           <p>Loading recap…</p>
         </div>
       </div>
@@ -127,6 +202,7 @@ export function MeetingSummaryPage() {
 
   return (
     <div className="summary-page meeting-recap-page">
+      <InlineToast message={toast?.message} tone={toast?.tone} />
       <nav className="meeting-recap-nav" aria-label="Breadcrumb">
         <Button as={Link} to="/app/video/meetings" variant="ghost" size="sm">
           <ArrowLeftIcon size={16} /> Past meetings
@@ -170,7 +246,9 @@ export function MeetingSummaryPage() {
             onClick={async () => {
               setExportBusy('pdf')
               try {
+                const { downloadMeetingSummaryPdf } = await import('../lib/exportMeetingDoc')
                 await downloadMeetingSummaryPdf(summary)
+                showToast('PDF export completed.')
               } finally {
                 setExportBusy(null)
               }
@@ -186,7 +264,9 @@ export function MeetingSummaryPage() {
             onClick={async () => {
               setExportBusy('docx')
               try {
+                const { downloadMeetingSummaryDocx } = await import('../lib/exportMeetingDoc')
                 await downloadMeetingSummaryDocx(summary)
+                showToast('Word export completed.')
               } finally {
                 setExportBusy(null)
               }
@@ -201,7 +281,8 @@ export function MeetingSummaryPage() {
         <a href="#recap-summary">Summary</a>
         {summary.keyPoints?.length > 0 && <a href="#recap-key-points">Key points</a>}
         {summary.actionItems?.length > 0 && <a href="#recap-actions">Action items</a>}
-        {summary.transcript && String(summary.transcript).trim() && <a href="#meeting-transcript">Transcript</a>}
+        {showSharedFilesSection && <a href="#meeting-shared-files">Shared files</a>}
+        {hasTranscriptSection && <a href="#meeting-transcript">Transcript</a>}
         <a href="#recap-ask-ai">Ask AI</a>
       </div>
 
@@ -212,11 +293,11 @@ export function MeetingSummaryPage() {
             <RecapCopyButton
               label="summary"
               copied={copiedSection === 'summary'}
-              onCopy={() => copyText(summary.summary, setCopiedSection, 'summary')}
+              onCopy={() => copyText(summary.summary, setCopiedSection, 'summary', () => showToast('Summary copied.'))}
               disabled={!String(summary.summary || '').trim()}
             />
           </div>
-          <div className="meeting-recap-panel-body meeting-recap-prose">{summary.summary || '—'}</div>
+          <div className="meeting-recap-panel-body meeting-recap-prose">{summary.summary || 'No summary is available yet.'}</div>
         </section>
 
         {summary.keyPoints?.length > 0 && (
@@ -226,7 +307,7 @@ export function MeetingSummaryPage() {
               <RecapCopyButton
                 label="key points"
                 copied={copiedSection === 'keypoints'}
-                onCopy={() => copyText(keyPointsText, setCopiedSection, 'keypoints')}
+                onCopy={() => copyText(keyPointsText, setCopiedSection, 'keypoints', () => showToast('Key points copied.'))}
               />
             </div>
             <ul className="meeting-recap-key-list">
@@ -244,7 +325,7 @@ export function MeetingSummaryPage() {
               <RecapCopyButton
                 label="action items"
                 copied={copiedSection === 'actions'}
-                onCopy={() => copyText(actionItemsText, setCopiedSection, 'actions')}
+                onCopy={() => copyText(actionItemsText, setCopiedSection, 'actions', () => showToast('Action items copied.'))}
               />
             </div>
             <ul className="meeting-recap-action-list">
@@ -258,17 +339,88 @@ export function MeetingSummaryPage() {
           </section>
         )}
 
-        {summary.transcript && String(summary.transcript).trim() && (
+        {showSharedFilesSection && (
+          <section className="meeting-recap-panel meeting-recap-panel--shared-files" id="meeting-shared-files">
+            <div className="meeting-recap-panel-head">
+              <h2 className="meeting-recap-panel-title">Shared files</h2>
+            </div>
+            <p className="meeting-recap-shared-files-lead">
+              Files attached in the meeting chat (same room). Direct-message attachments only appear if you were part of
+              that thread.
+            </p>
+            {sharedDocsLoading && <p className="meeting-recap-muted">Loading attachments…</p>}
+            {sharedDocsError && <p className="auth-error meeting-recap-inline-error">{sharedDocsError}</p>}
+            {sharedDocs.length > 0 && (
+              <ul className="meeting-recap-shared-files-list">
+                {sharedDocs.map((f) => (
+                  <li key={f.id}>
+                    <a
+                      className="meeting-recap-shared-file-card"
+                      href={`data:${f.mimeType};base64,${f.data}`}
+                      download={f.fileName}
+                    >
+                      <span className="meeting-recap-shared-file-icon" aria-hidden>
+                        <Paperclip size={18} strokeWidth={2.25} />
+                      </span>
+                      <span className="meeting-recap-shared-file-main">
+                        <span className="meeting-recap-shared-file-name">{f.fileName}</span>
+                        <span className="meeting-recap-shared-file-meta">
+                          {f.senderName}
+                          {formatSharedFileTime(f.createdAt) ? ` · ${formatSharedFileTime(f.createdAt)}` : ''}
+                        </span>
+                      </span>
+                      <span className="meeting-recap-shared-file-action" aria-hidden>
+                        <Download size={18} strokeWidth={2.25} />
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {hasTranscriptSection && (
           <section className="meeting-recap-panel meeting-recap-panel--transcript" id="meeting-transcript">
             <div className="meeting-recap-panel-head">
               <h2 className="meeting-recap-panel-title">Full transcript</h2>
               <RecapCopyButton
                 label="transcript"
                 copied={copiedSection === 'transcript'}
-                onCopy={() => copyText(summary.transcript, setCopiedSection, 'transcript')}
+                onCopy={() => copyText(transcriptCopyText, setCopiedSection, 'transcript', () => showToast('Transcript copied.'))}
+                disabled={!transcriptCopyText.trim()}
               />
             </div>
-            <div className="meeting-recap-transcript-scroll">{summary.transcript}</div>
+            <p className="meeting-recap-transcript-lead">
+              Each block is one capture from the live transcript. Speaker labels use the video connection id when more
+              than one person spoke.
+            </p>
+            <div className="meeting-recap-transcript-body">
+              <ul className="meeting-recap-transcript-segments">
+                {transcriptSegments.map((seg, i) => {
+                  const timeShown = formatSummarySegmentTime(seg.timestamp)
+                  const speakerLabel = labelForSummarySegment(seg, transcriptUniqueUids, summary.participants)
+                  return (
+                    <li key={i} className="meeting-recap-transcript-segment">
+                      <div className="meeting-recap-transcript-segment-head">
+                        {timeShown ? (
+                          <time className="meeting-recap-transcript-time" dateTime={seg.timestamp || undefined}>
+                            {timeShown}
+                          </time>
+                        ) : null}
+                        <span className="meeting-recap-transcript-speaker">
+                          <span className="meeting-recap-transcript-dash" aria-hidden>
+                            -
+                          </span>
+                          [{speakerLabel}]
+                        </span>
+                      </div>
+                      <p className="meeting-recap-transcript-segment-text">{seg.text}</p>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           </section>
         )}
 

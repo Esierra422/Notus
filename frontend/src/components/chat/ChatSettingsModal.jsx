@@ -1,7 +1,7 @@
 /**
- * Chat settings / Contact view modal — email, video call, search, export, block, report, etc.
+ * Chat settings / Contact view modal  -  email, video call, search, export, block, report, etc.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { useNavigate } from 'react-router-dom'
 import { getActiveMemberships } from '../../lib/orgService'
@@ -44,6 +44,9 @@ export function ChatSettingsModal({
   const [showExportOptions, setShowExportOptions] = useState(false)
   const [reportSending, setReportSending] = useState(false)
   const [blockLoading, setBlockLoading] = useState(false)
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+  const titleId = useId()
   const email = (otherUserDoc?.email || '').trim()
 
   useEffect(() => {
@@ -113,8 +116,7 @@ export function ChatSettingsModal({
   }
 
   const handleVideoCall = () => {
-    const channel = `dm-${[userId, otherUserId].sort().join('-')}`
-    onStartVideoCall?.(channel)
+    onStartVideoCall?.()
     onClose?.()
   }
 
@@ -125,12 +127,49 @@ export function ChatSettingsModal({
 
   useScrollLock(true)
 
+  useEffect(() => {
+    closeBtnRef.current?.focus()
+  }, [])
+
+  const handleModalKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose?.()
+      return
+    }
+    if (e.key !== 'Tab') return
+    const focusable = Array.from(
+      modalRef.current?.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) || []
+    )
+    if (!focusable.length) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   return (
-    <div className="chat-settings-overlay" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="chat-settings-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="chat-settings-overlay" onClick={onClose}>
+      <div
+        className="chat-settings-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        ref={modalRef}
+        onKeyDown={handleModalKeyDown}
+      >
         <div className="chat-settings-header">
-          <h3>{otherDisplayName || 'Contact'}</h3>
-          <button type="button" className="chat-settings-close" onClick={onClose} aria-label="Close">
+          <h3 id={titleId}>{otherDisplayName || 'Contact'}</h3>
+          <button ref={closeBtnRef} type="button" className="chat-settings-close" onClick={onClose} aria-label="Close">
             <XIcon size={20} />
           </button>
         </div>

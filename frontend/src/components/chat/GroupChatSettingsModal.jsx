@@ -1,7 +1,7 @@
 /**
- * Group/Team chat settings modal — search, starred, notifications, export, members.
+ * Group/Team chat settings modal  -  search, starred, notifications, export, members.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { getUserDoc, getDisplayName, getProfilePictureUrl } from '../../lib/userService'
 import { SearchIcon, StarIcon, BellIcon, LockIcon, UsersIcon, DownloadIcon, XIcon } from '../ui/Icons'
@@ -25,6 +25,9 @@ export function GroupChatSettingsModal({
 }) {
   const [showExportOptions, setShowExportOptions] = useState(false)
   const [memberProfiles, setMemberProfiles] = useState({})
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+  const titleId = useId()
   const members = conv?.members || []
 
   useEffect(() => {
@@ -51,12 +54,49 @@ export function GroupChatSettingsModal({
 
   useScrollLock(true)
 
+  useEffect(() => {
+    closeBtnRef.current?.focus()
+  }, [])
+
+  const handleModalKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose?.()
+      return
+    }
+    if (e.key !== 'Tab') return
+    const focusable = Array.from(
+      modalRef.current?.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) || []
+    )
+    if (!focusable.length) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   return (
-    <div className="chat-settings-overlay" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="chat-settings-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="chat-settings-overlay" onClick={onClose}>
+      <div
+        className="chat-settings-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        ref={modalRef}
+        onKeyDown={handleModalKeyDown}
+      >
         <div className="chat-settings-header">
-          <h3>{title}</h3>
-          <button type="button" className="chat-settings-close" onClick={onClose} aria-label="Close">
+          <h3 id={titleId}>{title}</h3>
+          <button ref={closeBtnRef} type="button" className="chat-settings-close" onClick={onClose} aria-label="Close">
             <XIcon size={20} />
           </button>
         </div>

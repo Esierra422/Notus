@@ -10,7 +10,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.75rem;
 }
 
 .calendar-title-block {
@@ -29,7 +29,7 @@
 }
 
 .calendar-scope-hint {
-  margin: 0;
+  margin: 0 0 var(--layout-section-gap);
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--accent);
@@ -131,7 +131,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--layout-section-gap);
   padding: 0.75rem 1rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1099,7 +1099,7 @@
   gap: 0.4rem;
 }
 
-/* —— Mobile month grid + toolbar (max-width 768px) —— */
+/*  -  -  Mobile month grid + toolbar (max-width 768px)  -  -  */
 @media (max-width: 768px) {
   .calendar-header-row {
     flex-direction: column;

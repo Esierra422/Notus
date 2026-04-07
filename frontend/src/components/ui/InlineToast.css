@@ -1,0 +1,18 @@
+.notus-inline-toast {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-size: 0.85rem;
+}
+
+.notus-inline-toast--success {
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #b6f0c8;
+}
+
+.notus-inline-toast--error {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fecaca;
+}

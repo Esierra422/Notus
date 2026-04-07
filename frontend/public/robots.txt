@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://notusapp.com/sitemap.xml

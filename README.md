@@ -1,6 +1,6 @@
 # Notus
 
-A team collaboration platform designed to simplify communication and productivity. Video and voice calls, real-time transcripts, AI assistant, text channels, collaborative notebook, and calendar—all in one place.
+A team collaboration platform designed to simplify communication and productivity. Video and voice calls, real-time transcripts, AI assistant, text channels, collaborative notebook, and calendar, all in one place.
 
 **Tech stack:** FERN (Firebase, Express, React, Node.js)
 
@@ -25,8 +25,8 @@ Notus/
 └── README.md
 ```
 
-- **Documentation/STRUCTURE.md** — File map and where to add new code
-- **Documentation/ARCHITECTURE.md** — Non-negotiable rules (Auth, Firestore, users). Read before building auth.
+- **Documentation/STRUCTURE.md:** file map and where to add new code
+- **Documentation/ARCHITECTURE.md:** non-negotiable rules (Auth, Firestore, users). Read before building auth.
 
 ## Prerequisites
 
@@ -95,12 +95,22 @@ The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/ap
 - **Video Call** – Uses [Agora](https://console.agora.io). **Local:** add `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` to `backend/.env`. **Production (free, no Firebase Blaze):** deploy the backend to [Render](https://render.com) (free tier) using the repo’s `render.yaml`, set `CLIENT_URL` and Agora env vars on the service, then set `VITE_API_URL` in `frontend/.env.production` to your Render backend URL and run `npm run deploy`. See **Production video (free)** below.
 - **Push notifications** – Uses Firebase Cloud Messaging (FCM). In Firebase Console: **Project Settings → Cloud Messaging → Web Push certificates** → generate a key pair. Add the **public** key to `frontend/.env` as `VITE_VAPID_KEY`. Users enable push in **Settings → Push notifications**. For sending notifications when new messages arrive, deploy Cloud Functions: `cd functions && npm install && cd .. && firebase deploy --only functions` (requires Blaze plan). The service worker config is injected into `public/firebase-messaging-sw.js` at build time from your Firebase env vars.
 
+## SEO and Marketing Basics
+
+- Default SEO meta tags, Open Graph, and Twitter cards are configured in `frontend/index.html`.
+- Public-page metadata is updated per route via `frontend/src/lib/seo.js`.
+- Static crawler files:
+  - `frontend/public/robots.txt`
+  - `frontend/public/sitemap.xml`
+  - `frontend/public/og-image.svg`
+
 ## Production video (free)
 
 Video on the live site needs a backend on the internet. **→ See [VIDEO_SETUP.md](VIDEO_SETUP.md)** for a simple step-by-step guide (Render free tier, no Firebase Blaze).
 
 ## Troubleshooting
 
+- **“Couldn’t reach the video server” on the live site** – The browser must be able to call your **Express API** over HTTPS. Follow **[VIDEO_SETUP.md](VIDEO_SETUP.md)** (Render free tier): deploy **notus-api** from `render.yaml`, set `CLIENT_URL` (include **every** frontend origin you use, e.g. `https://notusapp.com` and `https://www.notusapp.com`), set `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`, set `frontend/.env.production` → `VITE_API_URL` to that Render URL, then run **`npm run deploy`**. Verify with `curl https://YOUR-RENDER-URL/api/health`. On Render’s free tier, the first request after idle can take ~30–60s while the service wakes.
 - **Error 400: redirect_uri_mismatch (Google Sign-In)** – Add the correct redirect URIs in [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application) → Authorized redirect URIs. Add both:
   - `https://notusapp.com/__/auth/handler` (if using custom domain)
   - `https://notus-e026b.firebaseapp.com/__/auth/handler` (Firebase auth domain)
@@ -110,6 +120,32 @@ Video on the live site needs a backend on the internet. **→ See [VIDEO_SETUP.m
 - **"The query requires an index"** – Deploy indexes: `firebase deploy --only firestore:indexes`
 - **Profile picture not saving** – Profile pics are stored in Firestore (base64). Ensure Firestore rules allow users to write their own `profilePicture` field.
 - **404 for deleted files / SettingsPage export error** – Stop the dev server, delete `frontend/node_modules/.vite`, then run `npm run dev` again
+
+## QA and Release Hygiene
+
+Playwright smoke tests are available in `frontend/tests/e2e`:
+
+- `public-smoke.spec.js` (landing + public navigation)
+- `app-smoke.spec.js` (auth + org/team/calendar/video route checks; requires env credentials)
+
+Run locally:
+
+```bash
+cd frontend
+npm run build
+npm run test:e2e
+```
+
+Optional env vars for authenticated smoke tests:
+
+- `E2E_EMAIL`
+- `E2E_PASSWORD`
+- `E2E_ORG_ID`
+- `E2E_TEAM_ID`
+
+CI workflow:
+
+- `.github/workflows/frontend-ci.yml` runs lint, build, preview-based Playwright smoke tests, and uploads the Playwright report artifact.
 
 ## Team
 

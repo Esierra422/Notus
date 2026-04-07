@@ -28,6 +28,7 @@ import {
 } from './orgService'
 import { createMeetingInviteNotifications } from './userNotificationService'
 import { getTeamMembership, TEAM_STATES } from './teamService'
+import { getUserDoc, getDisplayName } from './userService'
 
 const MEETINGS_SUB = 'meetings'
 
@@ -41,7 +42,7 @@ export function meetingCalendarDisplaySource(meeting) {
   return 'org'
 }
 
-/** How the meeting row was created — used to filter video lobby “upcoming”. */
+/** How the meeting row was created  -  used to filter video lobby “upcoming”. */
 export const MEETING_CREATED_VIA = { calendar: 'calendar', instant: 'instant' }
 
 /** Hide ad-hoc instant meetings from calendar grids and scheduled lists. */
@@ -62,7 +63,7 @@ const EMPTY_ROOM_MIN_MEETING_AGE_MS = 5 * 60 * 1000
 /** Instant meetings: force-close after this long (stale participant docs, forgotten tabs). */
 const INSTANT_ROOM_MAX_OPEN_MS = 90 * 60 * 1000
 /**
- * Instant meetings that never got sessionStartedAt (abandoned / old clients): close so lobby doesn’t stick on “Running —”.
+ * Instant meetings that never got sessionStartedAt (abandoned / old clients): close so lobby doesn’t stick on “Running  - ”.
  */
 const INSTANT_NO_SESSION_END_MS = 5 * 60 * 1000
 
@@ -88,6 +89,18 @@ function mergeInvitedUserIds(data) {
   return [...new Set([...fromIds, ...fromScope].filter(Boolean))]
 }
 
+/** Display strings for meeting-invite bell notifications. */
+async function getMeetingInviteNotificationContext(orgId, userId) {
+  try {
+    const [org, senderDoc] = await Promise.all([getOrg(orgId), getUserDoc(userId)])
+    const orgName = (org?.name || '').trim() || 'Organization'
+    const senderDisplayName = getDisplayName(senderDoc, userId).trim() || 'Someone'
+    return { orgName, senderDisplayName }
+  } catch {
+    return { orgName: 'Organization', senderDisplayName: 'Someone' }
+  }
+}
+
 /**
  * In-app copy + notification kind: calendar-only invites vs video / instant meeting invites.
  */
@@ -95,20 +108,20 @@ function buildMeetingInviteNotificationPayload(title, { isInstant, isVideoMeetin
   const t = (title || 'Meeting').trim() || 'Meeting'
   if (isInstant) {
     return {
-      body: `${t}: quick meeting — open Video to join when you're ready.`,
+      body: `${t}: Quick meeting. Open Video to join when you are ready.`,
       isInstant: true,
       inviteKind: 'video_meeting',
     }
   }
   if (isVideoMeeting === false) {
     return {
-      body: `${t}: calendar invite — this event is added to your Calendar for this organization.`,
+      body: `${t}: Calendar invite. This event appears in your Calendar for this organization.`,
       isInstant: false,
       inviteKind: 'calendar_event',
     }
   }
   return {
-    body: `${t}: meeting invite — open Video to join, or Calendar to see it on your schedule.`,
+    body: `${t}: Meeting invite. Open Video to join, or use Calendar to view it on your schedule.`,
     isInstant: false,
     inviteKind: 'video_meeting',
   }
@@ -203,16 +216,21 @@ export async function createMeeting(orgId, data, userId) {
       isInstant: createdVia === MEETING_CREATED_VIA.instant,
       isVideoMeeting,
     })
-    void createMeetingInviteNotifications({
-      fromUid: userId,
-      recipientUids: invitedUserIds,
-      orgId,
-      meetingId,
-      title: t,
-      body,
-      isInstant,
-      inviteKind,
-    }).catch(() => {})
+    void (async () => {
+      const ctx = await getMeetingInviteNotificationContext(orgId, userId)
+      return createMeetingInviteNotifications({
+        fromUid: userId,
+        recipientUids: invitedUserIds,
+        orgId,
+        meetingId,
+        title: t,
+        body,
+        senderDisplayName: ctx.senderDisplayName,
+        orgName: ctx.orgName,
+        isInstant,
+        inviteKind,
+      })
+    })().catch(() => {})
   }
 
   return {
@@ -359,16 +377,21 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
       isInstant,
       isVideoMeeting: isVideoMeetingEffective,
     })
-    void createMeetingInviteNotifications({
-      fromUid: userId,
-      recipientUids: addedInviteeIds,
-      orgId,
-      meetingId,
-      title: t,
-      body,
-      isInstant: payloadInstant,
-      inviteKind,
-    }).catch(() => {})
+    void (async () => {
+      const ctx = await getMeetingInviteNotificationContext(orgId, userId)
+      return createMeetingInviteNotifications({
+        fromUid: userId,
+        recipientUids: addedInviteeIds,
+        orgId,
+        meetingId,
+        title: t,
+        body,
+        senderDisplayName: ctx.senderDisplayName,
+        orgName: ctx.orgName,
+        isInstant: payloadInstant,
+        inviteKind,
+      })
+    })().catch(() => {})
   }
 }
 
@@ -488,14 +511,17 @@ export async function getUpcomingMeetingsInHorizonForUserInOrg(userId, orgId, ho
 export async function getUpcomingMeetingsInHorizonForUser(userId, horizonDays, maxTotal = 80, options = {}) {
   const memberships = await getUserMemberships(userId)
   const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
-  const merged = []
-  for (const mem of activeOrgs) {
-    const part = await getUpcomingMeetingsInHorizonForUserInOrg(userId, mem.orgId, horizonDays, 45, options)
-    for (const m of part) {
-      const org = await getOrg(mem.orgId)
-      merged.push({ ...m, _orgName: org?.name })
-    }
-  }
+  const rows = await Promise.all(
+    activeOrgs.map(async (mem) => {
+      const [part, org] = await Promise.all([
+        getUpcomingMeetingsInHorizonForUserInOrg(userId, mem.orgId, horizonDays, 45, options),
+        getOrg(mem.orgId),
+      ])
+      const name = org?.name
+      return part.map((m) => ({ ...m, _orgName: name }))
+    })
+  )
+  const merged = rows.flat()
   merged.sort((a, b) => (a.startAt?.toMillis?.() ?? 0) - (b.startAt?.toMillis?.() ?? 0))
   return merged.slice(0, maxTotal)
 }
@@ -1053,14 +1079,16 @@ export async function getMeetingsForUserInOrg(userId, orgId, maxResults = 20) {
   const orgMem = await getMembership(orgId, userId)
   if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
 
+  const fetchLimit = Math.min(500, Math.max(maxResults * 3, 40))
   const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
-  const snapshot = await getDocs(meetingsRef)
+  const snapshot = await getDocs(
+    query(meetingsRef, orderBy('startAt', 'desc'), limit(fetchLimit))
+  )
   const meetings = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-  const accessible = []
-  for (const m of meetings) {
-    const canAccess = await canAccessMeeting(m, userId, orgId)
-    if (canAccess) accessible.push(m)
-  }
+  const accessRows = await Promise.all(
+    meetings.map(async (m) => ((await canAccessMeeting(m, userId, orgId)) ? m : null))
+  )
+  const accessible = accessRows.filter(Boolean)
   accessible.sort((a, b) => {
     const aTime = a.startAt?.toMillis?.() ?? a.startAt ?? 0
     const bTime = b.startAt?.toMillis?.() ?? b.startAt ?? 0
@@ -1091,6 +1119,44 @@ export async function getUpcomingTeamMeetingsForUser(userId, orgId, teamId, opti
 }
 
 /**
+ * Upcoming rows for a Team page: team-scoped + org-scoped scheduled rows visible to the user.
+ * Includes calendar-only events and video meetings; excludes instant/quick meetings.
+ */
+export async function getUpcomingTeamAndOrgMeetingsForUserInOrg(userId, orgId, teamId, options = {}) {
+  const maxResults = options.maxResults ?? 12
+  const horizonDays = options.horizonDays ?? 30
+  const now = Date.now()
+  const horizonEnd = now + Math.max(1, horizonDays) * 24 * 60 * 60 * 1000
+
+  const orgMem = await getMembership(orgId, userId)
+  if (!orgMem || orgMem.state !== MEMBERSHIP_STATES.active) return []
+
+  // Fetch a generous window, then filter by access and scope.
+  const fetchLimit = Math.min(250, Math.max(80, maxResults * 12))
+  const meetingsRef = collection(db, 'organizations', orgId, MEETINGS_SUB)
+  const start = Timestamp.fromDate(new Date(now - 60_000)) // small grace to avoid clock edge
+  const end = Timestamp.fromDate(new Date(horizonEnd))
+  const snapshot = await getDocs(
+    query(meetingsRef, where('startAt', '>=', start), where('startAt', '<=', end), orderBy('startAt', 'asc'), limit(fetchLimit))
+  )
+  const rows = snapshot.docs.map((d) => ({ id: d.id, ...d.data(), orgId }))
+
+  const out = []
+  for (const m of rows) {
+    if (isInstantMeetingRow(m)) continue
+    // Team page shows org-scope and the current team scope only.
+    if (m.scope === MEETING_SCOPES.team && m.scopeTeamId !== teamId) continue
+    if (m.scope && m.scope !== MEETING_SCOPES.org && m.scope !== MEETING_SCOPES.team) continue
+    if (!(await canAccessMeeting(m, userId, orgId))) continue
+    const t = firestoreTimeToMs(m.startAt)
+    if (!t || t < now || t > horizonEnd) continue
+    out.push(m)
+  }
+  out.sort((a, b) => firestoreTimeToMs(a.startAt) - firestoreTimeToMs(b.startAt))
+  return out.slice(0, maxResults)
+}
+
+/**
  * Get all meetings user can access (for personal dashboard).
  * Fetches from all orgs user is active in, filters by access.
  * @param {number} [maxResults=20]
@@ -1098,20 +1164,36 @@ export async function getUpcomingTeamMeetingsForUser(userId, orgId, teamId, opti
 export async function getMeetingsForUser(userId, maxResults = 20) {
   const memberships = await getUserMemberships(userId)
   const activeOrgs = memberships.filter((m) => m.state === MEMBERSHIP_STATES.active)
+  if (!activeOrgs.length) return []
 
-  const allMeetings = []
-  for (const mem of activeOrgs) {
-    const meetingsRef = collection(db, 'organizations', mem.orgId, MEETINGS_SUB)
-    const snapshot = await getDocs(meetingsRef)
-    const meetings = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-    for (const m of meetings) {
-      const canAccess = await canAccessMeeting(m, userId, mem.orgId)
-      if (canAccess) {
-        const org = await getOrg(mem.orgId)
-        allMeetings.push({ ...m, _orgName: org?.name, _orgId: mem.orgId })
-      }
-    }
-  }
+  const n = activeOrgs.length
+  const perOrgLimit = Math.min(500, Math.max(25, Math.ceil((maxResults * 1.5) / n)))
+
+  const chunks = await Promise.all(
+    activeOrgs.map(async (mem) => {
+      const orgId = mem.orgId
+      const [orgSnap, snapshot] = await Promise.all([
+        getOrg(orgId),
+        getDocs(
+          query(
+            collection(db, 'organizations', orgId, MEETINGS_SUB),
+            orderBy('startAt', 'desc'),
+            limit(perOrgLimit)
+          )
+        ),
+      ])
+      const orgName = orgSnap?.name || 'Organization'
+      const meetings = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const rows = await Promise.all(
+        meetings.map(async (m) => {
+          if (!(await canAccessMeeting(m, userId, orgId))) return null
+          return { ...m, _orgName: orgName, _orgId: orgId }
+        })
+      )
+      return rows.filter(Boolean)
+    })
+  )
+  const allMeetings = chunks.flat()
   allMeetings.sort((a, b) => {
     const aTime = a.startAt?.toMillis?.() ?? a.startAt ?? 0
     const bTime = b.startAt?.toMillis?.() ?? b.startAt ?? 0

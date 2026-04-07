@@ -100,7 +100,7 @@ function quoteForDayKey(yyyyMmDd) {
 }
 
 /**
- * Main dashboard — user-specific, combines data from ALL organizations.
+ * Main dashboard: user-specific, combines data from all organizations.
  * Shows Organizations selector, Calendar, Video, Chats (all orgs).
  */
 export function AppPage() {
@@ -359,7 +359,9 @@ export function AppPage() {
                     <p className="dashboard-stat-today-quote-kicker">Quote of the day</p>
                     <blockquote className="dashboard-stat-today-quote">
                       <p>“{dailyQuote.text}”</p>
-                      <footer>— {dailyQuote.author}</footer>
+                      <footer>
+                        <cite>{dailyQuote.author}</cite>
+                      </footer>
                     </blockquote>
                   </div>
                 </div>
@@ -443,7 +445,7 @@ export function AppPage() {
                     </li>
                   ))}
                   {activeOrgs.length === 0 && (
-                    <li className="org-teams-empty">No organizations yet — create or join one above</li>
+                    <li className="org-teams-empty">No organizations are available yet. Create a new organization or request access to an existing one.</li>
                   )}
                 </ul>
               </section>

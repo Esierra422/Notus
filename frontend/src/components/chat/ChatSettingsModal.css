@@ -57,6 +57,18 @@
   background: var(--bg-elevated);
 }
 
+.chat-settings-close:focus-visible,
+.chat-settings-action-btn:focus-visible,
+.chat-settings-row:focus-visible,
+.chat-settings-link:focus-visible,
+.chat-settings-toggle:focus-visible,
+.chat-settings-export-options button:focus-visible,
+.chat-settings-starred-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+}
+
 .chat-settings-body {
   padding: 1rem 0;
   overflow-y: auto;

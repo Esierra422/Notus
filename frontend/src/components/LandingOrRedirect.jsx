@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
-import { LandingPage } from '../pages'
+import { LandingPage } from '../pages/LandingPage.jsx'
 import '../pages/AppLayout.css'
 
 /**

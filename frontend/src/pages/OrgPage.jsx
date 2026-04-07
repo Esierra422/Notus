@@ -265,7 +265,7 @@ export function OrgPage() {
             />
           ))}
           {teams.length === 0 && (
-            <li className="org-teams-empty">No teams yet. {canCreateTeamHere && 'Create one above.'}</li>
+            <li className="org-teams-empty">No teams are available yet. {canCreateTeamHere && 'Create a team above to get started.'}</li>
           )}
         </ul>
       </main>

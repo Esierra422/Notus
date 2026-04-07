@@ -147,7 +147,7 @@ export function Notepad() {
     makeDraggable(containerRef.current, headerRef.current)
   }, [])
 
-  // Effect 2: yjs + WebRTC sync (normal lifecycle — cleanup & re-init is safe)
+  // Effect 2: yjs + WebRTC sync (normal lifecycle  -  cleanup & re-init is safe)
   useEffect(() => {
     const editor = quillRef.current
     if (!editor) return

@@ -1,4 +1,4 @@
-/* Team page — aligned with org / main dashboard (Dashboard.css widgets + stats) */
+/* Team page  -  aligned with org / main dashboard (Dashboard.css widgets + stats) */
 
 .team-dashboard-main {
   padding-bottom: 2rem;
@@ -20,6 +20,36 @@
   color: var(--accent, #d4a853);
   cursor: pointer;
   border-radius: 8px;
+}
+
+.team-dashboard-hero-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.team-dashboard-hero-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 36px;
+  padding: 0 0.72rem;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 168, 83, 0.2);
+  background: rgba(212, 168, 83, 0.12);
+  color: var(--text);
+}
+
+.team-dashboard-hero-metric svg {
+  color: var(--text-muted);
+}
+
+.team-dashboard-hero-metric__value {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .team-dashboard-settings-link:hover {
@@ -62,7 +92,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.9rem;
 }
 
 .team-dashboard-about-header {
@@ -83,7 +113,29 @@
 .team-dashboard-about-text {
   margin: 0;
   font-size: 0.95rem;
-  line-height: 1.5;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.team-dashboard-media-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.team-dashboard-media-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.58rem;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.team-dashboard-media-btn:hover:not(:disabled) {
+  border-color: rgba(212, 168, 83, 0.3);
   color: var(--text);
 }
 
@@ -114,7 +166,7 @@
 .team-dashboard-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1.25rem;
+  gap: var(--layout-section-gap);
 }
 
 @media (min-width: 900px) {
@@ -141,6 +193,105 @@
 .team-dashboard-meetings-desc {
   margin-top: 0;
   margin-bottom: 0.85rem;
+}
+
+.team-upcoming-widget {
+  border-radius: 14px;
+  border-color: rgba(212, 168, 83, 0.2);
+  background:
+    linear-gradient(180deg, rgba(212, 168, 83, 0.08) 0%, rgba(212, 168, 83, 0.02) 48%, rgba(0, 0, 0, 0) 100%),
+    var(--bg-card);
+}
+
+.team-upcoming-widget .dashboard-widget-header {
+  align-items: center;
+}
+
+.team-upcoming-widget .dashboard-widget-title {
+  letter-spacing: -0.01em;
+}
+
+.team-upcoming-widget .team-dashboard-meetings-actions .org-admin-btn {
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.team-upcoming-horizon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.team-upcoming-horizon-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-radius: 10px;
+  padding: 0.35rem 0.45rem;
+  cursor: pointer;
+}
+
+.team-upcoming-horizon-btn:hover {
+  color: var(--text);
+  border-color: rgba(212, 168, 83, 0.25);
+}
+
+.team-upcoming-horizon-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.35);
+  padding: 0.5rem;
+  z-index: 50;
+}
+
+.team-upcoming-horizon-menu-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.35rem 0.4rem 0.5rem;
+}
+
+.team-upcoming-horizon-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 0.5rem 0.5rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.team-upcoming-horizon-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.team-upcoming-horizon-item--active {
+  background: rgba(212, 168, 83, 0.12);
+  color: var(--accent);
+}
+
+.team-upcoming-scope {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 0.5rem;
+  margin-right: 0.5rem;
+  border-radius: 999px;
+  background: rgba(212, 168, 83, 0.12);
+  border: 1px solid rgba(212, 168, 83, 0.22);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .team-dashboard-meetings-actions {

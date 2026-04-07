@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useNavigate, useParams, Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { getOrg, getMembership, getActiveMemberships, membershipHasCapability, MEMBERSHIP_STATES } from '../lib/orgService'
 import { getBlockedUserIds } from '../lib/blockService'
@@ -30,7 +30,12 @@ import {
   CONV_TYPES,
   MESSAGE_STATUS,
 } from '../lib/conversationService'
-import { createMeeting, MEETING_SCOPES, MEETING_CREATED_VIA } from '../lib/meetingService'
+import {
+  createMeeting,
+  getUpcomingMeetingsInHorizonForUserInOrg,
+  MEETING_SCOPES,
+  MEETING_CREATED_VIA,
+} from '../lib/meetingService'
 import { Timestamp } from 'firebase/firestore'
 import { getOrgTeams, getTeamMembership, TEAM_STATES } from '../lib/teamService'
 import { getUserDoc, getDisplayName, getProfilePictureUrl } from '../lib/userService'
@@ -43,6 +48,7 @@ import {
   FileTextIcon,
   BarChartIcon,
   CalendarIcon,
+  VideoIcon,
   PlusIcon,
   MoreVerticalIcon,
   UsersIcon,
@@ -66,16 +72,33 @@ import {
   verifyPin,
 } from '../lib/lockService'
 import { useScrollLock } from '../hooks/useScrollLock.js'
-import { MemberProfileModal } from '../components/member/MemberProfileModal'
-import { ChatSettingsModal } from '../components/chat/ChatSettingsModal'
-import { GroupChatSettingsModal } from '../components/chat/GroupChatSettingsModal'
-import { LockChatModal } from '../components/chat/LockChatModal'
 import { MessageContextMenu } from '../components/chat/MessageContextMenu'
-import { ForwardMessageModal } from '../components/chat/ForwardMessageModal'
-import { ShareProfileModal } from '../components/chat/ShareProfileModal'
+import { InlineToast } from '../components/ui/InlineToast'
+import { Skeleton } from '../components/ui/Skeleton'
+import { useInlineToast } from '../hooks/useInlineToast.js'
+import { normalizeApiError } from '../lib/apiErrors.js'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './ChatsPage.css'
+
+const MemberProfileModal = lazy(() =>
+  import('../components/member/MemberProfileModal').then((m) => ({ default: m.MemberProfileModal }))
+)
+const ChatSettingsModal = lazy(() =>
+  import('../components/chat/ChatSettingsModal').then((m) => ({ default: m.ChatSettingsModal }))
+)
+const GroupChatSettingsModal = lazy(() =>
+  import('../components/chat/GroupChatSettingsModal').then((m) => ({ default: m.GroupChatSettingsModal }))
+)
+const LockChatModal = lazy(() =>
+  import('../components/chat/LockChatModal').then((m) => ({ default: m.LockChatModal }))
+)
+const ForwardMessageModal = lazy(() =>
+  import('../components/chat/ForwardMessageModal').then((m) => ({ default: m.ForwardMessageModal }))
+)
+const ShareProfileModal = lazy(() =>
+  import('../components/chat/ShareProfileModal').then((m) => ({ default: m.ShareProfileModal }))
+)
 
 function formatTime(ts, userDoc) {
   if (!ts) return ''
@@ -124,10 +147,11 @@ const ATTACHMENT_OPTIONS = [
   { id: 'document', label: 'Document', Icon: FileTextIcon, color: '#7dd3fc' },
   { id: 'poll', label: 'Poll', Icon: BarChartIcon, color: '#fbbf24' },
   { id: 'event', label: 'Event', Icon: CalendarIcon, color: '#f87171' },
+  { id: 'meeting', label: 'Meeting', Icon: VideoIcon, color: '#f87171' },
   { id: 'users', label: 'Profiles / Users', Icon: UsersIcon, color: '#a78bfa' },
 ]
 
-function ChatAttachmentMenu({ onClose, onSelect, isClosing, eventDisabled }) {
+function ChatAttachmentMenu({ onClose, onSelect, isClosing, eventDisabled, meetingDisabled }) {
   return (
     <div className={`chats-attach-popover ${isClosing ? 'chats-attach-popover-closing' : ''}`} role="menu">
       <div className="chats-attach-grid">
@@ -138,8 +162,14 @@ function ChatAttachmentMenu({ onClose, onSelect, isClosing, eventDisabled }) {
             className="chats-attach-option"
             onClick={() => { onSelect?.(id); onClose?.() }}
             role="menuitem"
-            disabled={id === 'event' && eventDisabled}
-            title={id === 'event' && eventDisabled ? 'You do not have permission to create calendar events from chat.' : undefined}
+            disabled={(id === 'event' && eventDisabled) || (id === 'meeting' && meetingDisabled)}
+            title={
+              id === 'event' && eventDisabled
+                ? 'You do not have permission to create calendar events from chat.'
+                : id === 'meeting' && meetingDisabled
+                  ? 'You do not have permission to start a chat meeting from this conversation.'
+                  : undefined
+            }
           >
             <span className="chats-attach-icon-wrap" style={{ color }}>
               <Icon size={24} />
@@ -695,7 +725,9 @@ function PollModal({ onClose, onSubmit, sending }) {
   )
 }
 
-function EventModal({ onClose, onSubmit, sending, userDoc }) {
+function EventModal({ onClose, onSubmit, sending, userDoc, existingEvents = [] }) {
+  const [mode, setMode] = useState('new')
+  const [selectedExistingId, setSelectedExistingId] = useState('')
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
@@ -704,6 +736,19 @@ function EventModal({ onClose, onSubmit, sending, userDoc }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    if (mode === 'existing') {
+      const picked = existingEvents.find((x) => x.id === selectedExistingId)
+      if (!picked) return
+      onSubmit({
+        mode: 'existing',
+        eventId: picked.id,
+        title: picked.title || 'Event',
+        date: picked.date || null,
+        time: picked.time || null,
+      })
+      onClose()
+      return
+    }
     const t = title.trim()
     if (!t) return
     let text = `📅 Event: ${t}`
@@ -715,7 +760,7 @@ function EventModal({ onClose, onSubmit, sending, userDoc }) {
       text += `\n${formatted}`
       if (time) text += ` at ${time}`
     }
-    onSubmit({ text, title: t, date: date || null, time: time || null })
+    onSubmit({ mode: 'new', text, title: t, date: date || null, time: time || null })
     onClose()
   }
 
@@ -727,6 +772,43 @@ function EventModal({ onClose, onSubmit, sending, userDoc }) {
           <button type="button" className="chats-modal-close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <form onSubmit={handleSubmit} className="chats-modal-form">
+          <label className="chats-modal-label">Event source</label>
+          <div className="chats-event-mode-row">
+            <button
+              type="button"
+              className={mode === 'new' ? 'chats-event-mode-btn active' : 'chats-event-mode-btn'}
+              onClick={() => setMode('new')}
+            >
+              Create new
+            </button>
+            <button
+              type="button"
+              className={mode === 'existing' ? 'chats-event-mode-btn active' : 'chats-event-mode-btn'}
+              onClick={() => setMode('existing')}
+              disabled={existingEvents.length === 0}
+            >
+              Select existing
+            </button>
+          </div>
+          {mode === 'existing' ? (
+            <>
+              <label className="chats-modal-label">Upcoming events</label>
+              <select
+                className="chats-modal-input"
+                value={selectedExistingId}
+                onChange={(e) => setSelectedExistingId(e.target.value)}
+                required
+              >
+                <option value="">Select an event…</option>
+                {existingEvents.map((ev) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.title} {ev.date ? `· ${ev.date}${ev.time ? ` ${ev.time}` : ''}` : ''}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <>
           <label className="chats-modal-label">Event title</label>
           <input
             type="text"
@@ -751,11 +833,96 @@ function EventModal({ onClose, onSubmit, sending, userDoc }) {
             onChange={(e) => setTime(e.target.value)}
             className="chats-modal-input"
           />
+            </>
+          )}
           <div className="chats-modal-footer">
             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button type="submit" variant="primary" disabled={sending || !title.trim()}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={sending || (mode === 'new' ? !title.trim() : !selectedExistingId)}
+            >
               Send event
             </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function MeetingInviteModal({ onClose, onSubmit, sending }) {
+  const [title, setTitle] = useState('Quick chat call')
+  useScrollLock(true)
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    onSubmit({ title: title.trim() || 'Quick chat call' })
+    onClose()
+  }
+  return (
+    <div className="chats-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="chats-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="chats-modal-header">
+          <h3 className="chats-modal-title">Start chat meeting</h3>
+          <button type="button" className="chats-modal-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="chats-modal-form">
+          <label className="chats-modal-label">Meeting title</label>
+          <input
+            type="text"
+            className="chats-modal-input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Quick chat call"
+            autoFocus
+          />
+          <div className="chats-modal-footer">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={sending}>Send meeting invite</Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ShareUserCardModal({ onClose, onSubmit, orgMembers = [], userProfiles = {}, currentUserId, sending }) {
+  const [selectedUserId, setSelectedUserId] = useState('')
+  useScrollLock(true)
+  const candidates = orgMembers.filter((m) => m.userId !== currentUserId)
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (!selectedUserId) return
+    const doc = userProfiles[selectedUserId] || null
+    onSubmit({
+      userId: selectedUserId,
+      displayName: getDisplayName(doc, selectedUserId),
+      email: (doc?.email || '').trim(),
+      phoneNumber: (doc?.phone || doc?.phoneNumber || '').trim(),
+      photoUrl: getProfilePictureUrl(doc) || '',
+    })
+    onClose()
+  }
+  return (
+    <div className="chats-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="chats-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="chats-modal-header">
+          <h3 className="chats-modal-title">Share profile card</h3>
+          <button type="button" className="chats-modal-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="chats-modal-form">
+          <label className="chats-modal-label">Select member</label>
+          <select className="chats-modal-input" value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)} required>
+            <option value="">Choose a member…</option>
+            {candidates.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {getDisplayName(userProfiles[m.userId], m.userId)}
+              </option>
+            ))}
+          </select>
+          <div className="chats-modal-footer">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={sending || !selectedUserId}>Send card</Button>
           </div>
         </form>
       </div>
@@ -787,6 +954,10 @@ export function ChatsPage() {
   const documentInputRef = useRef(null)
   const [showPollModal, setShowPollModal] = useState(false)
   const [showEventModal, setShowEventModal] = useState(false)
+  const [showMeetingInviteModal, setShowMeetingInviteModal] = useState(false)
+  const [showShareUserCardModal, setShowShareUserCardModal] = useState(false)
+  const { toast, showToast } = useInlineToast()
+  const [chatEventOptions, setChatEventOptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showNewChat, setShowNewChat] = useState(false)
@@ -894,23 +1065,32 @@ export function ChatsPage() {
 
   useEffect(() => {
     if (!user) return
-    getActiveMemberships(user.uid).then(async (memberships) => {
-      const ids = memberships.filter((m) => m.state === 'active').map((m) => m.orgId)
-      setOrgIds(ids)
-      const names = {}
-      await Promise.all(ids.map(async (oid) => {
-        const o = await getOrg(oid)
-        if (o) names[oid] = o.name
-      }))
-      setOrgNames(names)
-      if (!paramOrgId && ids.length) {
-        if (chatOrgFilter && ids.includes(chatOrgFilter)) {
-          setOrgId(chatOrgFilter)
-        } else {
-          setOrgId((prev) => (prev && ids.includes(prev) ? prev : ids[0]))
+    getActiveMemberships(user.uid)
+      .then(async (memberships) => {
+        const ids = memberships.filter((m) => m.state === 'active').map((m) => m.orgId)
+        setOrgIds(ids)
+        const names = {}
+        await Promise.all(ids.map(async (oid) => {
+          const o = await getOrg(oid)
+          if (o) names[oid] = o.name
+        }))
+        setOrgNames(names)
+        if (!paramOrgId && ids.length) {
+          if (chatOrgFilter && ids.includes(chatOrgFilter)) {
+            setOrgId(chatOrgFilter)
+          } else {
+            setOrgId((prev) => (prev && ids.includes(prev) ? prev : ids[0]))
+          }
         }
-      }
-    })
+      })
+      .catch((err) => {
+        setError(
+          normalizeApiError(err, {
+            fallback: 'Could not load your organizations for chat.',
+            actionHint: 'Refresh the page and try again.',
+          })
+        )
+      })
   }, [user, paramOrgId, chatOrgFilter])
 
   useEffect(() => {
@@ -1048,6 +1228,44 @@ export function ChatsPage() {
     )
   }, [membership, selectedConv])
 
+  const canStartChatMeeting = useMemo(() => {
+    if (!membership || membership.state !== MEMBERSHIP_STATES.active) return false
+    if (selectedConv?.type === CONV_TYPES.team && selectedConv?.teamId) {
+      return membershipHasCapability(membership, 'scheduleTeamMeetings')
+    }
+    return membershipHasCapability(membership, 'scheduleOrgMeetings')
+  }, [membership, selectedConv])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!orgId || !user?.uid || !canCreateChatEvent) {
+      setChatEventOptions([])
+      return
+    }
+    Promise.resolve()
+      .then(() => getUpcomingMeetingsInHorizonForUserInOrg(user.uid, orgId, 30, 40, { includeNonVideo: true }))
+      .then((rows) => {
+        if (cancelled) return
+        const locale = getLocale(userDoc)
+        const mapped = (rows || []).map((m) => {
+          const ms = m.startAt?.toMillis?.() || null
+          const d = ms ? new Date(ms) : null
+          return {
+            id: m.id,
+            title: m.title || 'Event',
+            date: d ? d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) : '',
+            time: d ? d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '',
+            row: m,
+          }
+        })
+        setChatEventOptions(mapped)
+      })
+      .catch(() => {
+        if (!cancelled) setChatEventOptions([])
+      })
+    return () => { cancelled = true }
+  }, [orgId, user?.uid, canCreateChatEvent, userDoc?.language])
+
   useEffect(() => {
     if (conversations.length || selectedConv || messages.length) {
       loadProfiles(conversations, selectedConv, messages, userProfiles)
@@ -1177,6 +1395,9 @@ ${blocks.join('\n')}
           if (m.attachment?.type === 'image') text += ' [Image]'
           if (m.attachment?.type === 'document') text += ` [Document: ${m.attachment?.fileName || 'File'}]`
           if (m.attachment?.type === 'poll') text += ` [Poll: ${m.attachment?.question || ''}]`
+          if (m.attachment?.type === 'event_card') text += ` [Event: ${m.attachment?.title || 'Event'}]`
+          if (m.attachment?.type === 'meeting_invite') text += ` [Meeting: ${m.attachment?.title || 'Chat meeting'}]`
+          if (m.attachment?.type === 'user_card') text += ` [Profile: ${m.attachment?.displayName || 'Member'}]`
           return `[${time}] ${name}: ${text}`
         })
         const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
@@ -1192,11 +1413,38 @@ ${blocks.join('\n')}
   }, [orgId, chatId, user?.uid, selectedConv, userProfiles])
 
   const handleStartVideoCall = useCallback(
-    (channel) => {
+    async (channel) => {
+      if (!orgId || !chatId || !selectedConv || !user?.uid) return
+      const resolvedChannel = channel || `chat-${selectedConv.type === CONV_TYPES.dm ? 'dm' : 'grp'}-${chatId}-${Date.now()}`
+      const autoEndPolicy = selectedConv.type === CONV_TYPES.dm ? 'any_leave' : 'empty_room'
+      try {
+        await sendWithAttachment(
+          {
+            type: 'meeting_invite',
+            title: 'Quick chat call',
+            channel: resolvedChannel,
+            orgId,
+            convId: chatId,
+            convType: selectedConv.type,
+            autoEndPolicy,
+            createdBy: user.uid,
+            createdAt: Date.now(),
+          },
+          'Meeting invite: Quick chat call'
+        )
+      } catch {
+        // keep navigation even if chat invite write fails
+      }
       const base = orgId ? `/app/org/${orgId}/video` : '/app/video'
-      navigate(`${base}?channel=${encodeURIComponent(channel)}`)
+      const qp = new URLSearchParams({
+        channel: resolvedChannel,
+        chatCall: '1',
+        chatConvId: chatId,
+        endPolicy: autoEndPolicy,
+      })
+      navigate(`${base}?${qp.toString()}`)
     },
-    [navigate, orgId]
+    [navigate, orgId, chatId, selectedConv, user?.uid, sendWithAttachment]
   )
 
   const handleChatMenuAction = useCallback(async (conv, action) => {
@@ -1385,8 +1633,15 @@ ${blocks.join('\n')}
       }
       setShowEventModal(true)
     }
-    else if (id === 'users') setShowNewChat(true)
-  }, [closeAttachmentMenu, canCreateChatEvent])
+    else if (id === 'meeting') {
+      if (!canStartChatMeeting) {
+        setError('You do not have permission to start a chat meeting from this conversation.')
+        return
+      }
+      setShowMeetingInviteModal(true)
+    }
+    else if (id === 'users') setShowShareUserCardModal(true)
+  }, [closeAttachmentMenu, canCreateChatEvent, canStartChatMeeting])
 
   const handlePhotosChange = useCallback((e) => {
     const file = e.target.files?.[0]
@@ -1562,9 +1817,22 @@ ${blocks.join('\n')}
     setLockOverlayError('')
   }, [orgId, chatId, user?.uid, lockOverlayPin])
 
-  const handleEventSubmit = useCallback(async ({ text, title, date, time }) => {
-    await sendTextMessage(text)
-    if (!date || !orgId || !user?.uid || !chatId || !selectedConv) return
+  const buildChatCallChannel = useCallback(() => {
+    const scope = selectedConv?.type === CONV_TYPES.dm ? 'dm' : 'grp'
+    return `chat-${scope}-${chatId}-${Date.now()}`
+  }, [selectedConv?.type, chatId])
+
+  const handleEventSubmit = useCallback(async ({ mode, text, title, date, time, eventId }) => {
+    const attachment = {
+      type: 'event_card',
+      eventId: eventId || '',
+      title: title || 'Event',
+      date: date || '',
+      time: time || '',
+      source: mode === 'existing' ? 'existing' : 'new',
+    }
+    await sendWithAttachment(attachment, text || `Event: ${title}`)
+    if (mode === 'existing' || !date || !orgId || !user?.uid || !chatId || !selectedConv) return
     try {
       const [year, month, day] = date.split('-').map(Number)
       const [hours = 0, minutes = 0] = time ? time.split(':').map(Number) : [0, 0]
@@ -1581,7 +1849,44 @@ ${blocks.join('\n')}
     } catch (err) {
       setError(err?.message || 'Event sent, but calendar sync failed.')
     }
-  }, [orgId, chatId, user?.uid, selectedConv, sendTextMessage])
+  }, [orgId, chatId, user?.uid, selectedConv, sendWithAttachment])
+
+  const handleMeetingInviteSubmit = useCallback(async ({ title }) => {
+    if (!orgId || !chatId || !selectedConv || !user?.uid) return
+    const channel = buildChatCallChannel()
+    const autoEndPolicy = selectedConv.type === CONV_TYPES.dm ? 'any_leave' : 'empty_room'
+    await sendWithAttachment(
+      {
+        type: 'meeting_invite',
+        title: title || 'Quick chat call',
+        channel,
+        orgId,
+        convId: chatId,
+        convType: selectedConv.type,
+        autoEndPolicy,
+        createdBy: user.uid,
+        createdAt: Date.now(),
+      },
+      `Meeting invite: ${title || 'Quick chat call'}`
+    )
+    showToast('Meeting invite sent to this chat.')
+  }, [orgId, chatId, selectedConv, user?.uid, sendWithAttachment, buildChatCallChannel, showToast])
+
+  const handleShareUserCardSubmit = useCallback(async ({ userId: targetId, displayName, email, phoneNumber, photoUrl }) => {
+    if (!targetId) return
+    await sendWithAttachment(
+      {
+        type: 'user_card',
+        userId: targetId,
+        displayName: displayName || 'Member',
+        email: email || '',
+        phoneNumber: phoneNumber || '',
+        photoUrl: photoUrl || '',
+      },
+      `Shared profile: ${displayName || 'Member'}`
+    )
+    showToast('Profile card shared.')
+  }, [sendWithAttachment, showToast])
 
   const hasOrg = orgId && org
   const isMember = membership?.state === 'active'
@@ -1593,17 +1898,46 @@ ${blocks.join('\n')}
   if (loading && !user) {
     return (
       <main className="app-main app-main-center">
-        <p className="app-muted">Loading…</p>
+        <div style={{ width: 'min(420px, 100%)' }}>
+          <Skeleton lines={3} />
+        </div>
       </main>
     )
   }
 
-  if (!orgId) return null
+  if (!orgId) {
+    return (
+      <main className="app-main">
+        <h2>Chats</h2>
+        {loading ? (
+          <p className="app-muted">Loading workspaces…</p>
+        ) : orgIds.length === 0 ? (
+          <>
+            <p className="app-muted">You are not an active member of any organization yet.</p>
+            <Button to="/app/organizations" variant="primary" size="md">Open Organizations</Button>
+          </>
+        ) : (
+          <>
+            <p className="app-muted">Select an organization to open chats.</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {orgIds.map((oid) => (
+                <Button key={oid} to={`/app/org/${encodeURIComponent(oid)}/chats`} variant="outline" size="sm">
+                  {orgNames[oid] || 'Open chats'}
+                </Button>
+              ))}
+            </div>
+          </>
+        )}
+      </main>
+    )
+  }
 
   if (!org) {
     return (
       <main className="app-main app-main-center">
-        <p className="app-muted">Loading…</p>
+        <div style={{ width: 'min(420px, 100%)' }}>
+          <Skeleton lines={3} />
+        </div>
       </main>
     )
   }
@@ -1613,13 +1947,14 @@ ${blocks.join('\n')}
       <main className="app-main">
         <h2>Chats</h2>
         <p className="app-muted">You need to be an active member of this organization to use chats.</p>
-        <Button to="/app" variant="primary" size="md">Go to Dashboard</Button>
+        <Button to="/app" variant="primary" size="md">Return to Dashboard</Button>
       </main>
     )
   }
 
   return (
     <div className="chats-layout">
+      <InlineToast message={toast?.message} tone={toast?.tone} />
       <div className={`chats-container ${chatId ? 'chats-container--thread-open' : 'chats-container--list-only'}`}>
         <aside className="chats-sidebar">
           {error && (
@@ -1767,7 +2102,7 @@ ${blocks.join('\n')}
             if (conversations.length === 0) {
               return (
                 <ul className="chats-list">
-                  <li className="chats-empty">No chats yet. Start a new one!</li>
+                  <li className="chats-empty">No conversations available. Start a new chat to begin.</li>
                 </ul>
               )
             }
@@ -1783,7 +2118,7 @@ ${blocks.join('\n')}
               return (
                 <ul className="chats-list">
                   {activeList.map(renderItem)}
-                  {activeList.length === 0 && <li className="chats-empty">No chats yet. Turn on “Show archived” in filter to see archived.</li>}
+                  {activeList.length === 0 && <li className="chats-empty">No active conversations. Enable archived conversations in filters to review archived threads.</li>}
                 </ul>
               )
             }
@@ -1793,12 +2128,12 @@ ${blocks.join('\n')}
                 <ul className="chats-list chats-list-section">
                   <li className="chats-list-section-header">Chats</li>
                   {activeList.map(renderItem)}
-                  {activeList.length === 0 && <li className="chats-empty">No chats</li>}
+                  {activeList.length === 0 && <li className="chats-empty">No active conversations.</li>}
                 </ul>
                 <ul className="chats-list chats-list-archived">
                   <li className="chats-list-section-header">Archived</li>
                   {archivedList.map(renderItem)}
-                  {archivedList.length === 0 && <li className="chats-empty">No archived chats</li>}
+                  {archivedList.length === 0 && <li className="chats-empty">No archived conversations.</li>}
                 </ul>
               </div>
             )
@@ -1942,7 +2277,7 @@ ${blocks.join('\n')}
               <div className="chats-chat-body">
               <div className="chats-messages" ref={messagesContainerRef}>
                 {messages.length === 0 && !searchInChat ? (
-                  <p className="chats-messages-empty">No messages yet. Start the conversation!</p>
+                  <p className="chats-messages-empty">No messages yet. Send a message to begin this conversation.</p>
                 ) : (
                   (() => {
                     let filtered = searchInChat.trim()
@@ -2040,6 +2375,70 @@ ${blocks.join('\n')}
                                   <span>{m.attachment.fileName || 'Document'}</span>
                                 </a>
                               )}
+                              {m.attachment?.type === 'event_card' && (
+                                <div className="chats-bubble-card chats-bubble-card-event">
+                                  <div className="chats-bubble-card-title">{m.attachment.title || 'Event'}</div>
+                                  <div className="chats-bubble-card-sub">
+                                    {m.attachment.date || 'Date not specified'}{m.attachment.time ? ` at ${m.attachment.time}` : ''}
+                                  </div>
+                                </div>
+                              )}
+                              {m.attachment?.type === 'meeting_invite' && (
+                                <div className="chats-bubble-card chats-bubble-card-meeting">
+                                  <div className="chats-bubble-card-title">{m.attachment.title || 'Chat meeting'}</div>
+                                  <div className="chats-bubble-card-sub">This invite is limited to this chat.</div>
+                                  <Button
+                                    type="button"
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => {
+                                      const base = orgId ? `/app/org/${orgId}/video` : '/app/video'
+                                      const qp = new URLSearchParams({
+                                        channel: m.attachment.channel || '',
+                                        chatCall: '1',
+                                        chatConvId: chatId || '',
+                                        endPolicy: m.attachment.autoEndPolicy || 'empty_room',
+                                      })
+                                      navigate(`${base}?${qp.toString()}`)
+                                    }}
+                                  >
+                                    Join now
+                                  </Button>
+                                </div>
+                              )}
+                              {m.attachment?.type === 'user_card' && (
+                                <div className="chats-bubble-card chats-bubble-card-user">
+                                  <div className="chats-bubble-user-head">
+                                    <div className="chats-bubble-user-avatar">
+                                      {m.attachment.photoUrl ? <img src={m.attachment.photoUrl} alt="" referrerPolicy="no-referrer" /> : <span>{(m.attachment.displayName || 'U')[0]}</span>}
+                                    </div>
+                                    <div>
+                                      <div className="chats-bubble-card-title">{m.attachment.displayName || 'Member'}</div>
+                                      {m.attachment.email && <div className="chats-bubble-card-sub">{m.attachment.email}</div>}
+                                      {m.attachment.phoneNumber && <div className="chats-bubble-card-sub">{m.attachment.phoneNumber}</div>}
+                                    </div>
+                                  </div>
+                                  <div className="chats-bubble-user-actions">
+                                    <Button type="button" variant="ghost" size="sm" onClick={() => setProfileModalUserId(m.attachment.userId)}>
+                                      View profile
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="primary"
+                                      size="sm"
+                                      onClick={async () => {
+                                        try {
+                                          if (!orgId || !user?.uid || !m.attachment.userId) return
+                                          const conv = await getOrCreateDM(orgId, user.uid, m.attachment.userId)
+                                          handleOpenChat({ orgId, id: conv.id })
+                                        } catch {}
+                                      }}
+                                    >
+                                      Message
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
                               {m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>}
                               <div className="chats-bubble-footer">
                                 {ts && <span className="chats-bubble-time">{ts}</span>}
@@ -2132,6 +2531,70 @@ ${blocks.join('\n')}
                                         <FileTextIcon size={18} />
                                         <span>{m.attachment.fileName || 'Document'}</span>
                                       </a>
+                                    )}
+                                    {m.attachment?.type === 'event_card' && (
+                                      <div className="chats-bubble-card chats-bubble-card-event">
+                                        <div className="chats-bubble-card-title">{m.attachment.title || 'Event'}</div>
+                                        <div className="chats-bubble-card-sub">
+                                          {m.attachment.date || 'Date not specified'}{m.attachment.time ? ` at ${m.attachment.time}` : ''}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {m.attachment?.type === 'meeting_invite' && (
+                                      <div className="chats-bubble-card chats-bubble-card-meeting">
+                                        <div className="chats-bubble-card-title">{m.attachment.title || 'Chat meeting'}</div>
+                                        <div className="chats-bubble-card-sub">This invite is limited to this chat.</div>
+                                        <Button
+                                          type="button"
+                                          variant="primary"
+                                          size="sm"
+                                          onClick={() => {
+                                            const base = orgId ? `/app/org/${orgId}/video` : '/app/video'
+                                            const qp = new URLSearchParams({
+                                              channel: m.attachment.channel || '',
+                                              chatCall: '1',
+                                              chatConvId: chatId || '',
+                                              endPolicy: m.attachment.autoEndPolicy || 'empty_room',
+                                            })
+                                            navigate(`${base}?${qp.toString()}`)
+                                          }}
+                                        >
+                                          Join now
+                                        </Button>
+                                      </div>
+                                    )}
+                                    {m.attachment?.type === 'user_card' && (
+                                      <div className="chats-bubble-card chats-bubble-card-user">
+                                        <div className="chats-bubble-user-head">
+                                          <div className="chats-bubble-user-avatar">
+                                            {m.attachment.photoUrl ? <img src={m.attachment.photoUrl} alt="" referrerPolicy="no-referrer" /> : <span>{(m.attachment.displayName || 'U')[0]}</span>}
+                                          </div>
+                                          <div>
+                                            <div className="chats-bubble-card-title">{m.attachment.displayName || 'Member'}</div>
+                                            {m.attachment.email && <div className="chats-bubble-card-sub">{m.attachment.email}</div>}
+                                            {m.attachment.phoneNumber && <div className="chats-bubble-card-sub">{m.attachment.phoneNumber}</div>}
+                                          </div>
+                                        </div>
+                                        <div className="chats-bubble-user-actions">
+                                          <Button type="button" variant="ghost" size="sm" onClick={() => setProfileModalUserId(m.attachment.userId)}>
+                                            View profile
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            variant="primary"
+                                            size="sm"
+                                            onClick={async () => {
+                                              try {
+                                                if (!orgId || !user?.uid || !m.attachment.userId) return
+                                                const conv = await getOrCreateDM(orgId, user.uid, m.attachment.userId)
+                                                handleOpenChat({ orgId, id: conv.id })
+                                              } catch {}
+                                            }}
+                                          >
+                                            Message
+                                          </Button>
+                                        </div>
+                                      </div>
                                     )}
                                     {m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>}
                                     <div className="chats-bubble-footer">
@@ -2261,6 +2724,7 @@ ${blocks.join('\n')}
                     onSelect={handleAttachmentSelect}
                     isClosing={attachmentMenuClosing}
                     eventDisabled={!canCreateChatEvent}
+                    meetingDisabled={!canStartChatMeeting}
                   />
                 )}
               </form>
@@ -2270,6 +2734,9 @@ ${blocks.join('\n')}
           ) : (
             <div className="chats-placeholder">
               <p>Select a chat from the list or start a new one.</p>
+              <Button type="button" variant="primary" size="sm" onClick={() => setShowNewChat(true)}>
+                Start a new chat
+              </Button>
             </div>
           )}
         </main>
@@ -2287,6 +2754,24 @@ ${blocks.join('\n')}
           onSubmit={handleEventSubmit}
           sending={sending}
           userDoc={userDoc}
+          existingEvents={chatEventOptions}
+        />
+      )}
+      {showMeetingInviteModal && (
+        <MeetingInviteModal
+          onClose={() => setShowMeetingInviteModal(false)}
+          onSubmit={handleMeetingInviteSubmit}
+          sending={sending}
+        />
+      )}
+      {showShareUserCardModal && (
+        <ShareUserCardModal
+          onClose={() => setShowShareUserCardModal(false)}
+          onSubmit={handleShareUserCardSubmit}
+          orgMembers={(selectedConv?.members || []).map((uid) => ({ userId: uid }))}
+          userProfiles={userProfiles}
+          currentUserId={user?.uid}
+          sending={sending}
         />
       )}
       {showNewChat && (
@@ -2315,7 +2800,10 @@ ${blocks.join('\n')}
             setMessageContextMsg(null)
             setShowForwardModal(true)
           }}
-          onCopy={() => setMessageContextMsg(null)}
+          onCopy={() => {
+            setMessageContextMsg(null)
+            showToast('Message copied.')
+          }}
           onInfo={() => setProfileModalUserId(messageContextMsg?.senderId)}
           onStar={() => {
             handleStarMessage(messageContextMsg.id, messageContextMsg.text, starredMap.has(messageContextMsg.id))
@@ -2326,6 +2814,7 @@ ${blocks.join('\n')}
           onClose={() => setMessageContextMsg(null)}
         />
       )}
+      <Suspense fallback={null}>
       {showForwardModal && forwardMessage && (
         <ForwardMessageModal
           message={forwardMessage}
@@ -2425,6 +2914,7 @@ ${blocks.join('\n')}
           showManage={false}
         />
       )}
+      </Suspense>
     </div>
   )
 }

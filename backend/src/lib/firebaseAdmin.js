@@ -1,5 +1,5 @@
 /**
- * Firebase Admin SDK — server-side auth & Firestore.
+ * Firebase Admin SDK  -  server-side auth & Firestore.
  * Initialize only when credentials are present.
  */
 import { initializeApp, cert, getApps } from 'firebase-admin/app'

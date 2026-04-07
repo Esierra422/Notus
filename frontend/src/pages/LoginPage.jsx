@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, onAuthStateChanged } from 'firebase/auth'
 import { auth, googleProvider, isSafari } from '../lib/firebase'
+import { applyPublicMeta } from '../lib/seo'
 
 import { ensureUserDoc, getUserDoc, getNextProfileField, getMissingProfileFieldsCount, updateProfileField } from '../lib/userService'
 import {
@@ -11,6 +12,7 @@ import {
   AuthStepProfile,
   AuthStepProfilePicture,
 } from '../components/auth'
+import { Nav } from '../components/landing/Nav'
 import { ArrowLeftIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AuthPage.css'
@@ -29,6 +31,14 @@ export function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false)
 
   const isProcessingRedirect = location.state?.fromRedirect && location.state?.provider === 'google' && auth.currentUser && !userDoc
+
+  useEffect(() => {
+    applyPublicMeta({
+      title: 'Log In | Notus',
+      description: 'Access your Notus workspace to manage team communication, meetings, and calendars.',
+      path: '/login',
+    })
+  }, [])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -163,6 +173,7 @@ export function LoginPage() {
 
   return (
     <div className="auth-page">
+      <Nav />
       <Link to="/" className="auth-back">
         <ArrowLeftIcon size={18} />
         Back

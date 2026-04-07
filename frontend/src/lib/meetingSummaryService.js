@@ -1,6 +1,7 @@
-import { collection, query, where, getDocs, getDoc, doc, orderBy } from 'firebase/firestore'
+import { collection, query, where, getDocs, getDoc, doc, orderBy, limit } from 'firebase/firestore'
 import { db } from './firebase'
 import { getAiRestHttpBase } from './apiConfig.js'
+import { normalizeApiError } from './apiErrors.js'
 import { getMeetingsForUserInOrg, getMeetingsForUser, getMeetingTranscriptSessionId } from './meetingService.js'
 
 /**
@@ -10,9 +11,9 @@ import { getMeetingsForUserInOrg, getMeetingsForUser, getMeetingTranscriptSessio
  */
 export async function askMeetingRecap({ channel = '', sessionId = '', uid = '', orgId = '', question = '' } = {}) {
   const q = String(question || '').trim()
-  if (!q) return { error: 'Enter a question.' }
+  if (!q) return { error: 'Enter a question before sending.' }
   let base = getAiRestHttpBase()
-  if (!base) return { error: 'AI service URL is not configured (set VITE_AI_HTTP_URL or VITE_AI_WS_URL).' }
+  if (!base) return { error: 'AI service is not configured. Set VITE_AI_HTTP_URL or VITE_AI_WS_URL and redeploy.' }
   if (base.startsWith('wss://')) base = `https://${base.slice(6)}`
   else if (base.startsWith('ws://')) base = `http://${base.slice(5)}`
   try {
@@ -31,11 +32,22 @@ export async function askMeetingRecap({ channel = '', sessionId = '', uid = '', 
     const data = await res.json().catch(() => ({}))
     const answer = data.answer ?? data.error
     if (!res.ok) {
-      return { error: typeof answer === 'string' ? answer : `Request failed (${res.status})` }
+      return {
+        error: normalizeApiError(typeof answer === 'string' ? answer : '', {
+          status: res.status,
+          fallback: 'AI request failed.',
+          actionHint: 'Try again in a few seconds.',
+        }),
+      }
     }
     return { answer: typeof answer === 'string' ? answer : 'No answer returned.' }
   } catch (e) {
-    return { error: e?.message || 'Could not reach the AI service.' }
+    return {
+      error: normalizeApiError(e, {
+        fallback: 'Could not reach the AI service.',
+        actionHint: 'Check your network connection and API configuration.',
+      }),
+    }
   }
 }
 
@@ -57,7 +69,7 @@ export async function generateMeetingSummary(aiBaseUrl, { channel, sessionId, ui
   if (base.startsWith('wss://')) base = `https://${base.slice(6)}`
   else if (base.startsWith('ws://')) base = `http://${base.slice(5)}`
   if (!base) base = getAiRestHttpBase()
-  if (!base) return { success: false, error: 'AI backend URL not configured.' }
+  if (!base) return { success: false, error: 'AI backend URL is not configured. Update your environment variables and redeploy.' }
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), SUMMARY_FETCH_TIMEOUT_MS)
   try {
@@ -80,7 +92,11 @@ export async function generateMeetingSummary(aiBaseUrl, { channel, sessionId, ui
     if (!res.ok) {
       return {
         success: false,
-        error: data.error || `Request failed (${res.status})`,
+        error: normalizeApiError(data.error || '', {
+          status: res.status,
+          fallback: 'Summary request failed.',
+          actionHint: 'Verify AI backend availability and try again.',
+        }),
         wordCount: data.wordCount,
       }
     }
@@ -90,12 +106,15 @@ export async function generateMeetingSummary(aiBaseUrl, { channel, sessionId, ui
       return {
         success: false,
         error:
-          'Summary request timed out. The AI service may be waking from sleep — wait a minute and try “Previous meetings” or end again.',
+          'Summary request timed out. The AI service may be waking from sleep. Wait a minute, then try “Previous meetings” or end the meeting again.',
       }
     }
     return {
       success: false,
-      error: e?.message || 'Could not reach the AI server (network or CORS).',
+      error: normalizeApiError(e, {
+        fallback: 'Could not reach the AI server.',
+        actionHint: 'Check network access and CORS configuration.',
+      }),
     }
   } finally {
     clearTimeout(timeoutId)
@@ -103,8 +122,9 @@ export async function generateMeetingSummary(aiBaseUrl, { channel, sessionId, ui
 }
 
 /**
- * Get all meeting summaries for a user, ordered by creation date (newest first).
+ * Get meeting summaries for a user, ordered by creation date (newest first).
  * @param {string} uid - User's Firebase UID
+ * @param {{ limit?: number }} [opts] - Omit or leave unset for full list (e.g. Previous meetings page).
  * @returns {Promise<Array<{id: string, ...}>>}
  */
 function summarySortDesc(a, b) {
@@ -113,13 +133,16 @@ function summarySortDesc(a, b) {
   return tb - ta
 }
 
-export async function getUserSummaries(uid) {
+export async function getUserSummaries(uid, opts = {}) {
+  const cap = typeof opts.limit === 'number' && opts.limit > 0 ? Math.min(opts.limit, 500) : null
   try {
-    const q = query(
+    const parts = [
       collection(db, 'meetingSummaries'),
       where('generatedBy', '==', uid),
-      orderBy('createdAt', 'desc')
-    )
+      orderBy('createdAt', 'desc'),
+    ]
+    if (cap != null) parts.push(limit(cap))
+    const q = query(...parts)
     const snap = await getDocs(q)
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
   } catch (e) {
@@ -128,7 +151,7 @@ export async function getUserSummaries(uid) {
     const snap = await getDocs(q2)
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
     list.sort(summarySortDesc)
-    return list
+    return cap != null ? list.slice(0, cap) : list
   }
 }
 
@@ -188,6 +211,102 @@ export async function getMeetingTranscriptBySessionId(sessionId) {
   }
 }
 
+/** Remove common third-party footers accidentally pasted into transcript text. */
+export function stripTranscriptArtifacts(text) {
+  return String(text || '')
+    .replace(/\s*Transcribed by https?:\/\/[^\s\n]+/gi, '')
+    .replace(/\s*Powered by Otter\.ai[^\n]*/gi, '')
+    .trim()
+}
+
+function chunkPlainTranscriptToParagraphs(plain) {
+  const parts = plain.split(/\n\n+/).map((p) => p.trim()).filter(Boolean)
+  if (parts.length > 1) {
+    return parts.map((text) => ({ text, uid: '', timestamp: '' }))
+  }
+  const sents = plain.split(/(?<=[.!?])\s+/).filter(Boolean)
+  const out = []
+  let buf = []
+  let len = 0
+  for (const s of sents) {
+    buf.push(s)
+    len += s.length + 1
+    if (len >= 300 && buf.length >= 2) {
+      out.push({ text: buf.join(' ').trim(), uid: '', timestamp: '' })
+      buf = []
+      len = 0
+    }
+  }
+  if (buf.length) out.push({ text: buf.join(' ').trim(), uid: '', timestamp: '' })
+  return out.length ? out : [{ text: plain, uid: '', timestamp: '' }]
+}
+
+/**
+ * Segments for meeting recap UI: prefers Firestore `transcriptSegments` from the AI backend;
+ * otherwise splits the flat `transcript` string into readable paragraphs.
+ * @param {{ transcript?: string, transcriptSegments?: Array<{ text?: string, uid?: string, timestamp?: string }> }} summary
+ */
+export function getSummaryTranscriptDisplaySegments(summary) {
+  const raw = summary?.transcriptSegments
+  if (Array.isArray(raw) && raw.length) {
+    const mapped = raw
+      .map((s) => ({
+        text: stripTranscriptArtifacts(String(s?.text ?? '')),
+        uid: String(s?.uid ?? ''),
+        timestamp: String(s?.timestamp ?? ''),
+      }))
+      .filter((s) => s.text.trim())
+    if (mapped.length) return mapped
+  }
+  const plain = stripTranscriptArtifacts(String(summary?.transcript ?? ''))
+  if (!plain.trim()) return []
+  return chunkPlainTranscriptToParagraphs(plain)
+}
+
+export function formatSummarySegmentTime(timestamp) {
+  const ts = String(timestamp || '').trim()
+  if (!ts) return ''
+  if (/^\d{4}-\d{2}-\d{2}T/.test(ts)) {
+    try {
+      const d = new Date(ts)
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return ts
+}
+
+export function labelForSummarySegment(segment, uniqueUids, participantNames) {
+  const uid = segment.uid
+  const names = Array.isArray(participantNames) ? participantNames.filter(Boolean) : []
+  if (!uid) {
+    if (names.length === 1) return names[0]
+    return 'Transcript'
+  }
+  if (uniqueUids.size <= 1) return names[0] || 'Participant'
+  const short = uid.length > 4 ? uid.slice(-4) : uid
+  return `Speaker · ${short}`
+}
+
+/** Plain text for copy / PDF / Word  -  one block per segment, “- [Speaker] …” lines. */
+export function getSummaryTranscriptCopyText(summary) {
+  const segments = getSummaryTranscriptDisplaySegments(summary)
+  if (!segments.length) return ''
+  const unique = new Set(segments.map((s) => s.uid).filter(Boolean))
+  const names = summary?.participants
+  return segments
+    .map((s) => {
+      const label = labelForSummarySegment(s, unique, names)
+      const time = formatSummarySegmentTime(s.timestamp)
+      const prefix = time ? `${time} ` : ''
+      return `${prefix}- [${label}] ${s.text}`
+    })
+    .join('\n\n')
+}
+
 function pastRowStartMs(row) {
   return row.startAt?.toMillis?.() ?? (row.startAt?.seconds ? row.startAt.seconds * 1000 : 0)
 }
@@ -200,9 +319,13 @@ function pastRowStartMs(row) {
 export async function getPastMeetingLobbyPreview(uid, { routeOrgId = null, limit = 4 } = {}) {
   if (!uid) return []
   const lim = Math.min(Math.max(Number(limit) || 4, 1), 8)
+  const meetingPool = Math.min(120, Math.max(lim * 14, 56))
+  const summaryCap = Math.min(80, meetingPool + 24)
   const [summaries, meetings] = await Promise.all([
-    getUserSummaries(uid),
-    routeOrgId ? getMeetingsForUserInOrg(uid, routeOrgId, 400) : getMeetingsForUser(uid, 400),
+    getUserSummaries(uid, { limit: summaryCap }),
+    routeOrgId
+      ? getMeetingsForUserInOrg(uid, routeOrgId, meetingPool)
+      : getMeetingsForUser(uid, meetingPool),
   ])
   const videoMeetings = meetings.filter((m) => m.isVideoMeeting !== false)
   const summaryBySession = new Map()

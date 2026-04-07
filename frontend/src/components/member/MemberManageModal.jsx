@@ -4,7 +4,6 @@ import {
   getMembership,
   updateMemberDisplayRole,
   updateMemberCapabilities,
-  updateMembershipRole,
   canManageOrg,
   membershipHasCapability,
   normalizeMemberCapabilities,
@@ -69,7 +68,6 @@ export function MemberManageModal({
 
   const [initial, setInitial] = useState(null)
 
-  const canChangeRole = canManageOrg(myMembership)
   const canEditCapabilities = canManageOrg(myMembership) || membershipHasCapability(myMembership, 'manageMembers')
   const canAssignTeams = canManageOrg(myMembership) || membershipHasCapability(myMembership, 'manageTeams')
 
@@ -116,15 +114,8 @@ export function MemberManageModal({
   const email = (userDoc?.email || authUser?.email || '').trim()
   const initials = name ? name.split(/\s+/).map((n) => n[0]).join('').toUpperCase().slice(0, 2) : email?.[0]?.toUpperCase() || '?'
 
-  const iAmOwner = myMembership?.role === MEMBERSHIP_ROLES.owner
-  const iAmAdmin = myMembership?.role === MEMBERSHIP_ROLES.admin
   const isTargetOwner = role === MEMBERSHIP_ROLES.owner
-  const isTargetAdmin = role === MEMBERSHIP_ROLES.admin
-  const isTargetMember = role === MEMBERSHIP_ROLES.member
   const isSelf = userId === currentUser?.uid
-
-  const canMakeAdmin = (iAmOwner && isTargetMember) || (iAmAdmin && isTargetMember)
-  const canMakeMember = iAmOwner && isTargetAdmin
   const canRemove =
     !isSelf && canRemoveOrgMember(myMembership, role, isTargetOwner)
 
@@ -135,7 +126,6 @@ export function MemberManageModal({
   const dirty = useMemo(() => {
     if (!initial) return false
     if ((displayRoleName || '').trim() !== (initial.displayRoleName || '').trim()) return true
-    if (role !== initial.role) return true
     if (!capsEqual(capabilities, initial.capabilities)) return true
     if (initial.teamIds.size !== teamSelected.size) return true
     for (const id of teamSelected) {
@@ -161,10 +151,6 @@ export function MemberManageModal({
       if ((displayRoleName || '').trim() !== (initial.displayRoleName || '').trim()) {
         if (!canEditCapabilities) throw new Error('You cannot update this member’s label.')
         await updateMemberDisplayRole(orgId, userId, currentUser.uid, displayRoleName)
-      }
-      if (role !== initial.role && !isTargetOwner) {
-        if (!canChangeRole) throw new Error('You cannot change organization roles.')
-        await updateMembershipRole(orgId, userId, role, currentUser.uid)
       }
       if (!capsEqual(capabilities, initial.capabilities)) {
         if (!canEditCapabilities) throw new Error('You cannot update capabilities.')
@@ -257,23 +243,16 @@ export function MemberManageModal({
             </div>
 
             <div className="member-manage-section member-manage-section--unified">
-              <span className="member-manage-label">Organization role &amp; access</span>
+              <span className="member-manage-label">Access controls</span>
               <p className="member-manage-hint">
-                Role controls admin boundaries. Toggles control scheduling, calendars, teams, and people management for this member.
+                Access is determined by the controls below. If at least one control is enabled, the member can open the admin tools
+                they need to use that permission.
               </p>
               {isTargetOwner ? (
-                <p className="member-manage-readonly">Owner — full access. Transfer ownership is not available in this dialog.</p>
-              ) : (
-                <select
-                  className="member-manage-select"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  disabled={saving || !canChangeRole || (!canMakeAdmin && !canMakeMember && !(iAmAdmin && isTargetAdmin))}
-                >
-                  <option value={MEMBERSHIP_ROLES.member}>Member</option>
-                  <option value={MEMBERSHIP_ROLES.admin}>Admin</option>
-                </select>
-              )}
+                <p className="member-manage-readonly">
+                  Owner: full access. Transfer ownership is not available in this dialog.
+                </p>
+              ) : null}
 
               {!isTargetOwner && (
                 <div className="member-manage-toggle-list">

@@ -322,7 +322,7 @@ export function EventDetailModal({
                 {isScheduledCalendarVideo && (
                   <p className="event-detail-muted event-detail-muted--tight">
                     Scheduled Notus video: if you join before the start time, you may wait in a lobby until the host
-                    admits everyone or until the scheduled time—same idea as a professional waiting room.
+                    admits everyone or until the scheduled time, similar to a professional waiting room.
                   </p>
                 )}
                 {showJoinVideo && (

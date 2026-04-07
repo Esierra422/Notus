@@ -1,5 +1,5 @@
 /**
- * Main dashboard calendar: same scope as Calendar “Personal” view —
+ * Main dashboard calendar: same scope as Calendar “Personal” view  - 
  * org meetings (all orgs), imported ICS events, and tasks with due dates.
  */
 import {

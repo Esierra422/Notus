@@ -6,10 +6,16 @@
 @media (max-width: 768px) {
   /* Full-height app regions: avoid iOS 100vh vs toolbar jump */
   .app-layout-chats,
-  .app-layout-video {
+  .app-layout-video:not(.app-layout-video--footer) {
     height: 100dvh;
     min-height: 100dvh;
     max-height: 100dvh;
+  }
+
+  .app-layout-video.app-layout-video--footer {
+    height: auto;
+    min-height: 100dvh;
+    max-height: none;
   }
 
   .landing {
@@ -45,10 +51,6 @@
   .account-menu-panel {
     min-width: 0;
     max-width: min(280px, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
-  }
-
-  .app-nav-meetings-dropdown {
-    max-width: min(260px, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
   }
 
   .app-nav-admin-dropdown {

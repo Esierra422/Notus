@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useOutletContext, useParams, Link } from 'react-router-dom'
 import { Copy, Check, Send, Sparkles } from 'lucide-react'
 import { getMeetingTranscriptBySessionId, askMeetingRecap } from '../lib/meetingSummaryService'
-import { downloadTranscriptPdf, downloadTranscriptDocx } from '../lib/exportMeetingDoc'
 import { Button } from '../components/ui/Button'
 import { ArrowLeftIcon, CalendarIcon, LayoutDashboardIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
@@ -160,7 +159,9 @@ export function MeetingTranscriptPage() {
 
       <header className="meeting-transcript-hero meeting-recap-hero">
         <h1 className="meeting-recap-title">Saved transcript</h1>
-        <p className="meeting-recap-meta-line">Transcript only — AI notes appear here after the host ends the meeting for everyone.</p>
+        <p className="meeting-recap-meta-line">
+          Transcript only. AI notes appear here after the host ends the meeting for everyone.
+        </p>
         <details className="meeting-transcript-tech">
           <summary>Technical reference</summary>
           <p className="meeting-transcript-tech-body">
@@ -176,6 +177,7 @@ export function MeetingTranscriptPage() {
             onClick={async () => {
               setExportBusy('pdf')
               try {
+                const { downloadTranscriptPdf } = await import('../lib/exportMeetingDoc')
                 await downloadTranscriptPdf(exportTitle, text, segments)
               } finally {
                 setExportBusy(null)
@@ -192,6 +194,7 @@ export function MeetingTranscriptPage() {
             onClick={async () => {
               setExportBusy('docx')
               try {
+                const { downloadTranscriptDocx } = await import('../lib/exportMeetingDoc')
                 await downloadTranscriptDocx(exportTitle, text, segments)
               } finally {
                 setExportBusy(null)

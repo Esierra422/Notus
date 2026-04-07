@@ -6,7 +6,7 @@ const FEATURES = [
   {
     Icon: VideoIcon,
     title: 'Video & Voice Calls',
-    desc: 'HD video and crystal-clear voice calls with multiple participants. Mute, camera toggle, and host controls built in. Start calls from any channel or directly from the dashboard—no switching apps.',
+    desc: 'HD video and clear voice calls with multiple participants. Mute, camera, and host controls are built in. Start calls from any channel or the dashboard without switching apps.',
   },
   {
     Icon: FileTextIcon,
@@ -26,12 +26,12 @@ const FEATURES = [
   {
     Icon: MessageSquareIcon,
     title: 'Text Channels',
-    desc: 'Group channels for async chat—one per team or topic. Find teammates, share links, discuss in context. Unread badges and threaded replies keep conversations organized. No more lost threads in long email chains.',
+    desc: 'Group channels for async chat: one per team or topic. Find teammates, share links, and discuss in context. Unread badges and threaded replies keep conversations organized and out of long email chains.',
   },
   {
     Icon: CalendarIcon,
     title: 'Calendar & Planner',
-    desc: 'Schedule meetings, add events, and view your agenda at a glance. Import from Google Calendar or iCal. Share calendars across your org. Never miss a sync—upcoming meetings surface right on your dashboard.',
+    desc: 'Schedule meetings, add events, and view your agenda at a glance. Import from Google Calendar or iCal and share calendars across your org. Upcoming meetings surface on your dashboard so nothing slips through.',
   },
   {
     Icon: BuildingIcon,
@@ -41,7 +41,7 @@ const FEATURES = [
   {
     Icon: UsersIcon,
     title: 'Teams & Invitations',
-    desc: 'Create teams within your organization. Invite members by email—like org invites, but scoped to a team. Optional “open to join” lets org members self-join. Team profiles and descriptions keep everyone aligned.',
+    desc: 'Create teams within your organization. Invite members by email (similar to org invites, scoped to a team). Optional open-to-join teams let org members self-join. Profiles and descriptions keep everyone aligned.',
   },
   {
     Icon: LayoutDashboardIcon,
@@ -71,7 +71,7 @@ export function Features() {
       <ScrollReveal>
         <h2 className="section-title">Everything you need to collaborate</h2>
         <p className="section-subtitle">
-          Video, voice, notes, AI, teams, and more—integrated so your team can focus on the work.
+          Video, voice, notes, AI, teams, and more in one place so your team can focus on the work.
         </p>
       </ScrollReveal>
       <div className="features-grid">

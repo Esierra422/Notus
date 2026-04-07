@@ -1,4 +1,4 @@
-/* Shared notepad — matches video call panels; Quill Snow defaults use #ccc borders — override after bundled quill.snow.css */
+/* Shared notepad  -  matches video call panels; Quill Snow defaults use #ccc borders  -  override after bundled quill.snow.css */
 
 .notepad-container {
   position: fixed;
@@ -55,7 +55,7 @@
 }
 
 /*
- * Quill inserts the toolbar with insertBefore(toolbar, quill.container) — it is a *sibling*
+ * Quill inserts the toolbar with insertBefore(toolbar, quill.container)  -  it is a *sibling*
  * before .notepad-editor, not a descendant. Selectors must not use .notepad-editor .ql-toolbar.
  */
 .notepad-container .ql-toolbar.ql-snow {
@@ -70,7 +70,7 @@
   flex-shrink: 0;
 }
 
-/* Editor wrapper is .notepad-editor and also .ql-container.ql-snow — kill Snow’s outer #ccc frame */
+/* Editor wrapper is .notepad-editor and also .ql-container.ql-snow  -  kill Snow’s outer #ccc frame */
 .notepad-container .ql-container.ql-snow {
   border: none !important;
   outline: none !important;

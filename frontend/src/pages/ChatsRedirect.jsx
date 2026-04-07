@@ -43,7 +43,7 @@ export function ChatsRedirect() {
       <main className="app-main">
         <h2>Chats</h2>
         <p className="app-muted">Create or join an organization to use chats.</p>
-        <Button to="/app" variant="primary" size="md">Go to Dashboard</Button>
+        <Button to="/app" variant="primary" size="md">Return to Dashboard</Button>
       </main>
     )
   }

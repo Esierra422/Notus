@@ -1,0 +1,11 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0A0908"/>
+  <rect x="64" y="64" width="1072" height="502" rx="28" fill="#161513" stroke="rgba(212,168,83,0.24)"/>
+  <circle cx="988" cy="166" r="124" fill="rgba(212,168,83,0.12)"/>
+  <circle cx="960" cy="460" r="172" fill="rgba(212,168,83,0.08)"/>
+  <text x="116" y="228" fill="#F2EDE6" font-size="64" font-family="DM Sans, Arial, sans-serif" font-weight="700">Notus</text>
+  <text x="116" y="294" fill="#D4A853" font-size="34" font-family="DM Sans, Arial, sans-serif" font-weight="600">Team Collaboration Platform</text>
+  <text x="116" y="364" fill="#C8C1B6" font-size="28" font-family="DM Sans, Arial, sans-serif">
+    Chat, calendar, video meetings, and AI summaries in one workspace.
+  </text>
+</svg>

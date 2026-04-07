@@ -48,7 +48,7 @@ export function getLocale(userDoc) {
  */
 export function formatDate(date, options = {}) {
   const d = date instanceof Date ? date : new Date(date)
-  if (isNaN(d.getTime())) return '—'
+  if (isNaN(d.getTime())) return 'N/A'
   const { timeZone, locale, ...intlOpts } = options
   const base = { year: 'numeric', month: 'short', day: 'numeric', ...intlOpts }
   return d.toLocaleDateString(locale || undefined, {
@@ -62,7 +62,7 @@ export function formatDate(date, options = {}) {
  */
 export function formatDateTime(date, options = {}) {
   const d = date instanceof Date ? date : new Date(date)
-  if (isNaN(d.getTime())) return '—'
+  if (isNaN(d.getTime())) return 'N/A'
   const { timeZone, locale, ...intlOpts } = options
   const base = {
     year: 'numeric',
@@ -78,7 +78,7 @@ export function formatDateTime(date, options = {}) {
   })
 }
 
-/** Firestore Timestamp or ms — compact row label for meeting lists. */
+/** Firestore Timestamp or ms: compact row label for meeting lists. */
 export function formatMeetingRowWhen(startAt, userDoc) {
   if (!startAt) return ''
   const ms = typeof startAt?.toMillis === 'function' ? startAt.toMillis() : startAt
@@ -101,7 +101,7 @@ export function formatMeetingRowWhen(startAt, userDoc) {
  */
 export function formatRelativeDate(date, options = {}) {
   const d = date instanceof Date ? date : new Date(date)
-  if (isNaN(d.getTime())) return '—'
+  if (isNaN(d.getTime())) return 'N/A'
   const { timeZone, locale } = options
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())

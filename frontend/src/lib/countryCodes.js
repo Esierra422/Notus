@@ -1,7 +1,7 @@
 /**
  * Country codes and phone number formatting by country.
  * Phone numbers are stored as E.164 (e.g. +12025551234).
- * Comprehensive list of all countries — Israel excluded.
+ * Comprehensive list of all countries  -  Israel excluded.
  */
 
 /** All countries with dial code and formatting rules (Israel excluded) */

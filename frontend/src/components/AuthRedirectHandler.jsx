@@ -27,7 +27,7 @@ function SigningInOverlay({ showLongWaitHint = false }) {
         <p style={{ color: '#9a9489' }}>Signing you in…</p>
         {showLongWaitHint && (
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '1rem', maxWidth: '280px' }}>
-            Taking longer than usual. You can try refreshing the page — you may already be signed in.
+            Taking longer than usual. You can try refreshing the page; you may already be signed in.
           </p>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useOutletContext, Link, useParams, useNavigate } from 'react-router-dom'
-import { ChevronRight, Copy, FileDown } from 'lucide-react'
+import { ChevronRight, Copy, Check, FileDown } from 'lucide-react'
 import { getUserSummaries } from '../lib/meetingSummaryService'
 import {
   getMeetingsForUserInOrg,
@@ -455,7 +455,11 @@ export function PreviousMeetingsPage() {
                             }
                             onClick={() => copyId(row.meetingId, `id-${row.key}`)}
                           >
-                            <Copy size={17} strokeWidth={2} aria-hidden />
+                            {copiedKey === `id-${row.key}` ? (
+                              <Check size={17} strokeWidth={2.25} aria-hidden />
+                            ) : (
+                              <Copy size={17} strokeWidth={2} aria-hidden />
+                            )}
                             <span className="prev-meetings-icon-btn-label">
                               {copiedKey === `id-${row.key}` ? 'Copied' : 'ID'}
                             </span>
