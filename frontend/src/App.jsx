@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { PageTransition } from './components/PageTransition'
 import { AppShell } from './components/AppShell'
 import { ErrorBoundary } from './components/error/ErrorBoundary'
@@ -85,11 +85,16 @@ function AppRouteFallback() {
   )
 }
 
+function RoutedErrorBoundary({ children }) {
+  const location = useLocation()
+  return <ErrorBoundary resetKey={location.pathname}>{children}</ErrorBoundary>
+}
+
 function App() {
   return (
     <BrowserRouter>
       <AuthRedirectHandler>
-        <ErrorBoundary>
+        <RoutedErrorBoundary>
           <Suspense fallback={<AppRouteFallback />}>
             <Routes>
               <Route element={<PageTransition />}>
@@ -145,7 +150,7 @@ function App() {
               />
             </Routes>
           </Suspense>
-        </ErrorBoundary>
+        </RoutedErrorBoundary>
       </AuthRedirectHandler>
     </BrowserRouter>
   )

@@ -16,6 +16,7 @@ import {
   SparklesIcon,
   StarIcon,
   FlagIcon,
+  UsersIcon,
 } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AppLayout.css'
