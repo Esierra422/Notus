@@ -241,6 +241,11 @@ function PollBubble({ message, isOwn, userId, onVote, onEndPoll }) {
   )
 }
 
+function isMessageHiddenForUser(message, userId) {
+  if (!message || !userId) return false
+  return !!message.deletedFor?.[userId]
+}
+
 function ChatListItem({
   conv,
   title,
@@ -893,6 +898,36 @@ function MeetingInviteModal({ onClose, onSubmit, sending }) {
   )
 }
 
+function DeleteMessageModal({ message, currentUserId, onClose, onDelete }) {
+  if (!message) return null
+  const isOwn = message.senderId === currentUserId
+  const alreadyDeletedForEveryone = !!message.deletedForEveryone
+  return (
+    <div className="chats-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="chats-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="chats-modal-header">
+          <h3 className="chats-modal-title">Delete message</h3>
+          <button type="button" className="chats-modal-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="chats-modal-form">
+          <p className="app-muted">Choose how this message should be removed.</p>
+          <div className="chats-modal-footer">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => onDelete('me')}>
+              Delete for me
+            </Button>
+            {isOwn && !alreadyDeletedForEveryone ? (
+              <Button type="button" variant="primary" onClick={() => onDelete('everyone')}>
+                Delete for everyone
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ShareUserCardModal({ onClose, onSubmit, orgMembers = [], userProfiles = {}, currentUserId, sending }) {
   const [selectedUserId, setSelectedUserId] = useState('')
   useScrollLock(true)
@@ -1022,6 +1057,7 @@ export function ChatsPage() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [showForwardModal, setShowForwardModal] = useState(false)
   const [forwardMessage, setForwardMessage] = useState(null)
+  const [deleteTargetMessage, setDeleteTargetMessage] = useState(null)
 
   const chatsNonModalUiLock =
     filterSortOpen ||
@@ -1033,10 +1069,6 @@ export function ChatsPage() {
   useEffect(() => {
     if (paramOrgId) setOrgId(paramOrgId)
   }, [paramOrgId])
-
-  useEffect(() => {
-    if (user) setLoading(false)
-  }, [user])
 
   useEffect(() => {
     if (!user?.uid) return
@@ -1072,6 +1104,7 @@ export function ChatsPage() {
 
   useEffect(() => {
     if (!user) return
+    setLoading(true)
     getActiveMemberships(user.uid)
       .then(async (memberships) => {
         const ids = memberships.filter((m) => m.state === 'active').map((m) => m.orgId)
@@ -1098,6 +1131,7 @@ export function ChatsPage() {
           })
         )
       })
+      .finally(() => setLoading(false))
   }, [user, paramOrgId, chatOrgFilter])
 
   useEffect(() => {
@@ -1159,7 +1193,9 @@ export function ChatsPage() {
       setMessages([])
       return
     }
-    return subscribeMessages(orgId, chatId, setMessages, (err) => {
+    return subscribeMessages(orgId, chatId, (rows) => {
+      setMessages(rows.filter((m) => !isMessageHiddenForUser(m, user.uid)))
+    }, (err) => {
       setError(err?.message || 'Failed to load messages.')
     })
   }, [orgId, chatId, user?.uid])
@@ -1793,12 +1829,12 @@ ${blocks.join('\n')}
     }
   }, [user?.uid, handleMessageReaction])
 
-  const handleDeleteMessage = useCallback(async (msgId) => {
+  const handleDeleteMessage = useCallback(async (msgId, mode = 'everyone') => {
     if (!orgId || !chatId || !user?.uid) return
-    if (!window.confirm('Delete this message?')) return
     try {
-      await deleteMessage(orgId, chatId, msgId, user.uid)
+      await deleteMessage(orgId, chatId, msgId, user.uid, mode)
       setMessageContextMsg(null)
+      setDeleteTargetMessage(null)
     } catch (err) {
       setError(err?.message || 'Failed to delete.')
     }
@@ -1902,7 +1938,7 @@ ${blocks.join('\n')}
     setNavExtra(undefined)
   }, [setNavExtra])
 
-  if (loading && !user) {
+  if (loading) {
     return (
       <main className="app-main app-main-center">
         <div style={{ width: 'min(420px, 100%)' }}>
@@ -1917,7 +1953,9 @@ ${blocks.join('\n')}
       <main className="app-main">
         <h2>Chats</h2>
         {loading ? (
-          <p className="app-muted">Loading workspaces…</p>
+          <div style={{ width: 'min(420px, 100%)' }}>
+            <Skeleton lines={2} />
+          </div>
         ) : orgIds.length === 0 ? (
           <>
             <p className="app-muted">You are not an active member of any organization yet.</p>
@@ -2327,6 +2365,7 @@ ${blocks.join('\n')}
                       const senderProfile = userProfiles[m.senderId]
                       const avatarUrl = !messageImgErrors[`${m.id}-avatar`] && getProfilePictureUrl(senderProfile, m.senderId === user?.uid ? user : null)
                       const avatarInitial = (senderName || getDisplayName(senderProfile, m.senderId, m.senderId === user?.uid ? user : null) || '?')[0]?.toUpperCase()
+                      const isDeletedForEveryone = !!m.deletedForEveryone
                       const ts = m.createdAt?.toMillis?.()
                         ? new Date(m.createdAt.toMillis()).toLocaleTimeString(getLocale(userDoc), { hour: '2-digit', minute: '2-digit', ...(getTimeZone(userDoc) && { timeZone: getTimeZone(userDoc) }) })
                         : ''
@@ -2358,7 +2397,7 @@ ${blocks.join('\n')}
                                   <div className="chats-bubble-wrap chats-bubble-wrap-own">
                                     {senderName && <span className="chats-bubble-sender">{senderName}</span>}
                               <div className="chats-bubble chats-bubble-own">
-                              {m.attachment?.type === 'poll' && (
+                              {!isDeletedForEveryone && m.attachment?.type === 'poll' && (
                                 <PollBubble
                                   message={m}
                                   isOwn={isOwn}
@@ -2367,12 +2406,12 @@ ${blocks.join('\n')}
                                   onEndPoll={() => handleEndPoll(m.id)}
                                 />
                               )}
-                              {m.attachment?.type === 'image' && m.attachment?.data && (
+                              {!isDeletedForEveryone && m.attachment?.type === 'image' && m.attachment?.data && (
                                 <div className="chats-bubble-image-wrap">
                                   <img src={m.attachment.data} alt="" className="chats-bubble-image" referrerPolicy="no-referrer" />
                                 </div>
                               )}
-                              {m.attachment?.type === 'document' && m.attachment?.data && (
+                              {!isDeletedForEveryone && m.attachment?.type === 'document' && m.attachment?.data && (
                                 <a
                                   href={m.attachment.data}
                                   download={m.attachment.fileName || 'document'}
@@ -2382,7 +2421,7 @@ ${blocks.join('\n')}
                                   <span>{m.attachment.fileName || 'Document'}</span>
                                 </a>
                               )}
-                              {m.attachment?.type === 'event_card' && (
+                              {!isDeletedForEveryone && m.attachment?.type === 'event_card' && (
                                 <div className="chats-bubble-card chats-bubble-card-event">
                                   <div className="chats-bubble-card-title">{m.attachment.title || 'Event'}</div>
                                   <div className="chats-bubble-card-sub">
@@ -2390,7 +2429,7 @@ ${blocks.join('\n')}
                                   </div>
                                 </div>
                               )}
-                              {m.attachment?.type === 'meeting_invite' && (
+                              {!isDeletedForEveryone && m.attachment?.type === 'meeting_invite' && (
                                 <div className="chats-bubble-card chats-bubble-card-meeting">
                                   <div className="chats-bubble-card-title">{m.attachment.title || 'Chat meeting'}</div>
                                   <div className="chats-bubble-card-sub">This invite is limited to this chat.</div>
@@ -2413,7 +2452,7 @@ ${blocks.join('\n')}
                                   </Button>
                                 </div>
                               )}
-                              {m.attachment?.type === 'user_card' && (
+                              {!isDeletedForEveryone && m.attachment?.type === 'user_card' && (
                                 <div className="chats-bubble-card chats-bubble-card-user">
                                   <div className="chats-bubble-user-head">
                                     <div className="chats-bubble-user-avatar">
@@ -2446,7 +2485,11 @@ ${blocks.join('\n')}
                                   </div>
                                 </div>
                               )}
-                              {m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>}
+                              {isDeletedForEveryone ? (
+                                <p className="chats-bubble-text chats-bubble-text-deleted">This message was deleted.</p>
+                              ) : (
+                                m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>
+                              )}
                               <div className="chats-bubble-footer">
                                 {ts && <span className="chats-bubble-time">{ts}</span>}
                                 <button
@@ -2460,7 +2503,7 @@ ${blocks.join('\n')}
                                 </button>
                               </div>
                             </div>
-                            {(m.reactions && Object.keys(m.reactions).length > 0) && (
+                            {!isDeletedForEveryone && (m.reactions && Object.keys(m.reactions).length > 0) && (
                               <div className="chats-bubble-reactions-wrap">
                                 {Object.entries(m.reactions).map(([emoji, userIds]) => {
                                   const showRemove = reactionRemoveTarget?.msgId === m.id && reactionRemoveTarget?.emoji === emoji
@@ -2515,7 +2558,7 @@ ${blocks.join('\n')}
                                     </button>
                                   )}
                                   <div className="chats-bubble chats-bubble-other">
-                                    {m.attachment?.type === 'poll' && (
+                                    {!isDeletedForEveryone && m.attachment?.type === 'poll' && (
                                       <PollBubble
                                         message={m}
                                         isOwn={isOwn}
@@ -2524,12 +2567,12 @@ ${blocks.join('\n')}
                                         onEndPoll={() => handleEndPoll(m.id)}
                                       />
                                     )}
-                                    {m.attachment?.type === 'image' && m.attachment?.data && (
+                                    {!isDeletedForEveryone && m.attachment?.type === 'image' && m.attachment?.data && (
                                       <div className="chats-bubble-image-wrap">
                                         <img src={m.attachment.data} alt="" className="chats-bubble-image" referrerPolicy="no-referrer" />
                                       </div>
                                     )}
-                                    {m.attachment?.type === 'document' && m.attachment?.data && (
+                                    {!isDeletedForEveryone && m.attachment?.type === 'document' && m.attachment?.data && (
                                       <a
                                         href={m.attachment.data}
                                         download={m.attachment.fileName || 'document'}
@@ -2539,7 +2582,7 @@ ${blocks.join('\n')}
                                         <span>{m.attachment.fileName || 'Document'}</span>
                                       </a>
                                     )}
-                                    {m.attachment?.type === 'event_card' && (
+                                    {!isDeletedForEveryone && m.attachment?.type === 'event_card' && (
                                       <div className="chats-bubble-card chats-bubble-card-event">
                                         <div className="chats-bubble-card-title">{m.attachment.title || 'Event'}</div>
                                         <div className="chats-bubble-card-sub">
@@ -2547,7 +2590,7 @@ ${blocks.join('\n')}
                                         </div>
                                       </div>
                                     )}
-                                    {m.attachment?.type === 'meeting_invite' && (
+                                    {!isDeletedForEveryone && m.attachment?.type === 'meeting_invite' && (
                                       <div className="chats-bubble-card chats-bubble-card-meeting">
                                         <div className="chats-bubble-card-title">{m.attachment.title || 'Chat meeting'}</div>
                                         <div className="chats-bubble-card-sub">This invite is limited to this chat.</div>
@@ -2570,7 +2613,7 @@ ${blocks.join('\n')}
                                         </Button>
                                       </div>
                                     )}
-                                    {m.attachment?.type === 'user_card' && (
+                                    {!isDeletedForEveryone && m.attachment?.type === 'user_card' && (
                                       <div className="chats-bubble-card chats-bubble-card-user">
                                         <div className="chats-bubble-user-head">
                                           <div className="chats-bubble-user-avatar">
@@ -2603,7 +2646,11 @@ ${blocks.join('\n')}
                                         </div>
                                       </div>
                                     )}
-                                    {m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>}
+                                    {isDeletedForEveryone ? (
+                                      <p className="chats-bubble-text chats-bubble-text-deleted">This message was deleted.</p>
+                                    ) : (
+                                      m.attachment?.type !== 'poll' && m.text && <p className="chats-bubble-text">{m.text}</p>
+                                    )}
                                     <div className="chats-bubble-footer">
                                       {ts && <span className="chats-bubble-time">{ts}</span>}
                                       <button
@@ -2617,7 +2664,7 @@ ${blocks.join('\n')}
                                       </button>
                                     </div>
                                   </div>
-                                  {(m.reactions && Object.keys(m.reactions).length > 0) && (
+                                  {!isDeletedForEveryone && (m.reactions && Object.keys(m.reactions).length > 0) && (
                                     <div className="chats-bubble-reactions-wrap">
                                       {Object.entries(m.reactions).map(([emoji, userIds]) => {
                                         const showRemove = reactionRemoveTarget?.msgId === m.id && reactionRemoveTarget?.emoji === emoji
@@ -2816,7 +2863,11 @@ ${blocks.join('\n')}
             handleStarMessage(messageContextMsg.id, messageContextMsg.text, starredMap.has(messageContextMsg.id))
             setMessageContextMsg(null)
           }}
-          onDelete={() => handleDeleteMessage(messageContextMsg.id)}
+          allowDeleteForOthers
+          onDelete={() => {
+            setDeleteTargetMessage(messageContextMsg)
+            setMessageContextMsg(null)
+          }}
           onReactionSelect={(emoji) => handleMessageReaction(messageContextMsg.id, emoji)}
           onClose={() => setMessageContextMsg(null)}
         />
@@ -2919,6 +2970,14 @@ ${blocks.join('\n')}
           userDoc={userProfiles[profileModalUserId]}
           onClose={() => setProfileModalUserId(null)}
           showManage={false}
+        />
+      )}
+      {deleteTargetMessage && (
+        <DeleteMessageModal
+          message={deleteTargetMessage}
+          currentUserId={user?.uid}
+          onClose={() => setDeleteTargetMessage(null)}
+          onDelete={(mode) => handleDeleteMessage(deleteTargetMessage.id, mode)}
         />
       )}
       </Suspense>

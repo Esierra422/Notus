@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
 import { LandingPage } from '../pages/LandingPage.jsx'
+import { Skeleton } from './ui/Skeleton'
 import '../pages/AppLayout.css'
 
 /**
@@ -35,8 +36,9 @@ export function LandingOrRedirect() {
         aria-live="polite"
       >
         <div className="app-auth-loading" style={{ alignItems: 'center', gap: '0.75rem' }}>
-          <div className="app-auth-loading-spinner" />
-          <p style={{ color: '#9a9489', margin: 0 }}>Loading…</p>
+          <div style={{ width: '220px' }}>
+            <Skeleton lines={2} />
+          </div>
           {showSlowHint && (
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>
               Taking longer than usual. <a href="/" style={{ color: 'var(--accent)' }}>Try refreshing</a>.

@@ -6,6 +6,7 @@ import { Navigate, useOutletContext } from 'react-router-dom'
 import { getActiveMemberships } from '../lib/orgService'
 import { getOrg } from '../lib/orgService'
 import { Button } from '../components/ui/Button'
+import { Skeleton } from '../components/ui/Skeleton'
 import '../styles/variables.css'
 import './AppLayout.css'
 import './OrgPage.css'
@@ -33,7 +34,9 @@ export function ChatsRedirect() {
   if (!user || !ready) {
     return (
       <main className="app-main app-main-center">
-        <p className="app-muted">Loading…</p>
+        <div style={{ width: 'min(320px, 100%)' }}>
+          <Skeleton lines={2} />
+        </div>
       </main>
     )
   }

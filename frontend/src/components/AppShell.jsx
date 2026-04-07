@@ -29,7 +29,7 @@ export function AppShell() {
   const [user, setUser] = useState(null)
   const [userDoc, setUserDoc] = useState(null)
   const [authReady, setAuthReady] = useState(false)
-  const isChatsPage = /\/org\/[^/]+\/chats/.test(location.pathname)
+  const isChatsPage = location.pathname === '/app/chats' || /^\/app\/org\/[^/]+\/chats(\/|$)/.test(location.pathname)
   /** Full-height video shell for /video lobby + in-call route (not /video/meetings). Footer shows on lobby only  -  hidden in-room via videoCallSuppressAppHeader. */
   const isVideoImmersiveLayout =
     location.pathname === '/app/video' || /^\/app\/org\/[^/]+\/video$/.test(location.pathname)

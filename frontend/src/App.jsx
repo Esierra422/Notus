@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/error/ErrorBoundary'
 import { AppErrorPage } from './components/error/AppErrorPage'
 import { AuthRedirectHandler } from './components/AuthRedirectHandler'
 import { LandingOrRedirect } from './components/LandingOrRedirect'
+import { Skeleton } from './components/ui/Skeleton'
 import './pages/AppLayout.css'
 
 const FeaturesPage = lazy(() => import('./pages/FeaturesPage.jsx').then((m) => ({ default: m.FeaturesPage })))
@@ -76,11 +77,9 @@ function AppRouteFallback() {
       aria-busy="true"
     >
       <div className="app-auth-loading" aria-label="Loading page">
-        <div
-          className="app-auth-loading-spinner"
-          style={{ borderColor: 'rgba(212,168,83,0.3)', borderTopColor: '#d4a853' }}
-        />
-        <p style={{ color: '#9a9489', margin: 0 }}>Loading…</p>
+        <div style={{ width: '220px' }}>
+          <Skeleton lines={2} />
+        </div>
       </div>
     </div>
   )

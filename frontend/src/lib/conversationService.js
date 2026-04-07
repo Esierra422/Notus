@@ -15,7 +15,6 @@ import {
   getDocs,
   addDoc,
   updateDoc,
-  deleteDoc,
   deleteField,
   writeBatch,
   onSnapshot,
@@ -550,18 +549,36 @@ export async function addReaction(orgId, convId, msgId, userId, emoji) {
 }
 
 /**
- * Delete a single message. Caller must be a member.
+ * Delete a single message.
+ * mode:
+ * - 'me': hide only for current user
+ * - 'everyone': sender-only soft delete visible to all participants
  */
-export async function deleteMessage(orgId, convId, msgId, userId) {
+export async function deleteMessage(orgId, convId, msgId, userId, mode = 'everyone') {
   const canAccess = await canAccessConversation(orgId, convId, userId)
   if (!canAccess) throw new Error('Cannot access conversation.')
   const ref = msgRef(orgId, convId, msgId)
   const snap = await getDoc(ref)
   const data = snap.data()
   if (!data) return
+  if (mode === 'me') {
+    await updateDoc(ref, {
+      [`deletedFor.${userId}`]: true,
+    })
+    return
+  }
+  if (mode !== 'everyone') throw new Error('Invalid delete mode.')
   const isSender = data.senderId === userId
-  if (!isSender) throw new Error('You can only delete your own messages.')
-  await deleteDoc(ref)
+  if (!isSender) throw new Error('Only the sender can delete for everyone.')
+  await updateDoc(ref, {
+    text: '',
+    attachment: deleteField(),
+    reactions: deleteField(),
+    replyTo: deleteField(),
+    deletedForEveryone: true,
+    deletedBy: userId,
+    deletedAt: serverTimestamp(),
+  })
 }
 
 /**

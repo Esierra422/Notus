@@ -11,6 +11,7 @@ const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏
 const MORE_REACTIONS = ['🔥', '😊', '😭', '👀', '🎉', '💯', '❤️‍🔥', '🤔']
 
 function getCopyText(msg) {
+  if (msg?.deletedForEveryone) return '[Deleted message]'
   if (msg?.text) return msg.text
   if (msg?.attachment?.type === 'image') return '[Image]'
   if (msg?.attachment?.type === 'document') return `[Document: ${msg?.attachment?.fileName || 'File'}]`
@@ -28,6 +29,7 @@ export function MessageContextMenu({
   showInfo = true,
   showStar = true,
   showDelete = true,
+  allowDeleteForOthers = false,
   onReply,
   onForward,
   onCopy,
@@ -177,7 +179,7 @@ export function MessageContextMenu({
               <StarIcon size={18} className={isStarred ? 'starred' : ''} />
             </button>
           )}
-          {showDelete && isOwn && (
+          {showDelete && (isOwn || allowDeleteForOthers) && (
             <button
               type="button"
               className="message-context-item message-context-item-danger"

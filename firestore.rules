@@ -246,7 +246,15 @@ service cloud.firestore {
             && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members
             && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
               || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attachment'])
-              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']));
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+              // Delete for me
+              || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedFor'])
+                && request.resource.data.deletedFor[request.auth.uid] == true)
+              // Delete for everyone (sender-only soft delete)
+              || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'attachment', 'reactions', 'replyTo', 'deletedForEveryone', 'deletedBy', 'deletedAt'])
+                && resource.data.senderId == request.auth.uid
+                && request.resource.data.deletedForEveryone == true
+                && request.resource.data.deletedBy == request.auth.uid));
           allow delete: if request.auth != null
             && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)/conversations/$(convId)).data.members;
         }
