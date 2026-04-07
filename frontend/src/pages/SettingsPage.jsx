@@ -352,12 +352,14 @@ export function SettingsPage() {
             </button>
             {openPanel === 'transcript' ? (
               <div className="settings-panel">
-                <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={transcriptPrefs.autoTranscribe} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, autoTranscribe: e.target.checked }))} /> Auto-transcribe recordings</label>
-                <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={transcriptPrefs.speakerLabeling} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, speakerLabeling: e.target.checked }))} /> Enable speaker labeling</label>
                 <label className="settings-row-field">
                   Default transcript language
                   <input type="text" className="auth-input" value={transcriptPrefs.language || 'en'} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, language: e.target.value }))} placeholder="en" />
                 </label>
+                <div className="settings-row-check-group">
+                  <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={transcriptPrefs.autoTranscribe} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, autoTranscribe: e.target.checked }))} /> Auto-transcribe recordings</label>
+                  <label className="settings-row-check"><input className="notus-checkbox notus-checkbox--sm" type="checkbox" checked={transcriptPrefs.speakerLabeling} onChange={(e) => setTranscriptPrefsState((p) => ({ ...p, speakerLabeling: e.target.checked }))} /> Enable speaker labeling</label>
+                </div>
                 <div className="settings-panel-actions">
                   <Button type="button" variant="primary" size="sm" disabled={prefsSaving} onClick={handleSaveTranscriptPrefs}>
                     Save transcript preferences
