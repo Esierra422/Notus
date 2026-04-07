@@ -1412,6 +1412,23 @@ ${blocks.join('\n')}
     }
   }, [orgId, chatId, user?.uid, selectedConv, userProfiles])
 
+  const sendWithAttachment = useCallback(async (attachment, text = '') => {
+    if (!chatId || !user?.uid) return
+    setError('')
+    setSending(true)
+    try {
+      await sendMessageApi(orgId, chatId, text, user.uid, { attachment })
+      markedUnreadConvsRef.current.delete(`${orgId}_${chatId}`)
+      if (text) setMessageText('')
+      playSendSound()
+      clearTyping(orgId, chatId, user.uid).catch(() => {})
+    } catch (err) {
+      setError(err.message || 'Failed to send.')
+    } finally {
+      setSending(false)
+    }
+  }, [orgId, chatId, user?.uid])
+
   const handleStartVideoCall = useCallback(
     async (channel) => {
       if (!orgId || !chatId || !selectedConv || !user?.uid) return
@@ -1585,23 +1602,6 @@ ${blocks.join('\n')}
 
   const MAX_IMAGE_BASE64_SIZE = 450 * 1024 // ~450KB to stay under Firestore 1MB doc limit
   const MAX_DOCUMENT_BASE64_SIZE = 950 * 1024 // ~950KB; Firestore 1MB hard limit
-
-  const sendWithAttachment = useCallback(async (attachment, text = '') => {
-    if (!chatId || !user?.uid) return
-    setError('')
-    setSending(true)
-    try {
-      await sendMessageApi(orgId, chatId, text, user.uid, { attachment })
-      markedUnreadConvsRef.current.delete(`${orgId}_${chatId}`)
-      if (text) setMessageText('')
-      playSendSound()
-      clearTyping(orgId, chatId, user.uid).catch(() => {})
-    } catch (err) {
-      setError(err.message || 'Failed to send.')
-    } finally {
-      setSending(false)
-    }
-  }, [orgId, chatId, user?.uid])
 
   const sendTextMessage = useCallback(async (text) => {
     if (!text?.trim() || !chatId || !user?.uid) return
