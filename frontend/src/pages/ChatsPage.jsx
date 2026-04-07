@@ -1066,6 +1066,38 @@ export function ChatsPage() {
 
   useScrollLock(chatsNonModalUiLock)
 
+  const locale = useMemo(() => getLocale(userDoc), [userDoc])
+  const timeZone = useMemo(() => getTimeZone(userDoc), [userDoc])
+  const timeZoneOptions = useMemo(() => (timeZone ? { timeZone } : {}), [timeZone])
+
+  const filteredMessages = useMemo(() => {
+    const query = searchInChat.trim().toLowerCase()
+    const source = query
+      ? messages.filter((m) => (m.text || '').toLowerCase().includes(query))
+      : messages
+    return source.filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
+  }, [messages, searchInChat])
+
+  const lastOwnMessageIndex = useMemo(
+    () => filteredMessages.reduce((acc, m, idx) => (m.senderId === user?.uid ? idx : acc), -1),
+    [filteredMessages, user?.uid]
+  )
+
+  const messageTimeline = useMemo(() => {
+    let prevDateKey = ''
+    const items = []
+    filteredMessages.forEach((m, i) => {
+      const ms = m.createdAt?.toMillis?.()
+      const dateKey = ms ? new Date(ms).toLocaleDateString(locale, timeZoneOptions) : ''
+      if (dateKey && dateKey !== prevDateKey) {
+        items.push({ type: 'date', key: `date-${dateKey}`, label: getMessageDateLabel(ms, userDoc) })
+        prevDateKey = dateKey
+      }
+      items.push({ type: 'message', message: m, index: i })
+    })
+    return items
+  }, [filteredMessages, locale, timeZoneOptions, userDoc])
+
   useEffect(() => {
     if (paramOrgId) setOrgId(paramOrgId)
   }, [paramOrgId])
@@ -2324,28 +2356,7 @@ ${blocks.join('\n')}
                 {messages.length === 0 && !searchInChat ? (
                   <p className="chats-messages-empty">No messages yet. Send a message to begin this conversation.</p>
                 ) : (
-                  (() => {
-                    let filtered = searchInChat.trim()
-                      ? messages.filter((m) => (m.text || '').toLowerCase().includes(searchInChat.trim().toLowerCase()))
-                      : messages
-                    filtered = filtered.filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
-                    const lastOwnIndex = filtered.reduce((acc, m, idx) =>
-                      m.senderId === user?.uid ? idx : acc, -1)
-                    const locale = getLocale(userDoc)
-                    const tz = getTimeZone(userDoc)
-                    const tzOpts = tz ? { timeZone: tz } : {}
-                    let prevDateKey = ''
-                    const items = []
-                    filtered.forEach((m, i) => {
-                      const ms = m.createdAt?.toMillis?.()
-                      const dateKey = ms ? new Date(ms).toLocaleDateString(locale, tzOpts) : ''
-                      if (dateKey && dateKey !== prevDateKey) {
-                        items.push({ type: 'date', key: `date-${dateKey}`, label: getMessageDateLabel(ms, userDoc) })
-                        prevDateKey = dateKey
-                      }
-                      items.push({ type: 'message', message: m, index: i })
-                    })
-                    return items.map((item) => {
+                  messageTimeline.map((item) => {
                       if (item.type === 'date') {
                         return (
                           <div key={item.key} className="chats-date-separator">
@@ -2356,8 +2367,8 @@ ${blocks.join('\n')}
                       const m = item.message
                       const i = item.index
                       const isOwn = m.senderId === user?.uid
-                      const showStatus = isOwn && i === lastOwnIndex
-                      const prev = filtered[i - 1]
+                      const showStatus = isOwn && i === lastOwnMessageIndex
+                      const prev = filteredMessages[i - 1]
                       const showSender = selectedConv?.type !== CONV_TYPES.dm && (!prev || prev.senderId !== m.senderId)
                       const senderName = showSender
                         ? (m.senderId === user?.uid ? 'You' : getDisplayName(userProfiles[m.senderId], m.senderId, user?.uid === m.senderId ? user : null))
@@ -2367,7 +2378,7 @@ ${blocks.join('\n')}
                       const avatarInitial = (senderName || getDisplayName(senderProfile, m.senderId, m.senderId === user?.uid ? user : null) || '?')[0]?.toUpperCase()
                       const isDeletedForEveryone = !!m.deletedForEveryone
                       const ts = m.createdAt?.toMillis?.()
-                        ? new Date(m.createdAt.toMillis()).toLocaleTimeString(getLocale(userDoc), { hour: '2-digit', minute: '2-digit', ...(getTimeZone(userDoc) && { timeZone: getTimeZone(userDoc) }) })
+                        ? new Date(m.createdAt.toMillis()).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', ...timeZoneOptions })
                         : ''
                       const isStarred = starredMap.has(m.id)
                       return (
@@ -2698,7 +2709,6 @@ ${blocks.join('\n')}
                         </div>
                       )
                     })
-                  })()
                 )}
                 <div ref={messagesEndRef} />
               </div>

@@ -4,7 +4,7 @@
  * eliminating glitching caused by remounting on every route change.
  * AppShell owns the org badge so it never flashes during navigation.
  */
-import { useState, useEffect, useRef, createContext, useContext } from 'react'
+import { useState, useEffect, useRef, createContext, useContext, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
@@ -40,6 +40,8 @@ export function AppShell() {
   const [videoCallSuppressAppHeader, setVideoCallSuppressAppHeader] = useState(false)
   const [slowLoad, setSlowLoad] = useState(false)
   const lastOrgRef = useRef(null)
+  const [memberships, setMemberships] = useState([])
+  const routeOrgId = useMemo(() => location.pathname.match(/\/org\/([^/]+)/)?.[1] || null, [location.pathname])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -91,23 +93,29 @@ export function AppShell() {
   }, [])
 
   useEffect(() => {
-    if (!user?.uid) return
-    getActiveMemberships(user.uid).then(async (memberships) => {
-      const canSeeAdmin = memberships.filter((m) => canOpenMemberManagement(m))
-      setIsAdmin(canSeeAdmin.length > 0)
-      if (memberships.length === 0) {
-        setActiveOrg(null)
-        lastOrgRef.current = null
-        return
-      }
-      const match = location.pathname.match(/\/org\/([^/]+)/)
-      const routeOrgId = match?.[1]
-      const orgIdToLoad = routeOrgId || memberships[0].orgId
-      const orgData = await getOrg(orgIdToLoad)
-      setActiveOrg(orgData)
+    if (!user?.uid) {
+      setMemberships([])
+      return
+    }
+    getActiveMemberships(user.uid).then((rows) => {
+      setMemberships(rows || [])
+    })
+  }, [user?.uid])
+
+  useEffect(() => {
+    setIsAdmin(memberships.some((m) => canOpenMemberManagement(m)))
+    if (memberships.length === 0) {
+      setActiveOrg(null)
+      lastOrgRef.current = null
+      return
+    }
+    const orgIdToLoad = routeOrgId || memberships[0].orgId
+    if (!orgIdToLoad) return
+    getOrg(orgIdToLoad).then((orgData) => {
+      setActiveOrg(orgData || null)
       if (orgData?.name) lastOrgRef.current = orgData.name
     })
-  }, [user?.uid, location.pathname])
+  }, [memberships, routeOrgId])
 
   const displayedOrg = activeOrg ?? (lastOrgRef.current ? { name: lastOrgRef.current } : null)
   const activeOrgId = activeOrg?.id ?? null
