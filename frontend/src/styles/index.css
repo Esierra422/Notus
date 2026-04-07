@@ -243,4 +243,11 @@ html.notus-scroll-locked .calendar-day-slots {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+
+  .chats-modal-overlay,
+  .chats-modal,
+  .chats-attach-popover {
+    animation: none !important;
+    transform: none !important;
+  }
 }

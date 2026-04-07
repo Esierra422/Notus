@@ -1587,13 +1587,14 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  animation: chats-attach-open 0.2s ease-out forwards;
+  will-change: transform, opacity;
+  animation: chats-attach-open 0.14s ease-out forwards;
   transform-origin: bottom center;
   z-index: 40;
 }
 
 .chats-attach-popover-closing {
-  animation: chats-attach-close 0.15s ease-in forwards;
+  animation: chats-attach-close 0.12s ease-in forwards;
 }
 
 @keyframes chats-attach-open {
@@ -1719,6 +1720,7 @@
   justify-content: center;
   z-index: 1000;
   padding: 1rem;
+  animation: chats-modal-overlay-in 0.12s ease-out;
 }
 
 .chats-modal {
@@ -1731,6 +1733,24 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  will-change: transform, opacity;
+  animation: chats-modal-in 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes chats-modal-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes chats-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .chats-modal-header {

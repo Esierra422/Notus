@@ -8,15 +8,18 @@
   flex-direction: column;
   overflow: auto;
   overflow-x: hidden;
-  animation: pageEnter 0.15s ease-out;
+  will-change: opacity, transform;
+  animation: pageEnter 0.14s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes pageEnter {
   from {
     opacity: 0;
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -32,7 +35,7 @@
 .app-avatar-link,
 .app-settings-btn,
 .app-avatar {
-  transition: color 0.25s ease, background-color 0.25s ease, transform 0.25s ease, opacity 0.25s ease;
+  transition: color 0.18s ease, background-color 0.18s ease, opacity 0.18s ease;
 }
 
 .app-nav-link:hover,
@@ -54,7 +57,7 @@
 .org-admin-list-item,
 .meeting-item a,
 .org-team-item a {
-  transition: border-color 0.25s ease, background-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease, color 0.25s ease;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
 }
 
 .org-team-item:hover,
@@ -63,31 +66,31 @@
 }
 
 .org-admin-btn {
-  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, opacity 0.25s ease;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, opacity 0.18s ease;
 }
 
 /* Button press - softer scale */
 button:not(:disabled),
 [role="button"],
 .btn {
-  transition: background-color 0.25s ease, border-color 0.25s ease, transform 0.2s ease, opacity 0.25s ease, box-shadow 0.25s ease;
+  transition: background-color 0.18s ease, border-color 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
 }
 
 button:not(:disabled):active,
 [role="button"]:active,
 .btn:active {
-  transform: scale(0.97);
+  transform: scale(0.985);
 }
 
 /* Form inputs - smooth focus */
 input,
 textarea,
 select {
-  transition: border-color 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
 }
 
 /* Dropdowns and modals */
 .app-dropdown,
 .notifications-dropdown {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.14s ease, transform 0.14s ease;
 }
