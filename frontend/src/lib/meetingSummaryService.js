@@ -188,6 +188,102 @@ export async function getMeetingTranscriptBySessionId(sessionId) {
   }
 }
 
+/** Remove common third-party footers accidentally pasted into transcript text. */
+export function stripTranscriptArtifacts(text) {
+  return String(text || '')
+    .replace(/\s*Transcribed by https?:\/\/[^\s\n]+/gi, '')
+    .replace(/\s*Powered by Otter\.ai[^\n]*/gi, '')
+    .trim()
+}
+
+function chunkPlainTranscriptToParagraphs(plain) {
+  const parts = plain.split(/\n\n+/).map((p) => p.trim()).filter(Boolean)
+  if (parts.length > 1) {
+    return parts.map((text) => ({ text, uid: '', timestamp: '' }))
+  }
+  const sents = plain.split(/(?<=[.!?])\s+/).filter(Boolean)
+  const out = []
+  let buf = []
+  let len = 0
+  for (const s of sents) {
+    buf.push(s)
+    len += s.length + 1
+    if (len >= 300 && buf.length >= 2) {
+      out.push({ text: buf.join(' ').trim(), uid: '', timestamp: '' })
+      buf = []
+      len = 0
+    }
+  }
+  if (buf.length) out.push({ text: buf.join(' ').trim(), uid: '', timestamp: '' })
+  return out.length ? out : [{ text: plain, uid: '', timestamp: '' }]
+}
+
+/**
+ * Segments for meeting recap UI: prefers Firestore `transcriptSegments` from the AI backend;
+ * otherwise splits the flat `transcript` string into readable paragraphs.
+ * @param {{ transcript?: string, transcriptSegments?: Array<{ text?: string, uid?: string, timestamp?: string }> }} summary
+ */
+export function getSummaryTranscriptDisplaySegments(summary) {
+  const raw = summary?.transcriptSegments
+  if (Array.isArray(raw) && raw.length) {
+    const mapped = raw
+      .map((s) => ({
+        text: stripTranscriptArtifacts(String(s?.text ?? '')),
+        uid: String(s?.uid ?? ''),
+        timestamp: String(s?.timestamp ?? ''),
+      }))
+      .filter((s) => s.text.trim())
+    if (mapped.length) return mapped
+  }
+  const plain = stripTranscriptArtifacts(String(summary?.transcript ?? ''))
+  if (!plain.trim()) return []
+  return chunkPlainTranscriptToParagraphs(plain)
+}
+
+export function formatSummarySegmentTime(timestamp) {
+  const ts = String(timestamp || '').trim()
+  if (!ts) return ''
+  if (/^\d{4}-\d{2}-\d{2}T/.test(ts)) {
+    try {
+      const d = new Date(ts)
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return ts
+}
+
+export function labelForSummarySegment(segment, uniqueUids, participantNames) {
+  const uid = segment.uid
+  const names = Array.isArray(participantNames) ? participantNames.filter(Boolean) : []
+  if (!uid) {
+    if (names.length === 1) return names[0]
+    return 'Transcript'
+  }
+  if (uniqueUids.size <= 1) return names[0] || 'Participant'
+  const short = uid.length > 4 ? uid.slice(-4) : uid
+  return `Speaker · ${short}`
+}
+
+/** Plain text for copy / PDF / Word — one block per segment, “- [Speaker] …” lines. */
+export function getSummaryTranscriptCopyText(summary) {
+  const segments = getSummaryTranscriptDisplaySegments(summary)
+  if (!segments.length) return ''
+  const unique = new Set(segments.map((s) => s.uid).filter(Boolean))
+  const names = summary?.participants
+  return segments
+    .map((s) => {
+      const label = labelForSummarySegment(s, unique, names)
+      const time = formatSummarySegmentTime(s.timestamp)
+      const prefix = time ? `${time} ` : ''
+      return `${prefix}- [${label}] ${s.text}`
+    })
+    .join('\n\n')
+}
+
 function pastRowStartMs(row) {
   return row.startAt?.toMillis?.() ?? (row.startAt?.seconds ? row.startAt.seconds * 1000 : 0)
 }

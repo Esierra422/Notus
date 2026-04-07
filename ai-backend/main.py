@@ -511,11 +511,31 @@ def generate_summary(body: SummarizeBody):
         print(f"[Summary] ERROR reading Firestore transcript: {e}")
         return {"error": f"Failed to read transcript: {e}"}
 
+    def _segments_from_chunks(chunk_list: list) -> list:
+        out = []
+        for c in chunk_list:
+            if not isinstance(c, dict):
+                continue
+            t = (c.get("text") or "").strip()
+            if not t:
+                continue
+            out.append(
+                {
+                    "text": t,
+                    "uid": str(c.get("uid") or ""),
+                    "timestamp": str(c.get("timestamp") or ""),
+                }
+            )
+        return out
+
+    transcript_segments = _segments_from_chunks(chunks)
+
     full_text = " ".join(
         (c.get("text", "") if isinstance(c, dict) else str(c))
         for c in chunks
     ).strip()
     word_count = len(full_text.split())
+    pc_clean = ""
 
     # Live Q&A reads Pinecone only; Firestore append can fail while vectors succeed. Merge Pinecone if thin/missing.
     if word_count < 100:
@@ -523,7 +543,8 @@ def generate_summary(body: SummarizeBody):
         pc_words = len(pc_text.split()) if pc_text else 0
         if pc_text:
             print(f"[Summary] Firestore words={word_count}; Pinecone fallback words≈{pc_words}")
-            full_text = (full_text + " " + pc_text).strip() if full_text else pc_text
+            pc_clean = pc_text.strip()
+            full_text = (full_text + " " + pc_clean).strip() if full_text else pc_clean
             word_count = len(full_text.split())
         elif not full_text:
             print(f"[Summary] No Firestore text and no Pinecone vectors for namespace '{transcript_doc_id}'")
@@ -531,6 +552,12 @@ def generate_summary(body: SummarizeBody):
                 "error": "No transcript found for this meeting. Speak with the mic on, or check AI / Pinecone.",
                 "wordCount": 0,
             }
+
+    if not transcript_segments:
+        if full_text:
+            transcript_segments = [{"text": full_text, "uid": "", "timestamp": ""}]
+    elif pc_clean:
+        transcript_segments.append({"text": pc_clean, "uid": "", "timestamp": ""})
 
     print(f"[Summary] Total word count (after merge): {word_count}")
     MIN_SUMMARY_WORDS = 70
@@ -584,6 +611,7 @@ def generate_summary(body: SummarizeBody):
             "actionItems": summary_data.get("actionItems", []),
             "participants": body.participants,
             "transcript": full_text,
+            "transcriptSegments": transcript_segments,
             "wordCount": word_count,
             "createdAt": SERVER_TIMESTAMP,
         }

@@ -84,12 +84,56 @@ async function joinChannel(channelName, options = {}) {
 
   await client.join(data.appId, channelName, data.token, data.uid)
 
-  localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack()
-  localVideoTrack = await AgoraRTC.createCameraVideoTrack()
+  if (localAudioTrack) {
+    try {
+      localAudioTrack.close()
+    } catch (e) {
+      console.warn('Stale audio track close:', e)
+    }
+    localAudioTrack = null
+  }
+  if (localVideoTrack) {
+    try {
+      localVideoTrack.close()
+    } catch (e) {
+      console.warn('Stale video track close:', e)
+    }
+    localVideoTrack = null
+  }
 
-  await client.publish([localAudioTrack, localVideoTrack])
-  localAudioTrack.setMuted(micMuted)
-  localVideoTrack.setMuted(videoMuted)
+  const toPublish = []
+
+  try {
+    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack()
+    localAudioTrack.setMuted(micMuted)
+    toPublish.push(localAudioTrack)
+  } catch (e) {
+    if (micOn) {
+      throw new Error(
+        'Microphone access failed. Check browser permissions, or turn the microphone off in the preview and try again.'
+      )
+    }
+    console.warn('Microphone unavailable (joining without mic):', e)
+    localAudioTrack = null
+  }
+
+  localVideoTrack = null
+  if (videoOn) {
+    try {
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack()
+      localVideoTrack.setMuted(videoMuted)
+      toPublish.push(localVideoTrack)
+    } catch (e) {
+      console.warn('Camera unavailable:', e)
+      throw new Error(
+        'Camera access failed. Turn the camera off in the preview to join audio-only, then turn video on from the toolbar if you want.'
+      )
+    }
+  }
+
+  if (toPublish.length) {
+    await client.publish(toPublish)
+  }
 
   return { uid: data.uid, audioTrack: localAudioTrack, videoTrack: localVideoTrack }
 }
@@ -201,10 +245,29 @@ function toggleMic() {
   return micMuted
 }
 
-function toggleVideo() {
-  if (!localVideoTrack) return videoMuted
-  videoMuted = !videoMuted
-  localVideoTrack.setMuted(videoMuted)
+async function toggleVideo() {
+  initializeClient()
+  if (!client) return videoMuted
+
+  if (localVideoTrack) {
+    videoMuted = !videoMuted
+    localVideoTrack.setMuted(videoMuted)
+    return videoMuted
+  }
+
+  if (videoMuted) {
+    try {
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack()
+      await client.publish([localVideoTrack])
+      videoMuted = false
+      localVideoTrack.setMuted(false)
+      return false
+    } catch (e) {
+      console.warn('Could not start camera:', e)
+      throw e
+    }
+  }
+
   return videoMuted
 }
 

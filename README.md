@@ -99,6 +99,8 @@ The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/ap
 
 Video on the live site needs a backend on the internet. **→ See [VIDEO_SETUP.md](VIDEO_SETUP.md)** for a simple step-by-step guide (Render free tier, no Firebase Blaze).
 
+**Summary:** Render **Blueprint** on this repo → set **`CLIENT_URL`** (comma-separated frontend origins), **`AGORA_APP_ID`**, **`AGORA_APP_CERTIFICATE`** on **`notus-api`** → put **`VITE_API_URL=https://…your-render-host…`** in **`frontend/.env.production`** → from repo root run **`npm run deploy`**.
+
 ## Troubleshooting
 
 - **Error 400: redirect_uri_mismatch (Google Sign-In)** – Add the correct redirect URIs in [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application) → Authorized redirect URIs. Add both:
@@ -110,6 +112,7 @@ Video on the live site needs a backend on the internet. **→ See [VIDEO_SETUP.m
 - **"The query requires an index"** – Deploy indexes: `firebase deploy --only firestore:indexes`
 - **Profile picture not saving** – Profile pics are stored in Firestore (base64). Ensure Firestore rules allow users to write their own `profilePicture` field.
 - **404 for deleted files / SettingsPage export error** – Stop the dev server, delete `frontend/node_modules/.vite`, then run `npm run dev` again
+- **"Couldn't reach the video server" on the live site** – The browser cannot call your Express API (wrong URL, sleeping free tier, or CORS). Follow **[VIDEO_SETUP.md](VIDEO_SETUP.md)**: deploy **`notus-api`** from [render.yaml](render.yaml), set env vars on Render, set **`VITE_API_URL`** in **`frontend/.env.production`** to that service URL (no trailing slash), then **`npm run deploy`**. On Render **Environment**, **`CLIENT_URL`** must include every origin users use (e.g. `https://yourdomain.com,https://your-project.web.app`). First request after idle may take ~30–60s while the free service wakes.
 
 ## Team
 

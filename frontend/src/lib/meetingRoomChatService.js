@@ -1,15 +1,18 @@
 /**
  * In-meeting chat under videoChannels/{channelId}/messages (Firestore).
  * Supports everyone / direct messages, optional attachments (file, poll).
+ *
+ * Uses three listeners instead of a single OR query so we avoid brittle composite
+ * index requirements and empty snapshots when one branch fails.
  */
 import {
   addDoc,
   collection,
   doc,
   getDoc,
+  getDocs,
   limit,
   onSnapshot,
-  or,
   orderBy,
   query,
   serverTimestamp,
@@ -20,25 +23,114 @@ import { db } from './firebase.js'
 
 const MAX_FILE_BYTES = 750_000 // ~750KB base64 in doc — keep small for Firestore
 
+function messageCreatedMs(data) {
+  const t = data?.createdAt
+  if (t && typeof t.toMillis === 'function') return t.toMillis()
+  if (typeof t?.seconds === 'number') return t.seconds * 1000
+  return 0
+}
+
 export function subscribeMeetingChatMessages(channelName, userId, onData, onError) {
+  if (!channelName || !userId) {
+    onData([])
+    return () => {}
+  }
   const col = collection(db, 'videoChannels', channelName, 'messages')
-  const q = query(
-    col,
-    or(
-      where('audienceType', '==', 'everyone'),
-      where('recipientId', '==', userId),
-      where('senderId', '==', userId)
-    ),
-    orderBy('createdAt', 'asc'),
-    limit(250)
-  )
-  return onSnapshot(
-    q,
+  let everyoneDocs = []
+  let directToMe = []
+  let directFromMe = []
+
+  const mergeAndEmit = () => {
+    const byId = new Map()
+    for (const m of [...everyoneDocs, ...directToMe, ...directFromMe]) {
+      byId.set(m.id, m)
+    }
+    const merged = Array.from(byId.values()).sort((a, b) => messageCreatedMs(a) - messageCreatedMs(b))
+    onData(merged.slice(-300))
+  }
+
+  const unsubEveryone = onSnapshot(
+    query(col, where('audienceType', '==', 'everyone'), orderBy('createdAt', 'asc'), limit(250)),
     (snap) => {
-      onData(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      everyoneDocs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      mergeAndEmit()
     },
     onError
   )
+  const unsubDirectIn = onSnapshot(
+    query(
+      col,
+      where('audienceType', '==', 'direct'),
+      where('recipientId', '==', userId),
+      orderBy('createdAt', 'asc'),
+      limit(150)
+    ),
+    (snap) => {
+      directToMe = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      mergeAndEmit()
+    },
+    onError
+  )
+  const unsubDirectOut = onSnapshot(
+    query(
+      col,
+      where('audienceType', '==', 'direct'),
+      where('senderId', '==', userId),
+      orderBy('createdAt', 'asc'),
+      limit(150)
+    ),
+    (snap) => {
+      directFromMe = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      mergeAndEmit()
+    },
+    onError
+  )
+
+  return () => {
+    unsubEveryone()
+    unsubDirectIn()
+    unsubDirectOut()
+  }
+}
+
+/**
+ * Document attachments from in-meeting chat that the signed-in user is allowed to read
+ * (everyone channel + direct threads they are part of).
+ */
+export async function fetchMeetingSharedDocuments(channelName, userId) {
+  const ch = String(channelName || '').trim()
+  const uid = String(userId || '').trim()
+  if (!ch || !uid) return []
+
+  const col = collection(db, 'videoChannels', ch, 'messages')
+  let snap
+  try {
+    snap = await getDocs(query(col, orderBy('createdAt', 'asc'), limit(500)))
+  } catch (e) {
+    console.warn('[fetchMeetingSharedDocuments] ordered read failed, retrying without order:', e?.message || e)
+    snap = await getDocs(query(col, limit(500)))
+  }
+
+  const out = []
+  snap.forEach((d) => {
+    const m = d.data() || {}
+    const att = m.attachment
+    if (!att || att.type !== 'document' || typeof att.data !== 'string' || !att.data.trim()) return
+
+    const aud = m.audienceType === 'direct' ? 'direct' : 'everyone'
+    if (aud === 'direct' && m.senderId !== uid && m.recipientId !== uid) return
+
+    out.push({
+      id: d.id,
+      fileName: att.fileName || 'download',
+      mimeType: att.mimeType || 'application/octet-stream',
+      data: att.data,
+      senderName: m.senderName || 'Member',
+      createdAt: m.createdAt,
+    })
+  })
+  out.sort((a, b) => messageCreatedMs({ createdAt: a.createdAt }) - messageCreatedMs({ createdAt: b.createdAt }))
+  return out
 }
 
 export async function sendMeetingChatMessage(channelName, user, { text, audienceType, recipientId, attachment }) {
