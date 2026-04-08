@@ -1,11 +1,5 @@
 /**
- * User service: canonical user doc at users/{uid} only.
- *
- * Architecture (see Documentation/ARCHITECTURE.md):
- * - User profiles live ONLY at users/{uid}. uid from Firebase Auth.
- * - Do NOT create: googleUsers, emailUsers, profiles, usersByEmail, or
- *   any provider-specific user collections.
- * - Passwords are NEVER stored in Firestore. Firebase Auth only.
+ * users/{uid} profile reads/writes. One doc per Auth uid; no passwords in Firestore (see ARCHITECTURE.md).
  */
 import {
   doc,
@@ -18,9 +12,7 @@ import { db } from './firebase'
 
 const USERS_COLLECTION = 'users'
 
-/**
- * Required user fields per Architecture. Passwords NEVER stored.
- */
+/** Field keys we care about on users/{uid} */
 export const USER_FIELDS = [
   'profilePicture',
   'email',
@@ -44,10 +36,7 @@ export async function getUserDoc(uid) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null
 }
 
-/**
- * Get the profile picture URL for display. Single source of truth.
- * Priority: Firestore (uploaded/saved) > Auth photoURL (Google) > null
- */
+/** Avatar: saved Firestore URL/data URL, else Auth photoURL */
 export function getProfilePictureUrl(userDoc, authUser = null) {
   const fromDoc = userDoc?.profilePicture
   if (fromDoc && fromDoc !== 'skipped' && typeof fromDoc === 'string') {
@@ -60,10 +49,7 @@ export function getProfilePictureUrl(userDoc, authUser = null) {
   return null
 }
 
-/**
- * Format display label from user doc: first name + last name preferred, then email, never userId.
- * authUser: optional Firebase Auth user; when profile has no name and userId matches authUser.uid, use displayName.
- */
+/** Name → email → short id stub; optional authUser fills displayName when ids match */
 export function getDisplayName(userDoc, fallbackUserId = '', authUser = null) {
   if (!userDoc && !authUser) return fallbackUserId ? `User ${fallbackUserId.slice(0, 8)}…` : ''
   const first = (userDoc?.firstName || '').trim()
@@ -76,10 +62,7 @@ export function getDisplayName(userDoc, fallbackUserId = '', authUser = null) {
   return fallbackUserId ? `User ${fallbackUserId.slice(0, 8)}…` : ''
 }
 
-/**
- * Format full display: "First Last · email" (name, then email).
- * authUser: optional Firebase Auth user when profile has no name/email.
- */
+/** "Name · email" with authUser fallback */
 export function getDisplayLabel(userDoc, fallbackUserId = '', authUser = null) {
   const first = (userDoc?.firstName || '').trim()
   const last = (userDoc?.lastName || '').trim()
@@ -113,11 +96,7 @@ function parseDisplayName(displayName) {
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') }
 }
 
-/**
- * Ensure exactly one user doc at users/{uid}. Create if missing, update if exists.
- * Never store password. Providers array tracks auth methods used.
- * For Google/social sign-in: parses displayName into firstName/lastName, uses photoURL for profile picture.
- */
+/** Upsert users/{uid}: merge providers, backfill name/photo from Auth; no password field */
 export async function ensureUserDoc(user, providers = []) {
   const uid = user.uid
   const ref = doc(db, USERS_COLLECTION, uid)

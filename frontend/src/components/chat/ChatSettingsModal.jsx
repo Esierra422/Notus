@@ -1,5 +1,5 @@
 /**
- * Chat settings / Contact view modal  -  email, video call, search, export, block, report, etc.
+ * Chat settings / Contact view modal — email, video call, search, export, block, report, etc.
  */
 import { useState, useEffect, useRef, useId } from 'react'
 import { useScrollLock } from '../../hooks/useScrollLock.js'

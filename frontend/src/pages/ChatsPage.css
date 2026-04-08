@@ -2039,7 +2039,7 @@
   text-decoration: underline;
 }
 
-/*  -  -  Mobile: list vs thread (max-width 768px); desktop unchanged  -  -  */
+/* Mobile: list vs thread (max-width 768px); desktop unchanged */
 .chats-header-top {
   display: flex;
   align-items: center;

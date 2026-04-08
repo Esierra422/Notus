@@ -98,7 +98,7 @@
   color: var(--text-muted);
 }
 
-/*  -  -  -  Help Center (matches app shell + company-page accent language)  -  -  -  */
+/* Help Center (app shell + company accent) */
 
 .app-help-main {
   max-width: 880px;
@@ -564,7 +564,7 @@
   background: rgba(212, 168, 83, 0.1);
 }
 
-/*  -  -  -  Blog (same shell language as Help)  -  -  -  */
+/* Blog */
 
 .app-blog-main {
   max-width: 880px;
@@ -821,7 +821,7 @@
   color: var(--accent-dim);
 }
 
-/*  -  -  -  Community  -  -  -  */
+/* Community */
 
 .app-community-play-grid {
   display: grid;

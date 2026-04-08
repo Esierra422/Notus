@@ -291,7 +291,7 @@ export function labelForSummarySegment(segment, uniqueUids, participantNames) {
   return `Speaker · ${short}`
 }
 
-/** Plain text for copy / PDF / Word  -  one block per segment, “- [Speaker] …” lines. */
+/** Plain text for copy / PDF / Word — one block per segment, “- [Speaker] …” lines. */
 export function getSummaryTranscriptCopyText(summary) {
   const segments = getSummaryTranscriptDisplaySegments(summary)
   if (!segments.length) return ''

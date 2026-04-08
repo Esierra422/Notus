@@ -1447,12 +1447,17 @@ export function ChatsPage() {
           return `<div class="msg"><span class="msg-meta">[${escape(time)}] ${name}:</span>${body}</div>`
         })
         const html = `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Chat: ${escape(title)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600&display=swap" rel="stylesheet" />
 <style>
-body{font-family:system-ui,sans-serif;margin:1rem;max-width:600px}
+body{font-family:'DM Sans',system-ui,sans-serif;margin:1rem;max-width:600px;line-height:1.5}
+h1{font-family:Syne,system-ui,sans-serif;font-weight:700;letter-spacing:-0.02em}
 .msg{margin:1rem 0;border-bottom:1px solid #eee;padding-bottom:0.5rem}
 .msg-meta{font-size:0.85rem;color:#666}
 .msg-text{margin:0.25rem 0}

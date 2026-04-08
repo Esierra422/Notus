@@ -1,8 +1,5 @@
 /**
- * Persistent app layout: header + content + footer.
- * Header stays mounted across Dashboard/Calendar/Chats/etc. navigation,
- * eliminating glitching caused by remounting on every route change.
- * AppShell owns the org badge so it never flashes during navigation.
+ * Logged-in chrome: header, outlet, footer. Header/org badge stay mounted across /app routes.
  */
 import { useState, useEffect, useRef, createContext, useContext, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
@@ -31,13 +28,13 @@ export function AppShell() {
   const [userDoc, setUserDoc] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const isChatsPage = location.pathname === '/app/chats' || /^\/app\/org\/[^/]+\/chats(\/|$)/.test(location.pathname)
-  /** Full-height video shell for /video lobby + in-call route (not /video/meetings). Footer shows on lobby only  -  hidden in-room via videoCallSuppressAppHeader. */
+  /** /app/video (not …/meetings): lobby + in-call; footer only on lobby when header visible */
   const isVideoImmersiveLayout =
     location.pathname === '/app/video' || /^\/app\/org\/[^/]+\/video$/.test(location.pathname)
   const [activeOrg, setActiveOrg] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [navExtraOverride, setNavExtraOverride] = useState(undefined)
-  /** While in an active video call, hide the global app header so the meeting fills the viewport. */
+  /** In-call: hide app header for full-viewport video */
   const [videoCallSuppressAppHeader, setVideoCallSuppressAppHeader] = useState(false)
   const [slowLoad, setSlowLoad] = useState(false)
   const lastOrgRef = useRef(null)
@@ -69,7 +66,7 @@ export function AppShell() {
     } catch {}
   }, [userDoc])
 
-  // If user hasn't completed profile (e.g. after Google sign-in), send to signup to complete; then they return to /app
+  // Incomplete onboarding → /signup (then back to /app)
   useEffect(() => {
     if (!user || userDoc === null) return
     if (userDoc && !userDoc.onboardingComplete) {
@@ -83,13 +80,13 @@ export function AppShell() {
     return () => window.removeEventListener(PROFILE_UPDATED_EVENT, handler)
   }, [user?.uid])
 
-  // Push notifications: register FCM token when user has enabled in Settings
+  // FCM token when push enabled in Settings
   useEffect(() => {
     if (!user?.uid || userDoc?.notificationsPushEnabled !== true) return
     registerForPush(user.uid).catch(() => {})
   }, [user?.uid, userDoc?.notificationsPushEnabled])
 
-  // Foreground: show browser notification when a push is received while app is open
+  // Foreground push → system notification if permitted
   useEffect(() => {
     onForegroundMessage((payload) => {
       if (Notification.permission === 'granted' && payload.notification) {
@@ -128,7 +125,7 @@ export function AppShell() {
 
   const displayedOrg = activeOrg ?? (lastOrgRef.current ? { name: lastOrgRef.current } : null)
   const activeOrgId = activeOrg?.id ?? null
-  /** Video lobby shows the global footer; in-call hides it  -  layout needs a taller flex middle to pin the footer. */
+  /** Lobby + footer: extra flex height so footer sits at viewport bottom */
   const videoLobbyWithFooter = isVideoImmersiveLayout && !videoCallSuppressAppHeader
 
   const currentPageTitle = (() => {

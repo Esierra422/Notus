@@ -1,8 +1,5 @@
 /**
- * Push notifications via Firebase Cloud Messaging (FCM).
- * - Request permission, get token, store in Firestore at users/{uid}/fcmTokens/current
- * - Foreground: onMessage() shows in-app or uses browser Notification
- * - Background: handled by public/firebase-messaging-sw.js
+ * FCM: token → users/{uid}/fcmTokens/current; foreground onMessage; background in firebase-messaging-sw.js
  */
 import { getToken, onMessage } from 'firebase/messaging'
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
@@ -20,19 +17,14 @@ export function isPushSupported() {
     'PushManager' in window
 }
 
-/**
- * Request browser permission for notifications. Resolves to 'granted' | 'denied' | 'default'.
- */
+/** Notification.requestPermission → granted | denied | default | unsupported */
 export async function requestNotificationPermission() {
   if (!isPushSupported()) return 'unsupported'
   const permission = await Notification.requestPermission()
   return permission
 }
 
-/**
- * Get current FCM token. Requires permission granted and VAPID key in env.
- * Registers service worker at /firebase-messaging-sw.js if not already.
- */
+/** Token after grant + VAPID; wires SW at /firebase-messaging-sw.js */
 export async function getFCMToken() {
   if (!VAPID_KEY) {
     console.warn('Push: VITE_VAPID_KEY not set. Add Web Push key from Firebase Console → Project Settings → Cloud Messaging.')
@@ -51,10 +43,7 @@ export async function getFCMToken() {
   }
 }
 
-/**
- * Save FCM token to Firestore for the current user. Call after login.
- * Path: users/{uid}/fcmTokens/current
- */
+/** Persist token under users/{uid}/fcmTokens/current */
 export async function saveTokenToFirestore(uid, token) {
   if (!uid || !token) return
   const ref = doc(db, 'users', uid, FCM_TOKENS_COLLECTION, CURRENT_TOKEN_ID)
@@ -64,9 +53,7 @@ export async function saveTokenToFirestore(uid, token) {
   }, { merge: true })
 }
 
-/**
- * Remove FCM token from Firestore (e.g. on logout or when user disables notifications).
- */
+/** Drop stored token (logout / push off) */
 export async function removeTokenFromFirestore(uid) {
   if (!uid) return
   const { deleteDoc } = await import('firebase/firestore')
@@ -74,10 +61,7 @@ export async function removeTokenFromFirestore(uid) {
   await deleteDoc(ref)
 }
 
-/**
- * Register for push: request permission, get token, save to Firestore.
- * Returns { granted: boolean, token: string | null }.
- */
+/** Permission + getToken + save; { granted, token } */
 export async function registerForPush(uid) {
   if (!uid || !isPushSupported()) return { granted: false, token: null }
   const permission = await requestNotificationPermission()
@@ -87,9 +71,7 @@ export async function registerForPush(uid) {
   return { granted: true, token }
 }
 
-/**
- * Subscribe to foreground messages (app in focus). Use for in-app toast or to update UI.
- */
+/** Foreground payload listener (toast / UI) */
 export function onForegroundMessage(callback) {
   getMessagingOrNull().then((messaging) => {
     if (!messaging) return

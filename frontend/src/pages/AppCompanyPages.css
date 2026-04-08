@@ -1,4 +1,4 @@
-/* Shared company pages  -  dark shell, gold accents, Syne headlines */
+/* Shared company pages — dark shell, gold accents, Syne headlines */
 
 .app-co-main {
   max-width: 920px;
@@ -186,7 +186,7 @@
   color: var(--text-muted);
 }
 
-/* Careers  -  role cards */
+/* Careers — role cards */
 .app-co-roles {
   display: flex;
   flex-direction: column;

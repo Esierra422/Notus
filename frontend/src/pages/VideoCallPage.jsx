@@ -123,7 +123,7 @@ function toFriendlyError(err) {
   return msg
 }
 
-/** Firestore meeting-chat listeners use composite indexes; avoid dumping long console URLs in the UI. */
+/** User-facing copy for meeting-chat Firestore errors (indexes, etc.). */
 function formatMeetingChatFirestoreError(err) {
   const msg = err?.message || String(err)
   if (/currently building|cannot be used yet/i.test(msg)) {
@@ -136,7 +136,7 @@ function formatMeetingChatFirestoreError(err) {
   return stripped || 'Could not load meeting chat.'
 }
 
-/** Detect display-capture tracks (Chrome exposes displaySurface). Avoid resolution heuristics  -  720p cameras match “wide” HD and would stay “pinned share” forever. */
+/** Screen share vs camera: use track label + displaySurface (resolution heuristics misfire on 720p cams). */
 function isLikelyScreenShareVideoTrack(videoTrack) {
   if (!videoTrack || typeof videoTrack.getMediaStreamTrack !== 'function') return false
   try {
@@ -153,7 +153,7 @@ function isLikelyScreenShareVideoTrack(videoTrack) {
   return false
 }
 
-/** Firestore row for the second Agora connection used only to publish screen (see videoAppService). */
+/** Participant doc for the extra Agora client that publishes screen only. */
 function isScreenSharePublisherParticipantMeta(meta) {
   if (!meta || typeof meta !== 'object') return false
   const v = meta.screenShareForAgoraUid
@@ -198,7 +198,7 @@ function firestoreTimeToMs(t) {
   return 0
 }
 
-/** Merge consecutive transcript segments from the same speaker (streaming chunks). */
+/** Merge same-speaker transcript chunks within this window (ms). */
 const TRANSCRIPT_MERGE_GAP_MS = 42000
 
 function transcriptSpeakerKey(agoraUid) {
@@ -260,7 +260,7 @@ function appendTranscriptLines(prev, { text, speaker, speakerKey, timeLabel, ts,
   ]
 }
 
-/** Resolve Firestore invitedUserIds for instant meetings (bell notifications + invite-only list). */
+/** invitedUserIds for instant meetings from visibility + notify settings. */
 async function resolveInstantMeetingRecipientIds({
   orgId,
   userId,
@@ -306,7 +306,7 @@ async function resolveInstantMeetingRecipientIds({
   return []
 }
 
-/** Lobby row timer: prefers room session start, else meeting startAt. */
+/** Ongoing row timer: room session clock, else meeting.startAt. */
 function OngoingRowRunningMeta({ since }) {
   const [, setTick] = useState(0)
   const ms = firestoreTimeToMs(since)
@@ -349,7 +349,7 @@ function MeetingRunningClockRow({ sessionStartedAt }) {
   )
 }
 
-/** True if this Agora tile is the meeting organizer (Firestore meta and/or room hostAgoraUid). */
+/** Organizer tile: participant firebaseUid or room hostAgoraUid. */
 function participantIsMeetingHost(meta, agoraUid, meetingCreatedBy, hostAgoraUid) {
   if (!meetingCreatedBy) return false
   if (meta?.firebaseUid && meta.firebaseUid === meetingCreatedBy) return true
@@ -375,7 +375,7 @@ function InRoomTopBarTimer({ sessionStartedAt }) {
   )
 }
 
-/** RMS of Float32 samples; used to skip silent chunks (avoids Whisper "thank you for watching" etc on silence). */
+/** RMS gate for sending audio to Whisper (skips near-silence). */
 function rms(samples) {
   if (!samples?.length) return 0
   let sum = 0
@@ -383,7 +383,7 @@ function rms(samples) {
   return Math.sqrt(sum / samples.length)
 }
 
-/** Peak absolute sample; combined with RMS so borderline noise is not sent to Whisper. */
+/** Peak sample; paired with RMS for the noise gate. */
 function peakAbs(samples) {
   if (!samples?.length) return 0
   let m = 0
@@ -394,12 +394,12 @@ function peakAbs(samples) {
   return m
 }
 
-/** Longer windows + stricter gates reduce bogus text and word fragments (trade-off: slightly higher latency). */
+/** Chunking / gates: fewer bogus words, a bit more latency. */
 const SPEECH_RMS_THRESHOLD = 0.02
 const SPEECH_PEAK_THRESHOLD = 0.036
 const TARGET_SAMPLE_RATE = 16000
 
-/** Drop ultra-short local lines that Whisper often invents on silence (mic noise / room tone). */
+/** Filter junk one-liners Whisper emits on local near-silence. */
 function looksLikeLocalSilenceHallucination(text, isLocal) {
   if (!isLocal || typeof text !== 'string') return false
   const t = text.trim()
@@ -414,7 +414,7 @@ function looksLikeLocalSilenceHallucination(text, isLocal) {
   return junk || day || combo
 }
 
-/** Drop known Whisper hallucinations (subtitles, outro spam, music tags) for any speaker. */
+/** Drop common Whisper hallucinations (subtitles, outros, [music], etc.). */
 function shouldDropTranscriptText(text, isSelf) {
   if (typeof text !== 'string') return true
   const t = text.trim()
@@ -440,9 +440,9 @@ const DEFAULT_ROOM_PREFS = {
   audioComputerOnly: true,
 }
 
-/** Lobby list refresh (without full Firestore sweeps each tick). */
+/** How often the lobby polls ongoing meetings. */
 const VIDEO_LOBBY_ONGOING_POLL_MS = 8000
-/** Heavy cleanup (vacant rooms, stale instant meetings, etc.)  -  not every poll. */
+/** Interval for vacant-room / stale-meeting sweeps. */
 const VIDEO_LOBBY_SWEEP_INTERVAL_MS = 120000
 
 const UPCOMING_HORIZON_KEY = 'notus_video_upcoming_horizon_days'
@@ -466,7 +466,7 @@ function normalizeRoomPrefs(p) {
   }
 }
 
-/** Downsample Float32 mono to target rate and convert to Int16 LE (raw PCM for Whisper). Linear interpolation reduces aliasing vs nearest-neighbor. */
+/** Float32 mono → Int16 PCM for Whisper (linear resample when rate differs). */
 function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGET_SAMPLE_RATE) {
   const n = floatSamples.length
   if (n === 0) return new Int16Array(0).buffer
@@ -506,18 +506,18 @@ export function VideoCallPage() {
   const [micEnabled, setMicEnabled] = useState(true)
   const [camEnabled, setCamEnabled] = useState(true)
   const [remoteUsers, setRemoteUsers] = useState([])
-  /** Agora uid -> { displayName, photoUrl } from Firestore participants */
+  /** agoraUid → roster fields from `participants` docs */
   const [participantMeta, setParticipantMeta] = useState({})
   const participantMetaRef = useRef({})
   const channelNameRef = useRef('')
   const userDisplayForTranscriptRef = useRef('You')
   const [localPhotoUrl, setLocalPhotoUrl] = useState(null)
-  /** null = closed; which tab is active in the right-hand panel */
+  /** Side panel tab id or null if closed */
   const [sidePanelTab, setSidePanelTab] = useState(null)
   const [meetingQuestion, setMeetingQuestion] = useState('')
   const [meetingHistory, setMeetingHistory] = useState([])
   const [liveTranscriptLines, setLiveTranscriptLines] = useState([])
-  /** Latest caption segment for overlay */
+  /** On-screen caption line */
   const [liveSubtitleMeta, setLiveSubtitleMeta] = useState(null)
   const [showLiveSubtitles, setShowLiveSubtitles] = useState(true)
   const liveTranscriptEndRef = useRef(null)
@@ -533,9 +533,9 @@ export function VideoCallPage() {
   const [preJoinPreviewError, setPreJoinPreviewError] = useState('')
   /** While in-call: host + transcript session for summary + Ask AI RAG */
   const [joinedMeetingMeta, setJoinedMeetingMeta] = useState(null)
-  /** Camera track for the “You” tile (stays separate while screen is published). */
+  /** Local camera track (kept when screen-sharing uses another publish path). */
   const [localCameraTrack, setLocalCameraTrack] = useState(null)
-  /** Display track for the dedicated screen-share preview (not mixed into the camera tile). */
+  /** Screen-share preview track (separate from the camera tile). */
   const [localScreenShareTrack, setLocalScreenShareTrack] = useState(null)
   const [screenSharing, setScreenSharing] = useState(false)
   const [showLeaveModal, setShowLeaveModal] = useState(false)
@@ -558,9 +558,9 @@ export function VideoCallPage() {
     copy: copyMeetingIdWithFeedback,
     resetCopied: resetHostMeetingIdCopyFeedback,
   } = useCopyFeedback(1600)
-  /** Firestore roomState.sessionStartedAt  -  live duration in Meeting info */
+  /** Firestore roomState.sessionStartedAt — live duration in Meeting info */
   const [roomSessionStartedAt, setRoomSessionStartedAt] = useState(null)
-  /** Organizer’s current Agora uid (written when host joins)  -  host badge when firebaseUid missing on participant doc */
+  /** roomState.hostAgoraUid (host badge fallback when participant doc has no firebaseUid) */
   const [roomHostAgoraUid, setRoomHostAgoraUid] = useState(null)
   /** Host opt-in: non-hosts may see meeting ID in Meeting information */
   const [roomShowMeetingIdForParticipants, setRoomShowMeetingIdForParticipants] = useState(false)
@@ -598,7 +598,7 @@ export function VideoCallPage() {
   const [roomPinnedAgoraUid, setRoomPinnedAgoraUid] = useState(null)
   const [localViewerPinAgoraUid, setLocalViewerPinAgoraUid] = useState(null)
   const [localAgoraUid, setLocalAgoraUid] = useState(null)
-  /** roomState.raisedHands  -  map of handKey -> Timestamp */
+  /** roomState.raisedHands — map of handKey -> Timestamp */
   const [raisedHandsMap, setRaisedHandsMap] = useState({})
   const [hostHandsQueueOpen, setHostHandsQueueOpen] = useState(false)
   const [meetingPollModalOpen, setMeetingPollModalOpen] = useState(false)
@@ -647,7 +647,7 @@ export function VideoCallPage() {
   const pcmBufferRef = useRef([])
   const transcriptionChunksSentRef = useRef(0)
   const remoteEndHandledRef = useRef(false)
-  /** Merge on-screen captions per Agora uid (display names can collide; uids cannot). */
+  /** Caption merge key: Agora uid (not display string). */
   const subtitleUtteranceRef = useRef({ speakerKey: null, segmentMs: 0, accumulated: '' })
   const executeJoinRef = useRef(async () => false)
 
@@ -699,10 +699,10 @@ export function VideoCallPage() {
 
   useScrollLock(videoBlockingOverlaysOpen)
 
-  /** Live transcription WebSocket only when AI backend URL is set (Express has no /ws/transcription). */
+  /** Transcription WS: needs VITE_AI_WS_URL (not the Express app). */
   const transcriptionWsBase = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
 
-  /** HTTP(S) base for FastAPI /api/ask and /api/generate-summary (from VITE_AI_* only, not Express). */
+  /** AI REST base for ask/summary (VITE_AI_*). */
   const aiRestBase = useMemo(() => getAiRestHttpBase(), [])
 
   useEffect(() => {
@@ -718,7 +718,7 @@ export function VideoCallPage() {
       (user?.displayName || user?.email || 'You').trim() || 'You'
   }, [user?.displayName, user?.email])
 
-  /** When roster names load, refresh the on-screen caption label (was "User 12345" → display name). */
+  /** Refresh caption speaker label when participantMeta updates. */
   useEffect(() => {
     setLiveSubtitleMeta((prev) => {
       if (!prev?.speakerUid) return prev
@@ -782,7 +782,7 @@ export function VideoCallPage() {
     setJoined(false)
   }, [])
 
-  /** Exclude the extra Agora “screen only” connection so gallery and counts match real people. */
+  /** Omit screen-only Agora client from gallery headcount. */
   const galleryRemoteUsers = useMemo(
     () =>
       remoteUsers.filter((u) => !isScreenSharePublisherParticipantMeta(participantMeta[String(u.uid)])),
@@ -922,7 +922,7 @@ export function VideoCallPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [joined])
 
-  /** Browsers often suspend AudioContext in background tabs; resume so mic capture and transcription keep working. */
+  /** Resume AudioContext after tab focus (capture/transcription). */
   useEffect(() => {
     if (!joined || !transcriptionWsBase) return undefined
     const resumeIfSuspended = () => {
@@ -1717,7 +1717,7 @@ export function VideoCallPage() {
       localVideoTrackRef.current = videoTrack
       setLocalCameraTrack(videoTrack)
 
-      /** Room state: only the organizer clears endedAt; anyone can clear vacantSince / lastKick. Session clock starts once per “open” period. */
+      /** Room state merge: organizer clears endedAt; anyone can clear vacantSince/lastKick. */
       let userDocForParticipant = null
       const [postSnapResult, userDocResult] = await Promise.allSettled([
         getDoc(roomStateDoc),
@@ -1784,7 +1784,7 @@ export function VideoCallPage() {
         if (!transcriptionWsBase) {
           // Skip: avoids failed WS to Express (3001) and console spam
         } else {
-        /** ~2.4s chunks: short windows cause Whisper to invent words at boundaries; longer is more stable. */
+        /** PCM chunk length (~2.4s): shorter windows → more boundary artifacts from Whisper. */
         const CHUNK_DURATION_SEC = 2.35
         const wsUrl = /^wss?:\/\//i.test(transcriptionWsBase)
           ? `${transcriptionWsBase.replace(/\/?$/, '')}/ws/transcription`
@@ -1819,7 +1819,7 @@ export function VideoCallPage() {
                 ? userDisplayForTranscriptRef.current
                 : meta?.displayName?.trim() ||
                   (Number.isFinite(agoraUid) ? `User ${agoraUid}` : 'Speaker')
-              /** Merge transcript/captions by Agora uid; fallback key avoids collapsing different people with the same display name. */
+              /** Line merge key: Agora uid (fallback: label string). */
               const lineMergeKey = speakerKey ?? speaker
               let timeLabel = ''
               try {
@@ -2907,7 +2907,7 @@ export function VideoCallPage() {
     return remoteUsers.find((u) => u.videoTrack && isLikelyScreenShareVideoTrack(u.videoTrack)) ?? null
   }, [remoteUsers, screenSharing, participantMeta])
 
-  /** Big stage + filmstrip only for viewers when someone else shares (avoids hall-of-mirrors for the sharer). */
+  /** Remote share layout: stage + strip for viewers (not the sharer’s self-view). */
   const pinnedShareActive = Boolean(remoteScreenSharer)
 
   const screenShareBannerText = useMemo(() => {
@@ -6530,7 +6530,7 @@ function playAgoraVideoInContainer(track, containerEl) {
     const ret = track.play(containerEl)
     if (ret != null && typeof ret.then === 'function') {
       void ret.catch(() => {
-        /* AbortError / interrupted play  -  ignore */
+        /* benign AbortError if a new play superseded this one */
       })
     }
   } catch {
@@ -6538,7 +6538,7 @@ function playAgoraVideoInContainer(track, containerEl) {
   }
 }
 
-/** Double rAF defers play until after React layout/paint so play() is less often interrupted. */
+/** rAF ×2: run Agora play() after layout to reduce AbortError churn. */
 function scheduleAgoraVideoPlay(track, getContainerEl) {
   let cancelled = false
   let raf1 = 0
@@ -6658,7 +6658,7 @@ function meetingChatMessageVisible(msg, thread, myUid) {
   )
 }
 
-/** Firestore replyTo fields must never be rendered raw — objects throw and unmount the whole video call. */
+/** Safe replyTo snippet for meeting chat (avoid rendering odd Firestore shapes). */
 function meetingChatReplyPreview(replyTo, maxLen = 90) {
   if (!replyTo || typeof replyTo !== 'object') return ''
   const t = replyTo.text

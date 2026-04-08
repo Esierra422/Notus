@@ -22,7 +22,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase.js'
 
-const MAX_FILE_BYTES = 750_000 // ~750KB base64 in doc  -  keep small for Firestore
+const MAX_FILE_BYTES = 750_000 // ~750KB base64 in doc — keep small for Firestore
 
 /** Normalize one poll option from Firestore (string, object, or bad data). */
 function normalizePollOptionEntry(o) {

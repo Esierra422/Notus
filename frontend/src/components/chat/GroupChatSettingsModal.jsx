@@ -1,5 +1,5 @@
 /**
- * Group/Team chat settings modal  -  search, starred, notifications, export, members.
+ * Group/Team chat settings modal — search, starred, notifications, export, members.
  */
 import { useState, useEffect, useRef, useId } from 'react'
 import { useScrollLock } from '../../hooks/useScrollLock.js'

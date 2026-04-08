@@ -1,14 +1,6 @@
 /**
- * Cloud Functions for Notus  -  push notifications and video call tokens.
- *
- * Prerequisites:
- * - Firebase Blaze plan (required for Cloud Functions)
- * - firebase deploy --only functions (from project root)
- * - For video: set AGORA_APP_ID and AGORA_APP_CERTIFICATE (e.g. in functions/.env or via params)
- *
- * Triggers:
- * - onNewMessage: when a message is created in a conversation, send FCM to other members
- * - getAgoraToken: callable  -  returns Agora RTC token for video calls (production fallback when no Express backend)
+ * FCM on new messages; callable Agora token (hosting/prod when Express token route isn’t used).
+ * Deploy: `firebase deploy --only functions`. Needs Blaze + Agora env vars for video.
  */
 import { onDocumentCreated } from 'firebase-functions/v2/firestore'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
@@ -44,7 +36,7 @@ async function sendToToken(token, notification, data = {}) {
     })
   } catch (err) {
     if (err.code === 'messaging/invalid-registration-token' || err.code === 'messaging/registration-token-not-registered') {
-      // Token invalid or unregistered  -  optional: delete from Firestore
+      // Stale token; could prune Firestore here
     }
     console.warn('FCM send failed', err.code, err.message)
   }
@@ -55,9 +47,7 @@ async function getFCMTokenForUser(uid) {
   return snap.exists ? snap.data()?.token : null
 }
 
-/**
- * When a new message is added to a conversation, notify other members (except sender).
- */
+/** Firestore trigger: new chat message → FCM to other members */
 export const onNewMessage = onDocumentCreated(
   {
     document: 'organizations/{orgId}/conversations/{convId}/messages/{messageId}',
@@ -88,21 +78,10 @@ export const onNewMessage = onDocumentCreated(
   }
 )
 
-/**
- * When a new organization invitation is created, notify the invitee.
- * We don't have their uid yet (pending), so we can't send FCM by uid. Skip or use a topic by email.
- * For now we skip org invite push (would require email → uid or topic).
- */
-// export const onNewOrgInvitation = onDocumentCreated('organizationInvitations/{invitationId}', async (event) => { ... });
+// Org/team invite push skipped (no uid until accept).
 
 /**
- * When a new team invitation is created, same as org  -  invitee may not have an account yet. Skip for now.
- */
-
-/**
- * Callable: return Agora RTC token for video calls. Used when the app is deployed (e.g. notusapp.com)
- * and there is no separate Express backend  -  the frontend falls back to this instead of /api/video/token.
- * Requires Firebase Auth. Set AGORA_APP_ID and AGORA_APP_CERTIFICATE in functions config or .env.
+ * Callable Agora RTC token. Auth required; config: AGORA_APP_ID, AGORA_APP_CERTIFICATE.
  */
 export const getAgoraToken = onCall(
   { region: 'us-central1' },

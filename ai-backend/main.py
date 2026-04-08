@@ -195,7 +195,7 @@ def _parse_iso(dt_string: str, user_tz: str = "") -> datetime:
     """Parse an ISO 8601 string into a UTC datetime, interpreting naive times in the user's timezone."""
     dt = datetime.fromisoformat(dt_string)
     if dt.tzinfo is None:
-        # Naive datetime  -  treat as user's local time, then convert to UTC
+        # Naive datetime — treat as user's local time, then convert to UTC
         try:
             tz = ZoneInfo(user_tz) if user_tz else timezone.utc
         except (KeyError, ValueError):

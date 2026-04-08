@@ -255,7 +255,7 @@ function RepeatModal({ isOpen, onClose, value, onSave, eventStartDateStr }) {
 }
 
 /**
- * Create org calendar event  -  choose calendar vs video, bio, timezone, repeat, invites (notifications).
+ * Create org calendar event — choose calendar vs video, bio, timezone, repeat, invites (notifications).
  */
 export function CreateEventModal({
   isOpen,

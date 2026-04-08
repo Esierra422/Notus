@@ -1,12 +1,6 @@
 /**
- * NOTUS FIREBASE INIT  -  SINGLE SOURCE OF TRUTH
- *
- * Architecture rules (see Documentation/ARCHITECTURE.md):
- * - This is the ONLY Firebase client init. Do not create another.
- * - Firebase Auth = identity provider (uid is canonical)
- * - Firestore = application data
- * - User profiles: users/{uid} only. No googleUsers, emailUsers, profiles, usersByEmail.
- * - Passwords NEVER in Firestore (Firebase Auth only).
+ * Client Firebase init (auth, Firestore, functions, optional messaging).
+ * One `initializeApp` for the SPA; details in Documentation/ARCHITECTURE.md.
  */
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth'
@@ -32,12 +26,7 @@ export function getAnalyticsOrNull() {
   return _analytics
 }
 
-/**
- * Analytics is optional and consent-gated.
- * - If there is no measurementId, analytics stays disabled.
- * - If user has not consented to analytics cookies, analytics stays disabled.
- * - When consent flips to allow, we initialize analytics lazily.
- */
+/** Analytics: gated on measurementId + cookie consent; lazy-loaded when allowed. */
 export async function initAnalyticsIfAllowed() {
   if (typeof window === 'undefined') return null
   if (!firebaseConfig.measurementId) return null
@@ -55,22 +44,22 @@ export async function initAnalyticsIfAllowed() {
   return _analyticsInitPromise
 }
 
-// Keep legacy export name available, but do not eagerly initialize.
+// Legacy name; analytics stays null until initAnalyticsIfAllowed runs.
 export const analytics = null
 
 export const auth = getAuth(app)
 
-// Keep users logged in until they explicitly sign out
+// Persist auth session in the browser until sign-out
 setPersistence(auth, browserLocalPersistence).catch(() => {});
 export const db = getFirestore(app)
 export const googleProvider = new GoogleAuthProvider()
 
-/** Cloud Functions (e.g. getAgoraToken for video call). Use region matching your deployed functions. */
+/** Callable functions client (`us-central1` — match deployed region). */
 export function getFunctionsApp() {
   return getFunctions(app, 'us-central1')
 }
 
-/** FCM: only in browser and if supported (HTTPS, Push API). Lazy-init to avoid SSR errors. */
+/** FCM when the browser supports it; lazy init (no SSR). */
 let _messaging = null;
 export async function getMessagingOrNull() {
   if (typeof window === 'undefined') return null;
@@ -80,7 +69,7 @@ export async function getMessagingOrNull() {
   return _messaging;
 }
 
-/** Safari blocks popups/third-party cookies  -  use redirect instead of popup for Google sign-in */
+/** Safari: prefer redirect flow for Google (popup/cookies). */
 export const isSafari = typeof navigator !== 'undefined' &&
   /Safari/.test(navigator.userAgent) &&
   !/Chrome|Chromium|CriOS/.test(navigator.userAgent);

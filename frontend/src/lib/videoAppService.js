@@ -64,7 +64,7 @@ function setupEventListeners() {
   })
 
   client.on('user-unpublished', (user, mediaType) => {
-    // Audio: setMuted(true) triggers user-unpublished("audio") on remotes  -  must refresh tiles (mic icon).
+    // Audio: setMuted(true) triggers user-unpublished("audio") on remotes — must refresh tiles (mic icon).
     if (mediaType === 'video' || mediaType === 'audio') {
       onUserJoined?.(user)
       onRemoteUsersRefresh?.()

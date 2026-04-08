@@ -1,5 +1,5 @@
 /**
- * Organization profile modal  -  shows org info in a pop-up.
+ * Organization profile modal — shows org info in a pop-up.
  * Used from OrganizationsPage when clicking the info icon on an org card.
  */
 import { useState, useEffect } from 'react'

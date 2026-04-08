@@ -29,7 +29,7 @@ import './ProfilePage.css'
 const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', member: 'Member' }
 
 /**
- * Profile page  -  top section always visible, account meta, quick actions, Notus preferences.
+ * Profile page — top section always visible, account meta, quick actions, Notus preferences.
  */
 export function ProfilePage() {
   const { user, setNavExtra } = useOutletContext() || {}
@@ -307,7 +307,7 @@ export function ProfilePage() {
         </section>
       </div>
 
-      {/* Personal information  -  always visible, pencil to edit */}
+      {/* Personal information — always visible, pencil to edit */}
       <section className="profile-card">
         <div className="profile-card-header">
           <h3 className="profile-card-title">Personal information</h3>

@@ -43,7 +43,7 @@ export function meetingCalendarDisplaySource(meeting) {
   return 'org'
 }
 
-/** How the meeting row was created  -  used to filter video lobby “upcoming”. */
+/** How the meeting row was created — used to filter video lobby “upcoming”. */
 export const MEETING_CREATED_VIA = { calendar: 'calendar', instant: 'instant' }
 
 /** Hide ad-hoc instant meetings from calendar grids and scheduled lists. */
@@ -63,9 +63,7 @@ const VACANT_ROOM_END_MS = 5 * 60 * 1000
 const EMPTY_ROOM_MIN_MEETING_AGE_MS = 5 * 60 * 1000
 /** Instant meetings: force-close after this long (stale participant docs, forgotten tabs). */
 const INSTANT_ROOM_MAX_OPEN_MS = 90 * 60 * 1000
-/**
- * Instant meetings that never got sessionStartedAt (abandoned / old clients): close so lobby doesn’t stick on “Running  - ”.
- */
+/** Instant row with no sessionStartedAt: close so lobby doesn’t show a stuck “Running” state */
 const INSTANT_NO_SESSION_END_MS = 5 * 60 * 1000
 
 function firestoreTimeToMs(ts) {
@@ -1146,8 +1144,7 @@ export async function getUpcomingTeamAndOrgMeetingsForUserInOrg(userId, orgId, t
 }
 
 /**
- * Get all meetings user can access (for personal dashboard).
- * Fetches from all orgs user is active in, filters by access.
+ * Dashboard: upcoming meetings across all orgs the user belongs to (access-checked).
  * @param {number} [maxResults=20]
  */
 export async function getMeetingsForUser(userId, maxResults = 20) {

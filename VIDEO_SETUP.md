@@ -31,7 +31,7 @@ Put your backend on the internet for free using Render, then tell your frontend 
 4. Render will see `render.yaml` and create a service named **notus-api**. Click **Apply** (or **Create**).
 5. Wait for the first deploy to finish (a few minutes). When it’s done, you’ll see a URL like:  
    `https://notus-api.onrender.com`  
-   **Copy that URL**  -  you’ll need it in Step 4.
+   **Copy that URL** — you’ll need it in Step 4.
 
 ---
 

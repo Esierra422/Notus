@@ -1,5 +1,5 @@
 /**
- * Firebase Cloud Messaging  -  background handler (service worker).
+ * Firebase Cloud Messaging — background handler (service worker).
  * Must live at origin root: /firebase-messaging-sw.js
  *
  * Setup: Replace firebaseConfig below with your project config from

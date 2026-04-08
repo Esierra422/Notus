@@ -172,7 +172,7 @@ export async function downloadMeetingSummaryDocx(summary) {
 /**
  * @param {string} title
  * @param {string} fullText
- * @param {{ timeLabel?: string, speaker?: string, text: string }[]} [segments]  -  optional structured lines
+ * @param {{ timeLabel?: string, speaker?: string, text: string }[]} [segments] — optional structured lines
  */
 export async function downloadTranscriptPdf(title, fullText, segments) {
   const { default: jsPDF } = await import('jspdf')

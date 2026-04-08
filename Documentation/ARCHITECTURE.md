@@ -28,7 +28,7 @@
 
 ## Firebase: Single Source of Truth
 
-- **Client-side init:** `frontend/src/lib/firebase.js`  -  **this is the only Firebase initialization file.**
+- **Client-side init:** `frontend/src/lib/firebase.js` — **this is the only Firebase initialization file.**
 - **Do not** create a second Firebase init file or duplicate config anywhere in the frontend.
 - **Backend:** Uses `firebase-admin` (separate SDK) for server-side operations only. This is distinct from the client SDK.
 
@@ -43,14 +43,14 @@
 
 ### Firestore stores application data
 
-- Meetings, channels, notes, transcripts  -  all in Firestore.
+- Meetings, channels, notes, transcripts — all in Firestore.
 - Firestore is **not** used for password storage or auth credentials.
 
 ### Exactly one canonical user profile per user
 
 | Rule | Detail |
 |------|--------|
-| **Path** | `users/{uid}`  -  where `uid` is from `Firebase Auth` |
+| **Path** | `users/{uid}` — where `uid` is from `Firebase Auth` |
 | **One doc per user** | One document per authenticated user. No duplicates. |
 | **Provider-agnostic** | Same path for Google, Email/Password, or any future provider. |
 
@@ -126,7 +126,7 @@ User data lives only at `users/{uid}`.
 ## Environment & Secrets
 
 - **`.env`** files hold secrets (API keys, Firebase config, etc.).
-- **`.env`** is listed in `.gitignore`  -  never commit it.
+- **`.env`** is listed in `.gitignore` — never commit it.
 - Use **`.env.example`** as a template (no real values). Copy to `.env` and fill in locally.
 - Frontend: `frontend/.env.example` → `frontend/.env`
 - Backend: `backend/.env.example` → `backend/.env`

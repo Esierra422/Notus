@@ -1,5 +1,5 @@
 /**
- * Context menu for a message  -  Reactions on top, then Reply, Forward, Copy, Info, Star, Delete
+ * Context menu for a message — Reactions on top, then Reply, Forward, Copy, Info, Star, Delete
  */
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useScrollLock } from '../../hooks/useScrollLock.js'

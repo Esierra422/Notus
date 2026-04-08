@@ -37,7 +37,7 @@ const RAW_AI_WS = (import.meta.env.VITE_AI_WS_URL || '').replace(/\/$/, '')
 /**
  * HTTP(S) base for FastAPI ai-backend only (/api/ask, /api/generate-summary).
  * Do not fall back to VITE_API_URL (Express): those routes are not on the Node server.
- * VITE_AI_WS_URL is often wss://…  -  fetch() cannot use that scheme, so map to http(s).
+ * VITE_AI_WS_URL is often wss://… — fetch() cannot use that scheme, so map to http(s).
  * Prefer VITE_AI_HTTP_URL when WS and HTTP differ.
  */
 export function getAiRestHttpBase() {

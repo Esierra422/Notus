@@ -1,6 +1,4 @@
-/**
- * SVG icons  -  no emojis, proper graphics throughout the app.
- */
+/** Inline SVG icons (stroke-based). */
 
 const iconProps = { xmlns: 'http://www.w3.org/2000/svg', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }
 

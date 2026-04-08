@@ -1,7 +1,5 @@
 /**
- * WhatsApp-style conversations: DM, Group, Team chats.
- * Path: organizations/{orgId}/conversations/{convId}
- * Messages: organizations/{orgId}/conversations/{convId}/messages/{msgId}
+ * Org-scoped chats: DM / group / team under organizations/{orgId}/conversations/…/messages/…
  */
 import {
   collection,

@@ -1,6 +1,6 @@
 /**
  * Client-side image compression for profile pictures.
- * Stores as base64 data URL in Firestore  -  no Firebase Storage required.
+ * Stores as base64 data URL in Firestore — no Firebase Storage required.
  * Firestore doc limit ~1MB; we compress to stay under ~400KB.
  */
 const DEFAULTS = {

@@ -3,14 +3,9 @@ import OpenAI from 'openai'
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
 
-/**
- * Called every time we have a new transcript segment.
- * This is where you push to your LLM context, vector DB, or meeting doc.
- * Right now: log only. Later: e.g. append to Firestore meeting transcript, or ingest into vector DB.
- */
+/** New transcript chunk — hook for persistence/RAG; currently logs only */
 function onTranscript(channel, uid, text) {
   console.log(`[${channel}] Transcript (uid=${uid}): ${text}`)
-  // TODO: e.g. append to meeting transcript in Firestore, or add to vector DB for RAG
 }
 
 const WHISPER_SAMPLE_RATE = 16000
@@ -37,10 +32,7 @@ function rawPcmToWavBuffer(rawPcm) {
   return Buffer.concat([header, pcm])
 }
 
-/**
- * Attach WebSocket handlers for the transcription connection.
- * First message = JSON { type: 'meta', channel, uid }. Rest = raw Int16 PCM (16kHz mono).
- */
+/** WS: first frame JSON meta { channel, uid }; then 16kHz mono Int16 PCM → Whisper */
 export function handleTranscriptionConnection(ws) {
   let channel = null
   let uid = null

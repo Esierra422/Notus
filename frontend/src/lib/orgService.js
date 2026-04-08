@@ -1,6 +1,6 @@
 /**
  * Organization and membership services.
- * No invite codes or links  -  request/approve in app only.
+ * No invite codes or links — request/approve in app only.
  */
 import {
   collection,
@@ -138,7 +138,7 @@ export async function getUserMemberships(userId) {
 }
 
 /**
- * Request to join org  -  create membership with state=pending.
+ * Request to join org — create membership with state=pending.
  */
 export async function requestToJoinOrg(orgId, userId) {
   const id = membershipId(orgId, userId)
@@ -296,10 +296,7 @@ export const MEMBERSHIP_CAP_KEYS = {
   manageTeams: 'manageTeams',
 }
 
-/**
- * User-facing text aligned with Admin → Manage member → Access controls.
- * Use for UI hints and thrown errors when an action requires a capability the member does not have.
- */
+/** User-facing errors when a capability is off (same wording as Admin → Manage member) */
 export function getCapabilityDeniedMessage(cap) {
   const messages = {
     scheduleOrgMeetings:
@@ -442,11 +439,7 @@ export function canRemoveOrgMember(actor, targetRole, targetIsOwner) {
   return targetRole === MEMBERSHIP_ROLES.member
 }
 
-/**
- * Fine-grained permissions. Owners/admins always pass.
- * Legacy: no `capabilities` field → full calendar/scheduling; enterprise flags off.
- * With a capabilities object: scheduling split + explicit enterprise toggles.
- */
+/** Capability check: owner/admin always true; missing capabilities → legacy scheduling on, enterprise caps off */
 export function membershipHasCapability(membership, cap) {
   if (!membership || membership.state !== MEMBERSHIP_STATES.active) return false
   if (membership.role === MEMBERSHIP_ROLES.owner || membership.role === MEMBERSHIP_ROLES.admin) return true
@@ -500,8 +493,7 @@ export function membershipHasCapability(membership, cap) {
     )
   }
 
-  // Require explicit true whenever a capabilities object exists (matches admin toggles + normalizeMemberCapabilities).
-  // Missing keys are not treated as allow  -  that bypassed orgCalendar/teamCalendar off when keys were omitted in Firestore.
+  // If `capabilities` exists, calendar flags need explicit true (omitted key ≠ allowed)
   if (cap === 'orgCalendar') {
     return c.orgCalendar === true
   }
@@ -515,7 +507,7 @@ export function membershipHasCapability(membership, cap) {
 }
 
 /**
- * Custom label shown on member cards (does not replace owner/admin/member access  -  use role for that).
+ * Custom label shown on member cards (does not replace owner/admin/member access — use role for that).
  */
 export async function updateMemberDisplayRole(orgId, targetUserId, actorUserId, displayRoleName) {
   const actor = await getMembership(orgId, actorUserId)

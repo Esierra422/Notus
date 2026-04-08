@@ -1099,7 +1099,7 @@
   gap: 0.4rem;
 }
 
-/*  -  -  Mobile month grid + toolbar (max-width 768px)  -  -  */
+/* Mobile month grid + toolbar (max-width: 768px) */
 @media (max-width: 768px) {
   .calendar-header-row {
     flex-direction: column;

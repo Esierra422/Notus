@@ -25,6 +25,7 @@ body {
   min-height: 100vh;
   width: 100%;
   overflow-x: hidden;
+  font-family: var(--font-body);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -32,6 +33,22 @@ body {
   color-scheme: dark;
   background: var(--bg);
   color: var(--text);
+}
+
+/* Form controls do not always inherit font-family; keep them on DM Sans with the rest of the app. */
+button,
+input,
+textarea,
+select,
+optgroup {
+  font-family: inherit;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 html[data-theme='light'] body {

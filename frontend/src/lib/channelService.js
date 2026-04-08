@@ -1,5 +1,5 @@
 /**
- * Text channels  -  org-level async chat.
+ * Text channels — org-level async chat.
  * Path: organizations/{orgId}/channels/{channelId}
  * Messages: organizations/{orgId}/channels/{channelId}/messages/{messageId}
  */

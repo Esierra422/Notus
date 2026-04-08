@@ -19,7 +19,7 @@ import { db } from './firebase'
 export const NOTIFICATION_TYPES = {
   meetingInvite: 'meeting_invite',
   instantMeetingInvite: 'instant_meeting_invite',
-  /** Scheduled calendar-only event  -  invite adds the event to the recipient’s calendar view. */
+  /** Scheduled calendar-only event — invite adds the event to the recipient’s calendar view. */
   calendarEventInvite: 'calendar_event_invite',
 }
 

@@ -1,8 +1,6 @@
 /**
- * Handles Firebase Auth redirect result after signInWithRedirect.
- * Shows "Signing you in..." only when returning from Google redirect; navigates to /app.
- * - Processes user as soon as auth.currentUser is set or getRedirectResult resolves (whichever first).
- * - Hides overlay after maxWaitMs so Safari users aren't stuck if getRedirectResult is very slow.
+ * After Google `signInWithRedirect`, finish sign-in and go to /app.
+ * Overlay clears when user is processed or after a timeout (slow Safari).
  */
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -37,7 +35,7 @@ function SigningInOverlay({ showLongWaitHint = false }) {
 
 async function processSignedInUser(user, navigate) {
   await ensureUserDoc(user, ['google'])
-  // Always go to dashboard; AppShell will redirect to /signup if profile completion is needed
+  // /app; AppShell sends incomplete profiles to /signup
   navigate('/app', { replace: true })
 }
 
@@ -78,12 +76,12 @@ export function AuthRedirectHandler({ children }) {
       }
     }
 
-    // Process immediately if auth already has the user (e.g. Safari sets it before getRedirectResult resolves)
+    // Safari sometimes sets currentUser before getRedirectResult()
     if (hadRedirectFlag && auth.currentUser) {
       handleUser(auth.currentUser)
     }
 
-    // Also listen for auth state in case it fires before or instead of getRedirectResult
+    // onAuthStateChanged covers races with getRedirectResult
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       if (user && hadRedirectFlag && !processed.current) {
         handleUser(user)
@@ -110,7 +108,7 @@ export function AuthRedirectHandler({ children }) {
         setShowSigningIn(false)
       })
 
-    // Don't block the UI forever: after a while show a hint, then hide overlay so user can refresh or see the page
+    // Hint then dismiss overlay so the page isn’t stuck behind the spinner
     const hintTimer = setTimeout(() => setShowLongWaitHint(true), 8000)
     const maxWaitTimer = setTimeout(() => {
       if (!processed.current) setShowSigningIn(false)

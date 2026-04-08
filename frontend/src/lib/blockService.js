@@ -1,5 +1,5 @@
 /**
- * Block service  -  user blocks another user.
+ * Block service — user blocks another user.
  * Stored at users/{userId}/blocked/{blockedUserId}
  */
 import { doc, setDoc, getDoc, getDocs, collection, deleteDoc, serverTimestamp } from 'firebase/firestore'

@@ -1,5 +1,5 @@
 /**
- * User to-dos  -  stored at users/{uid}/todos/{todoId}
+ * User to-dos — stored at users/{uid}/todos/{todoId}
  * Optional dueDate (Timestamp) for calendar integration.
  */
 import {

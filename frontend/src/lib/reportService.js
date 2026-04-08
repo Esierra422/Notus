@@ -1,5 +1,5 @@
 /**
- * Report service  -  users report other users. Admins can view reports.
+ * Report service — users report other users. Admins can view reports.
  * Stored at organizations/{orgId}/reports/{reportId}
  */
 import {
