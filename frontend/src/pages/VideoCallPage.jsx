@@ -201,12 +201,19 @@ function firestoreTimeToMs(t) {
 /** Merge consecutive transcript segments from the same speaker (streaming chunks). */
 const TRANSCRIPT_MERGE_GAP_MS = 42000
 
-function appendTranscriptLines(prev, { text, speaker, timeLabel, ts, segmentMs }) {
+function transcriptSpeakerKey(agoraUid) {
+  if (agoraUid == null || !Number.isFinite(Number(agoraUid))) return null
+  return String(agoraUid)
+}
+
+function appendTranscriptLines(prev, { text, speaker, speakerKey, timeLabel, ts, segmentMs }) {
+  const key = speakerKey != null ? speakerKey : speaker
   const last = prev[prev.length - 1]
+  const lastKey = last?.speakerKey != null ? last.speakerKey : last?.speaker
   const lastMs = last?._segmentMs
   const gapOk =
     last &&
-    last.speaker === speaker &&
+    lastKey === key &&
     typeof lastMs === 'number' &&
     segmentMs - lastMs <= TRANSCRIPT_MERGE_GAP_MS
   if (gapOk) {
@@ -215,13 +222,14 @@ function appendTranscriptLines(prev, { text, speaker, timeLabel, ts, segmentMs }
       {
         ...last,
         text: `${last.text} ${text}`.trim(),
+        speaker,
         _segmentMs: segmentMs,
       },
     ]
   }
   const shortFragment =
     last &&
-    last.speaker === speaker &&
+    lastKey === key &&
     typeof text === 'string' &&
     text.trim().length > 0 &&
     text.trim().length <= 18 &&
@@ -233,6 +241,7 @@ function appendTranscriptLines(prev, { text, speaker, timeLabel, ts, segmentMs }
       {
         ...last,
         text: `${last.text} ${text.trim()}`.trim(),
+        speaker,
         _segmentMs: segmentMs,
       },
     ]
@@ -243,6 +252,7 @@ function appendTranscriptLines(prev, { text, speaker, timeLabel, ts, segmentMs }
       id: `tr-${segmentMs}-${prev.length}`,
       text,
       speaker,
+      speakerKey: key,
       timeLabel,
       ts,
       _segmentMs: segmentMs,
@@ -388,19 +398,6 @@ function peakAbs(samples) {
 const SPEECH_RMS_THRESHOLD = 0.02
 const SPEECH_PEAK_THRESHOLD = 0.036
 const TARGET_SAMPLE_RATE = 16000
-
-/** First token for captions like reference: "-[Abel] …" */
-function shortCaptionSpeaker(name) {
-  if (!name || typeof name !== 'string') return 'Speaker'
-  const s = name.trim()
-  if (!s) return 'Speaker'
-  if (s.includes('@')) {
-    const local = s.split('@')[0].trim()
-    return local || 'Speaker'
-  }
-  const parts = s.split(/\s+/).filter(Boolean)
-  return parts[0] || 'Speaker'
-}
 
 /** Drop ultra-short local lines that Whisper often invents on silence (mic noise / room tone). */
 function looksLikeLocalSilenceHallucination(text, isLocal) {
@@ -650,8 +647,8 @@ export function VideoCallPage() {
   const pcmBufferRef = useRef([])
   const transcriptionChunksSentRef = useRef(0)
   const remoteEndHandledRef = useRef(false)
-  /** Merge on-screen captions into one line per speaker burst (same window as transcript). */
-  const subtitleUtteranceRef = useRef({ speaker: null, segmentMs: 0, accumulated: '' })
+  /** Merge on-screen captions per Agora uid (display names can collide; uids cannot). */
+  const subtitleUtteranceRef = useRef({ speakerKey: null, segmentMs: 0, accumulated: '' })
   const executeJoinRef = useRef(async () => false)
 
   /** Calendar-scheduled video: early guests wait until host admits or start time. */
@@ -721,11 +718,28 @@ export function VideoCallPage() {
       (user?.displayName || user?.email || 'You').trim() || 'You'
   }, [user?.displayName, user?.email])
 
+  /** When roster names load, refresh the on-screen caption label (was "User 12345" → display name). */
+  useEffect(() => {
+    setLiveSubtitleMeta((prev) => {
+      if (!prev?.speakerUid) return prev
+      const uid = Number(prev.speakerUid)
+      if (!Number.isFinite(uid)) return prev
+      const localAgora = Number(localUidRef.current)
+      const isSelf = Number.isFinite(localAgora) && localAgora === uid
+      const meta = participantMeta[String(uid)]
+      const label = isSelf
+        ? userDisplayForTranscriptRef.current
+        : meta?.displayName?.trim() || `User ${uid}`
+      if (label === prev.speaker) return prev
+      return { ...prev, speaker: label }
+    })
+  }, [participantMeta, user?.displayName, user?.email])
+
   useEffect(() => {
     if (!joined) {
       setLiveTranscriptLines([])
       setLiveSubtitleMeta(null)
-      subtitleUtteranceRef.current = { speaker: null, segmentMs: 0, accumulated: '' }
+      subtitleUtteranceRef.current = { speakerKey: null, segmentMs: 0, accumulated: '' }
     }
   }, [joined])
 
@@ -1510,7 +1524,7 @@ export function VideoCallPage() {
     setError('')
     setLiveTranscriptLines([])
     setLiveSubtitleMeta(null)
-    subtitleUtteranceRef.current = { speaker: null, segmentMs: 0, accumulated: '' }
+    subtitleUtteranceRef.current = { speakerKey: null, segmentMs: 0, accumulated: '' }
     setLoading(true)
     try {
       let meeting = meetingInput
@@ -1789,10 +1803,15 @@ export function VideoCallPage() {
             if (msg?.type === 'transcript' && typeof msg.text === 'string' && msg.text.trim()) {
               const t = msg.text.trim()
               const agoraUid = msg.uid != null ? Number(msg.uid) : NaN
+              const speakerKey = transcriptSpeakerKey(agoraUid)
               const meta = Number.isFinite(agoraUid)
                 ? participantMetaRef.current[String(agoraUid)]
                 : null
-              const isSelf = Number.isFinite(agoraUid) && localUidRef.current === agoraUid
+              const localAgora = Number(localUidRef.current)
+              const isSelf =
+                Number.isFinite(agoraUid) &&
+                Number.isFinite(localAgora) &&
+                localAgora === agoraUid
               if (shouldDropTranscriptText(t, isSelf)) {
                 return
               }
@@ -1800,6 +1819,8 @@ export function VideoCallPage() {
                 ? userDisplayForTranscriptRef.current
                 : meta?.displayName?.trim() ||
                   (Number.isFinite(agoraUid) ? `User ${agoraUid}` : 'Speaker')
+              /** Merge transcript/captions by Agora uid; fallback key avoids collapsing different people with the same display name. */
+              const lineMergeKey = speakerKey ?? speaker
               let timeLabel = ''
               try {
                 timeLabel = msg.ts
@@ -1819,22 +1840,34 @@ export function VideoCallPage() {
               const segmentMs = msg.ts ? new Date(msg.ts).getTime() : Date.now()
               const tsIso = msg.ts || new Date().toISOString()
               setLiveTranscriptLines((prev) =>
-                appendTranscriptLines(prev, { text: t, speaker, timeLabel, ts: tsIso, segmentMs })
+                appendTranscriptLines(prev, {
+                  text: t,
+                  speaker,
+                  speakerKey: lineMergeKey,
+                  timeLabel,
+                  ts: tsIso,
+                  segmentMs,
+                })
               )
               const u = subtitleUtteranceRef.current
               const mergeCaption =
-                u.speaker === speaker &&
+                u.speakerKey === lineMergeKey &&
                 typeof u.segmentMs === 'number' &&
                 segmentMs - u.segmentMs <= TRANSCRIPT_MERGE_GAP_MS
               if (mergeCaption) {
                 u.accumulated = `${u.accumulated} ${t}`.trim()
                 u.segmentMs = segmentMs
               } else {
-                u.speaker = speaker
+                u.speakerKey = lineMergeKey
                 u.segmentMs = segmentMs
                 u.accumulated = t
               }
-              setLiveSubtitleMeta({ text: u.accumulated, speaker, timeLabel })
+              setLiveSubtitleMeta({
+                text: u.accumulated,
+                speaker,
+                speakerUid: speakerKey,
+                timeLabel,
+              })
             }
           } catch {
             /* non-JSON or unexpected shape */
@@ -4237,8 +4270,11 @@ export function VideoCallPage() {
                         <span className="video-call-live-subtitles-dash" aria-hidden>
                           -
                         </span>
-                        <span className="video-call-live-subtitles-bracket">
-                          [{shortCaptionSpeaker(liveSubtitleMeta.speaker)}]
+                        <span
+                          className="video-call-live-subtitles-bracket"
+                          title={liveSubtitleMeta.speaker || undefined}
+                        >
+                          [{liveSubtitleMeta.speaker || 'Speaker'}]
                         </span>
                         {liveSubtitleMeta.text ? (
                           <span className="video-call-live-subtitles-words">{liveSubtitleMeta.text}</span>
@@ -4395,7 +4431,7 @@ export function VideoCallPage() {
                                   <span className="video-call-transcript-line-time">{line.timeLabel} </span>
                                 ) : null}
                                 <span className="video-call-transcript-line-prefix" aria-hidden>
-                                  -[{shortCaptionSpeaker(line.speaker)}]{' '}
+                                  -[{line.speaker || 'Speaker'}]{' '}
                                 </span>
                                 {line.text}
                               </p>
@@ -4979,7 +5015,7 @@ export function VideoCallPage() {
                   <span className="video-meeting-poll-label">Question</span>
                   <input
                     type="text"
-                    className="auth-input video-meeting-poll-input"
+                    className="notus-input video-meeting-poll-input"
                     value={meetingPollQuestion}
                     onChange={(e) => setMeetingPollQuestion(e.target.value)}
                     placeholder="What should we do next?"
@@ -4991,7 +5027,7 @@ export function VideoCallPage() {
                     <li key={idx}>
                       <input
                         type="text"
-                        className="auth-input video-meeting-poll-input"
+                        className="notus-input video-meeting-poll-input"
                         value={opt}
                         onChange={(e) => {
                           const next = [...meetingPollOptions]
@@ -6906,6 +6942,14 @@ function VideoCallChat({
           const att = msg.attachment
           const isPoll = att?.type === 'poll'
           const isDoc = att?.type === 'document'
+          const pollEnded = isPoll ? !!att.ended : false
+          const pollOptions = isPoll ? (Array.isArray(att.options) ? att.options : []) : []
+          const pollTotalVotes = isPoll
+            ? pollOptions.reduce((sum, o) => {
+                if (o == null || typeof o !== 'object' || !Array.isArray(o.votes)) return sum
+                return sum + o.votes.filter((id) => typeof id === 'string').length
+              }, 0)
+            : 0
           const sender = resolveSenderMeta(msg)
           const ts = messageTimeLabel(msg)
           const dmTag =
@@ -6943,11 +6987,14 @@ function VideoCallChat({
                     )}
                     {isPoll ? (
                       <div className="video-zoom-chat__poll">
-                        <p className="video-zoom-chat__poll-q">
-                          {typeof att.question === 'string' ? att.question : String(att.question ?? 'Poll') || 'Poll'}
-                        </p>
+                        <div className="video-zoom-chat__poll-head">
+                          <BarChart3 size={16} strokeWidth={2} className="video-zoom-chat__poll-ic" aria-hidden />
+                          <p className="video-zoom-chat__poll-q">
+                            {typeof att.question === 'string' ? att.question : String(att.question ?? 'Poll') || 'Poll'}
+                          </p>
+                        </div>
                         <ul className="video-zoom-chat__poll-options">
-                          {(Array.isArray(att.options) ? att.options : []).map((opt, idx) => {
+                          {pollOptions.map((opt, idx) => {
                             const label =
                               typeof opt === 'string'
                                 ? opt
@@ -6958,8 +7005,12 @@ function VideoCallChat({
                               opt != null && typeof opt === 'object' && Array.isArray(opt.votes)
                                 ? opt.votes.filter((id) => typeof id === 'string')
                                 : []
+                            const voteCount = votes.length
+                            const pct =
+                              pollEnded && pollTotalVotes > 0
+                                ? Math.round((voteCount / pollTotalVotes) * 100)
+                                : 0
                             const picked = myUid ? votes.includes(myUid) : false
-                            const ended = !!att.ended
                             return (
                               <li key={idx}>
                                 <button
@@ -6967,21 +7018,49 @@ function VideoCallChat({
                                   className={[
                                     'video-zoom-chat__poll-opt',
                                     picked && 'video-zoom-chat__poll-opt--picked',
+                                    pollEnded && 'video-zoom-chat__poll-opt--ended',
                                   ]
                                     .filter(Boolean)
                                     .join(' ')}
-                                  disabled={ended || sending}
+                                  disabled={pollEnded || sending}
                                   onClick={() => voteOnPoll(msg.id, idx)}
                                 >
-                                  <span>{label}</span>
-                                  <span className="video-zoom-chat__poll-count">{votes.length}</span>
+                                  {pollEnded && (
+                                    <span
+                                      className="video-zoom-chat__poll-bar"
+                                      style={{ width: `${pct}%` }}
+                                      aria-hidden
+                                    />
+                                  )}
+                                  <span className="video-zoom-chat__poll-opt-main">
+                                    <span className="video-zoom-chat__poll-label">{label}</span>
+                                    {pollEnded ? (
+                                      <span className="video-zoom-chat__poll-stats">
+                                        <span className="video-zoom-chat__poll-pct">{pct}%</span>
+                                        <span className="video-zoom-chat__poll-votes">
+                                          {voteCount} {voteCount === 1 ? 'vote' : 'votes'}
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      picked && (
+                                        <span className="video-zoom-chat__poll-check" aria-hidden>
+                                          ✓
+                                        </span>
+                                      )
+                                    )}
+                                  </span>
                                 </button>
                               </li>
                             )
                           })}
                         </ul>
-                        {ended && <p className="video-zoom-chat__poll-ended">Poll ended</p>}
-                        {localIsHost && meetingHostUid && myUid === meetingHostUid && !ended && (
+                        {pollEnded && pollTotalVotes > 0 && (
+                          <p className="video-zoom-chat__poll-total">
+                            {pollTotalVotes} {pollTotalVotes === 1 ? 'vote' : 'votes'} total
+                          </p>
+                        )}
+                        {pollEnded && <p className="video-zoom-chat__poll-ended">Poll ended</p>}
+                        {localIsHost && meetingHostUid && myUid === meetingHostUid && !pollEnded && (
                           <button type="button" className="video-zoom-chat__poll-end" onClick={() => hostEndPoll(msg.id)}>
                             End poll
                           </button>

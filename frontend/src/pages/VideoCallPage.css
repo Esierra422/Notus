@@ -461,7 +461,7 @@
   left: 50%;
   bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
-  max-width: min(92%, 22rem);
+  max-width: min(94%, 28rem);
   z-index: 6;
   pointer-events: none;
   padding: 0.32rem 0.62rem 0.38rem;
@@ -492,6 +492,12 @@
 }
 
 .video-call-live-subtitles-bracket {
+  display: inline-block;
+  max-width: min(42vw, 13rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
   color: rgba(255, 245, 228, 0.95);
   font-weight: 700;
   margin-right: 0.3em;
@@ -1268,6 +1274,35 @@
   box-sizing: border-box;
 }
 
+/* Poll composer: same field chrome as new-meeting modal; single focus ring (no stacked shadow) */
+.video-host-modal .video-meeting-poll-input.notus-input {
+  max-width: none;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  padding: 0.5rem 0.75rem;
+  min-height: 2.5rem;
+  font-family: var(--font-body);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.video-host-modal .video-meeting-poll-input.notus-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.72;
+}
+
+.video-host-modal .video-meeting-poll-input.notus-input:focus,
+.video-host-modal .video-meeting-poll-input.notus-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: var(--accent);
+}
+
 .video-meeting-poll-options {
   list-style: none;
   margin: 0 0 0.5rem;
@@ -1433,16 +1468,37 @@
 .video-zoom-chat__poll {
   width: 100%;
   max-width: 100%;
-  padding: 0.5rem 0.65rem;
+  padding: 0.55rem 0.65rem 0.5rem;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg-card);
 }
 
+.video-zoom-chat__poll-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.video-zoom-chat__poll-ic {
+  flex-shrink: 0;
+  margin-top: 0.12rem;
+  color: var(--accent);
+  opacity: 0.95;
+}
+
+.video-zoom-chat__msg--own .video-zoom-chat__poll-ic {
+  color: rgba(212, 168, 83, 0.95);
+}
+
 .video-zoom-chat__poll-q {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
+  margin: 0;
+  font-size: 0.84rem;
   font-weight: 600;
+  line-height: 1.35;
+  flex: 1;
+  min-width: 0;
 }
 
 .video-zoom-chat__poll-options {
@@ -1451,23 +1507,28 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 .video-zoom-chat__poll-opt {
+  position: relative;
+  overflow: hidden;
   width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
+  display: block;
   text-align: left;
-  padding: 0.4rem 0.55rem;
+  padding: 0.45rem 0.6rem;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text);
   font-size: 0.8rem;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.video-zoom-chat__poll-opt:hover:not(:disabled) {
+  border-color: rgba(212, 168, 83, 0.45);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .video-zoom-chat__poll-opt:disabled {
@@ -1475,20 +1536,98 @@
   cursor: default;
 }
 
-.video-zoom-chat__poll-opt--picked {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+.video-zoom-chat__poll-opt--ended:disabled {
+  opacity: 1;
+  cursor: default;
 }
 
-.video-zoom-chat__poll-count {
-  font-size: 0.72rem;
+.video-zoom-chat__poll-opt--picked:not(.video-zoom-chat__poll-opt--ended) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(212, 168, 83, 0.35);
+}
+
+.video-zoom-chat__poll-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(212, 168, 83, 0.18);
+  border-radius: 7px;
+  min-width: 0;
+  max-width: 100%;
+  pointer-events: none;
+  transition: width 0.35s ease;
+}
+
+.video-zoom-chat__msg--own .video-zoom-chat__poll-bar {
+  background: rgba(212, 168, 83, 0.22);
+}
+
+.video-zoom-chat__poll-opt-main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.video-zoom-chat__poll-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.video-zoom-chat__poll-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.05rem;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.video-zoom-chat__poll-pct {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.video-zoom-chat__poll-votes {
+  font-size: 0.68rem;
+  font-weight: 500;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.video-zoom-chat__poll-check {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.video-zoom-chat__msg--own .video-zoom-chat__poll-check {
+  color: rgba(40, 36, 28, 0.9);
+}
+
+.video-zoom-chat__poll-total {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .video-zoom-chat__poll-ended {
-  margin: 0.35rem 0 0;
-  font-size: 0.72rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
   color: var(--text-muted);
+  font-weight: 500;
 }
 
 .video-zoom-chat__poll-end {
@@ -1532,9 +1671,35 @@
   background: var(--bg-elevated);
 }
 
+/* Base .video-participant-avatar uses min-height:120px for video tiles; reset for chat chips */
 .video-zoom-chat__avatar .video-participant-avatar {
   width: 100%;
   height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.video-zoom-chat__avatar .video-participant-avatar-img {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.video-zoom-chat__avatar .video-participant-avatar-initials {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 50%;
+  background: #3d4249;
+  color: #e8eaef;
 }
 
 .video-zoom-chat__avatar--own {

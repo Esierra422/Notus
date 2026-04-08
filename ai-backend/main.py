@@ -705,7 +705,11 @@ async def websocket_transcription(websocket: WebSocket):
                     meta = json.loads(message["text"])
                     if meta.get("type") == "meta":
                         channel = meta.get("channel")
-                        uid = meta.get("uid")
+                        raw_uid = meta.get("uid")
+                        try:
+                            uid = int(raw_uid) if raw_uid is not None and str(raw_uid).strip() != "" else None
+                        except (TypeError, ValueError):
+                            uid = None
                         session_id = (meta.get("sessionId") or meta.get("session_id") or "").strip() or None
                         if not session_id and channel:
                             session_id = str(channel).strip()
