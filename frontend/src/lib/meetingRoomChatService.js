@@ -57,6 +57,13 @@ function sanitizeMeetingChatDoc(id, data) {
   const raw = data && typeof data === 'object' ? data : {}
   const m = { id, ...raw }
   m.text = typeof m.text === 'string' ? m.text : m.text == null ? '' : String(m.text)
+  m.senderId = typeof m.senderId === 'string' ? m.senderId : String(m.senderId || '')
+  m.senderName =
+    typeof m.senderName === 'string' ? m.senderName : m.senderName == null ? 'Member' : String(m.senderName)
+  if (m.recipientId != null && m.recipientId !== '') {
+    m.recipientId = typeof m.recipientId === 'string' ? m.recipientId : String(m.recipientId)
+  }
+
   const att = m.attachment
   if (att && att.type === 'poll') {
     const qRaw = att.question
@@ -76,7 +83,50 @@ function sanitizeMeetingChatDoc(id, data) {
       options: opts,
       ended: !!att.ended,
     }
+  } else if (att && att.type === 'document') {
+    m.attachment = {
+      type: 'document',
+      fileName: typeof att.fileName === 'string' ? att.fileName : String(att.fileName || 'file'),
+      mimeType:
+        typeof att.mimeType === 'string' ? att.mimeType : String(att.mimeType || 'application/octet-stream'),
+      data: typeof att.data === 'string' ? att.data : '',
+    }
   }
+
+  const rt = m.replyTo
+  if (rt && typeof rt === 'object' && !Array.isArray(rt)) {
+    m.replyTo = {
+      msgId: String(rt.msgId || ''),
+      senderId: String(rt.senderId || ''),
+      senderName:
+        typeof rt.senderName === 'string' ? rt.senderName : rt.senderName == null ? '' : String(rt.senderName),
+      text: typeof rt.text === 'string' ? rt.text : rt.text == null ? '' : String(rt.text),
+      attachmentType: String(rt.attachmentType || ''),
+      attachmentName:
+        typeof rt.attachmentName === 'string'
+          ? rt.attachmentName
+          : rt.attachmentName == null
+            ? ''
+            : String(rt.attachmentName),
+    }
+  } else {
+    delete m.replyTo
+  }
+
+  if (m.reactions != null && typeof m.reactions === 'object' && !Array.isArray(m.reactions)) {
+    const out = {}
+    for (const [k, v] of Object.entries(m.reactions)) {
+      const emoji = String(k || '').trim()
+      if (!emoji) continue
+      const ids = Array.isArray(v) ? v.filter((id) => typeof id === 'string' && id) : []
+      if (ids.length) out[emoji] = ids
+    }
+    if (Object.keys(out).length) m.reactions = out
+    else delete m.reactions
+  } else if (m.reactions != null) {
+    delete m.reactions
+  }
+
   return m
 }
 

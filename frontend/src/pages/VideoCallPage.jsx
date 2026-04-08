@@ -6622,6 +6622,23 @@ function meetingChatMessageVisible(msg, thread, myUid) {
   )
 }
 
+/** Firestore replyTo fields must never be rendered raw — objects throw and unmount the whole video call. */
+function meetingChatReplyPreview(replyTo, maxLen = 90) {
+  if (!replyTo || typeof replyTo !== 'object') return ''
+  const t = replyTo.text
+  const textPart = typeof t === 'string' ? t : t == null ? '' : String(t)
+  const att = String(replyTo.attachmentType || '')
+  const name = replyTo.attachmentName
+  const nameStr = typeof name === 'string' ? name : name == null ? '' : String(name)
+  let extra = ''
+  if (att === 'document') extra = nameStr ? `Document: ${nameStr}` : 'Document'
+  else if (att === 'poll') extra = 'Poll'
+  else if (att === 'image') extra = 'Image'
+  const full = (textPart || extra).trim()
+  if (full.length <= maxLen) return full
+  return `${full.slice(0, maxLen)}…`
+}
+
 function readMeetingChatFileAsPayload(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader()
@@ -6916,31 +6933,12 @@ function VideoCallChat({
                   <div className={['video-zoom-chat__bubble', own && 'video-zoom-chat__bubble--own'].filter(Boolean).join(' ')}>
                     {msg.replyTo?.msgId && (
                       <div className="video-zoom-chat__reply">
-                        <span className="video-zoom-chat__reply-name">{msg.replyTo.senderName || 'Member'}</span>
-                        <span className="video-zoom-chat__reply-text">
-                          {(msg.replyTo.text ||
-                            (msg.replyTo.attachmentType === 'document'
-                              ? msg.replyTo.attachmentName
-                                ? `Document: ${msg.replyTo.attachmentName}`
-                                : 'Document'
-                              : msg.replyTo.attachmentType === 'poll'
-                                ? 'Poll'
-                                : msg.replyTo.attachmentType === 'image'
-                                  ? 'Image'
-                                  : '') ||
-                            '').slice(0, 90)}
-                          {((msg.replyTo.text ||
-                            (msg.replyTo.attachmentType === 'document'
-                              ? msg.replyTo.attachmentName
-                                ? `Document: ${msg.replyTo.attachmentName}`
-                                : 'Document'
-                              : msg.replyTo.attachmentType === 'poll'
-                                ? 'Poll'
-                                : msg.replyTo.attachmentType === 'image'
-                                  ? 'Image'
-                                  : '') ||
-                            '')).length > 90 ? '…' : ''}
+                        <span className="video-zoom-chat__reply-name">
+                          {typeof msg.replyTo.senderName === 'string'
+                            ? msg.replyTo.senderName || 'Member'
+                            : String(msg.replyTo.senderName || 'Member')}
                         </span>
+                        <span className="video-zoom-chat__reply-text">{meetingChatReplyPreview(msg.replyTo)}</span>
                       </div>
                     )}
                     {isPoll ? (
@@ -7059,8 +7057,16 @@ function VideoCallChat({
               Replying to {replyTo.senderId === user?.uid ? 'your message' : (replyTo.senderName || 'Member')}
             </span>
             <span className="video-zoom-chat__replying-text">
-              {((replyTo.text || (replyTo.attachment?.type === 'document' ? replyTo.attachment?.fileName || 'Document' : replyTo.attachment?.type === 'poll' ? 'Poll' : replyTo.attachment?.type === 'image' ? 'Image' : '')) || '').slice(0, 72)}
-              {((replyTo.text || (replyTo.attachment?.type === 'document' ? replyTo.attachment?.fileName || 'Document' : replyTo.attachment?.type === 'poll' ? 'Poll' : replyTo.attachment?.type === 'image' ? 'Image' : '')) || '').length > 72 ? '…' : ''}
+              {meetingChatReplyPreview(
+                replyTo
+                  ? {
+                      text: replyTo.text,
+                      attachmentType: replyTo.attachment?.type || '',
+                      attachmentName: replyTo.attachment?.fileName || '',
+                    }
+                  : null,
+                72
+              )}
             </span>
             <button type="button" className="video-zoom-chat__replying-dismiss" onClick={() => setReplyTo(null)} aria-label="Cancel reply">
               <X size={16} strokeWidth={2.25} />
