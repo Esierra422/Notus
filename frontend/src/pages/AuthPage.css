@@ -1,66 +1,90 @@
 /* Auth page  -  same background, gold accents, typography as landing */
 .auth-page {
   min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
   background: linear-gradient(180deg, rgba(12, 11, 10, 1) 0%, #0a0908 50%, rgba(11, 10, 9, 1) 100%);
   color: var(--text);
   font-family: var(--font-body);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 2rem 1.5rem;
+  padding-top: calc(4.25rem + env(safe-area-inset-top, 0px));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
   position: relative;
 }
 
-@media (max-width: 768px) {
-  .auth-page {
-    min-height: 100dvh;
-    padding: max(2rem, env(safe-area-inset-top, 0px)) max(1.5rem, env(safe-area-inset-right, 0px))
-      max(2rem, env(safe-area-inset-bottom, 0px)) max(1.5rem, env(safe-area-inset-left, 0px));
-    box-sizing: border-box;
-  }
-
-  .auth-back {
-    top: max(1.5rem, env(safe-area-inset-top, 0px));
-    left: max(1.5rem, env(safe-area-inset-left, 0px));
-  }
+/* Slim header: brand home + link to sign up / log in (replaces full landing Nav inside auth). */
+.auth-minimal-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 0.85rem max(1.5rem, env(safe-area-inset-right, 0px)) 0.85rem
+    max(1.5rem, env(safe-area-inset-left, 0px));
+  padding-top: max(0.85rem, env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid rgba(212, 168, 83, 0.08);
+  background: rgba(10, 9, 8, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.auth-back {
-  position: absolute;
-  top: 1.5rem;
-  left: 1.5rem;
+.auth-minimal-header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-  color: var(--text-muted);
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.auth-minimal-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+  color: var(--text);
   text-decoration: none;
   transition: color 0.2s;
 }
 
-.auth-back:hover {
+.auth-minimal-brand:hover {
   color: var(--accent);
+}
+
+.auth-minimal-alt-link {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 0.35rem 0;
+}
+
+.auth-minimal-alt-link:hover {
+  text-decoration: underline;
+}
+
+.auth-minimal-alt-placeholder {
+  min-width: 1px;
+  min-height: 1px;
+}
+
+@media (max-width: 768px) {
+  .auth-page {
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+  }
 }
 
 .auth-container {
   width: 100%;
   max-width: 420px;
-}
-
-.auth-logo {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.5rem;
-  letter-spacing: -0.02em;
-  color: var(--text);
-  text-decoration: none;
-  display: inline-block;
-  margin-bottom: 2.5rem;
-}
-
-.auth-logo:hover {
-  color: var(--accent);
+  flex: 0 0 auto;
 }
 
 .auth-progress {
@@ -129,20 +153,13 @@
 
 @media (max-width: 480px) {
   .auth-page {
-    padding: 1.5rem 1rem;
-  }
-
-  .auth-back {
-    top: 1rem;
-    left: 1rem;
+    padding-top: calc(3.85rem + env(safe-area-inset-top, 0px));
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 
   .auth-carousel {
     padding: 1.5rem;
     min-height: 260px;
-  }
-
-  .auth-logo {
-    margin-bottom: 2rem;
   }
 }

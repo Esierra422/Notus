@@ -1,3 +1,4 @@
+export { AuthMinimalHeader } from './AuthMinimalHeader'
 export { AuthChoiceStep } from './AuthChoiceStep'
 export { AuthStepEmail } from './AuthStepEmail'
 export { AuthStepPassword } from './AuthStepPassword'

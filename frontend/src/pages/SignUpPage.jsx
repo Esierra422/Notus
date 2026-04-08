@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   createUserWithEmailAndPassword,
   signInWithPopup,
@@ -17,14 +17,13 @@ import {
   updateProfileField,
 } from '../lib/userService'
 import {
+  AuthMinimalHeader,
   AuthChoiceStep,
   AuthStepEmail,
   AuthStepPassword,
   AuthStepProfile,
   AuthStepProfilePicture,
 } from '../components/auth'
-import { Nav } from '../components/landing/Nav'
-import { ArrowLeftIcon } from '../components/ui/Icons'
 import '../styles/variables.css'
 import './AuthPage.css'
 import './AppLayout.css'
@@ -190,33 +189,41 @@ export function SignUpPage() {
     )
   }
 
-  const   nextProfileField = userDoc ? getNextProfileField(userDoc) : null
+  const nextProfileField = userDoc ? getNextProfileField(userDoc) : null
 
   if (isProcessingRedirect) {
     return (
-      <div className="auth-page" style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <div className="app-auth-loading" style={{ color: 'var(--text-muted)' }} aria-label="Signing in">
-          <div className="app-auth-loading-spinner" style={{ borderColor: 'rgba(212,168,83,0.3)', borderTopColor: '#d4a853' }} />
-          <p>Signing you in…</p>
+      <>
+        <AuthMinimalHeader alternateTo="/login" alternateLabel="Log in" />
+        <div className="auth-page" style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <div className="app-auth-loading" style={{ color: 'var(--text-muted)' }} aria-label="Signing in">
+            <div
+              className="app-auth-loading-spinner"
+              style={{ borderColor: 'rgba(212,168,83,0.3)', borderTopColor: '#d4a853' }}
+            />
+            <p>Signing you in…</p>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
+  const showStepProgress = step > 1
+
   return (
-    <div className="auth-page">
-      <Nav />
-      <Link to="/" className="auth-back">
-        <ArrowLeftIcon size={18} />
-        Back
-      </Link>
-      <div className="auth-container">
-        <Link to="/" className="auth-logo">Notus</Link>
-        <div className="auth-progress">
-          <span className="auth-progress-text">Step {step} of {totalSteps}</span>
-        </div>
-        <div className={`auth-carousel auth-carousel--${lastDirection}`}>
-          <div className="auth-step-wrap" key={step}>
+    <>
+      <AuthMinimalHeader alternateTo="/login" alternateLabel="Log in" />
+      <div className="auth-page">
+        <div className="auth-container">
+          {showStepProgress && (
+            <div className="auth-progress">
+              <span className="auth-progress-text">
+                Step {step} of {totalSteps}
+              </span>
+            </div>
+          )}
+          <div className={`auth-carousel auth-carousel--${lastDirection}`}>
+            <div className="auth-step-wrap" key={step}>
             {step === 1 && (
               <AuthChoiceStep
                 title="Sign up"
@@ -277,9 +284,10 @@ export function SignUpPage() {
                 />
               )
             )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }
