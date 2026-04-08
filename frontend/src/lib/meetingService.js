@@ -25,6 +25,7 @@ import {
   getOrg,
   MEMBERSHIP_STATES,
   membershipHasCapability,
+  getCapabilityDeniedMessage,
 } from './orgService'
 import { createMeetingInviteNotifications } from './userNotificationService'
 import { getTeamMembership, TEAM_STATES } from './teamService'
@@ -169,24 +170,16 @@ export async function createMeeting(orgId, data, userId) {
 
   if (scope === MEETING_SCOPES.team) {
     if (!membershipHasCapability(orgMem, 'scheduleTeamMeetings')) {
-      throw new Error(
-        'You do not have permission to create team calendar events. Ask an organization admin to enable team scheduling for your role.'
-      )
+      throw new Error(getCapabilityDeniedMessage('scheduleTeamMeetings'))
     }
   } else if (!membershipHasCapability(orgMem, 'scheduleOrgMeetings')) {
-    throw new Error(
-      'You do not have permission to create organization calendar events. Ask an organization admin to enable org scheduling for your role.'
-    )
+    throw new Error(getCapabilityDeniedMessage('scheduleOrgMeetings'))
   }
   if (scope === MEETING_SCOPES.org && !inviteOnly && !membershipHasCapability(orgMem, 'orgCalendar')) {
-    throw new Error(
-      'You do not have permission to add events to the organization calendar. Use invite-only guests or ask an admin to enable org calendar access.'
-    )
+    throw new Error(getCapabilityDeniedMessage('orgCalendar'))
   }
   if (scope === MEETING_SCOPES.team && !membershipHasCapability(orgMem, 'teamCalendar')) {
-    throw new Error(
-      'You do not have permission to add events to team calendars. Ask an organization admin to enable this for your role.'
-    )
+    throw new Error(getCapabilityDeniedMessage('teamCalendar'))
   }
 
   await setDoc(meetingRef, {
@@ -293,9 +286,7 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
       m.scope === MEETING_SCOPES.org &&
       !membershipHasCapability(orgMem, 'orgCalendar')
     ) {
-      throw new Error(
-        'You cannot make this event visible to the whole organization without org calendar access for your role.'
-      )
+      throw new Error(getCapabilityDeniedMessage('orgCalendar'))
     }
     data.inviteOnly = nextInviteOnly
   }
@@ -318,18 +309,16 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
       throw new Error('Team scope requires a team.')
     }
     if (nextScope === MEETING_SCOPES.team && !membershipHasCapability(orgMem, 'scheduleTeamMeetings')) {
-      throw new Error('You cannot move this event to a team calendar without team scheduling permission.')
+      throw new Error(getCapabilityDeniedMessage('scheduleTeamMeetings'))
     }
     if (nextScope === MEETING_SCOPES.team && !membershipHasCapability(orgMem, 'teamCalendar')) {
-      throw new Error(
-        'You cannot move this event to a team calendar without team calendar access for your role.'
-      )
+      throw new Error(getCapabilityDeniedMessage('teamCalendar'))
     }
     if (nextScope === MEETING_SCOPES.org && !membershipHasCapability(orgMem, 'scheduleOrgMeetings')) {
-      throw new Error('You cannot move this event to the organization calendar without org scheduling permission.')
+      throw new Error(getCapabilityDeniedMessage('scheduleOrgMeetings'))
     }
     if (nextScope === MEETING_SCOPES.private && !membershipHasCapability(orgMem, 'scheduleOrgMeetings')) {
-      throw new Error('You cannot move this event to your personal calendar without org scheduling permission.')
+      throw new Error(getCapabilityDeniedMessage('scheduleOrgMeetings'))
     }
     data.scope = nextScope
     data.scopeTeamId = nextTeamId
@@ -341,10 +330,10 @@ export async function updateMeeting(orgId, meetingId, userId, patch) {
     }
   } else if (patch.scopeTeamId !== undefined && m.scope === MEETING_SCOPES.team) {
     if (!membershipHasCapability(orgMem, 'scheduleTeamMeetings')) {
-      throw new Error('You cannot change the team for this event.')
+      throw new Error(getCapabilityDeniedMessage('scheduleTeamMeetings'))
     }
     if (!membershipHasCapability(orgMem, 'teamCalendar')) {
-      throw new Error('You cannot change the team for this event without team calendar access for your role.')
+      throw new Error(getCapabilityDeniedMessage('teamCalendar'))
     }
     data.scopeTeamId = patch.scopeTeamId || null
   }

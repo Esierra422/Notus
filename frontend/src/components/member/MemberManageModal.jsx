@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useScrollLock } from '../../hooks/useScrollLock.js'
 import {
   getMembership,
@@ -194,7 +195,9 @@ export function MemberManageModal({
 
   useScrollLock(Boolean(orgId && userId))
 
-  return (
+  if (!orgId || !userId) return null
+
+  return createPortal(
     <div className="member-manage-backdrop" onClick={onClose}>
       <div className="member-manage-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="member-manage-title">
         <div className="member-manage-header">
@@ -376,6 +379,7 @@ export function MemberManageModal({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

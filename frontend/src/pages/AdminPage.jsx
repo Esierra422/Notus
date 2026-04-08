@@ -14,6 +14,7 @@ import {
   MEMBERSHIP_STATES,
   MEMBERSHIP_ROLES,
   getMembershipDisplayTitle,
+  getCapabilityDeniedMessage,
 } from '../lib/orgService'
 import { createOrgInvitation, getRejectedInvitationsForOrg } from '../lib/invitationService'
 import { getReportsForOrg } from '../lib/reportService'
@@ -222,7 +223,11 @@ export function AdminPage() {
 
   const handleCreateTeam = async (e) => {
     e.preventDefault()
-    if (!newTeamName.trim()) return
+    if (!newTeamName.trim() || !membership) return
+    if (!canManageOrg(membership) && !membershipHasCapability(membership, 'createTeams')) {
+      setInviteError(getCapabilityDeniedMessage('createTeams'))
+      return
+    }
     setCreateTeamLoading(true)
     try {
       const team = await createTeam(orgId, newTeamName.trim(), user.uid, newTeamAllowOpenJoin)
@@ -245,6 +250,8 @@ export function AdminPage() {
   const canCreateTeamInAdmin =
     canManageOrg(membership) || membershipHasCapability(membership, 'createTeams')
   const canOpenMemberManage = canOpenMemberManagement(membership)
+  const canManageMembersUi =
+    canManageOrg(membership) || membershipHasCapability(membership, 'manageMembers')
   const isFullOrgAdmin = canManageOrg(membership)
   const canSeeTeamManageMenu =
     canManageOrg(membership) || membershipHasCapability(membership, 'manageTeams')
@@ -531,7 +538,7 @@ export function AdminPage() {
                       >
                         Profile
                       </button>
-                      {canOpenMemberManage && (
+                      {canManageMembersUi && (
                         <button
                           type="button"
                           className="member-card-menu-item"
@@ -568,6 +575,11 @@ export function AdminPage() {
         <p className="app-muted" style={{ marginBottom: '0.75rem' }}>
           Create and manage teams. Team leaders can approve join requests from the team page.
         </p>
+        {!canCreateTeamInAdmin && (
+          <p className="org-admin-error" style={{ marginBottom: '0.75rem', maxWidth: '40rem' }}>
+            {getCapabilityDeniedMessage('createTeams')}
+          </p>
+        )}
         {!showCreateTeam ? (
           <Button
             variant="primary"
@@ -575,7 +587,7 @@ export function AdminPage() {
             onClick={() => setShowCreateTeam(true)}
             style={{ marginBottom: '1rem' }}
             disabled={!canCreateTeamInAdmin}
-            title={!canCreateTeamInAdmin ? 'You do not have permission to create teams.' : undefined}
+            title={!canCreateTeamInAdmin ? getCapabilityDeniedMessage('createTeams') : undefined}
           >
             Create team
           </Button>
@@ -677,7 +689,7 @@ export function AdminPage() {
             createdAt: profileModalMember.createdAt,
           }}
           onClose={() => setProfileModalMember(null)}
-          showManage={canOpenMemberManage}
+          showManage={canManageMembersUi}
           onOpenManage={() => {
             const m = profileModalMember
             setProfileModalMember(null)

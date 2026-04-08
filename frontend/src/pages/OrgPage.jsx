@@ -2,7 +2,14 @@ import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
-import { getOrg, getMembership, canManageOrg, membershipHasCapability } from '../lib/orgService'
+import {
+  getOrg,
+  getMembership,
+  canManageOrg,
+  membershipHasCapability,
+  getDeniedReasonForOrgPageMeetingCreate,
+  getCapabilityDeniedMessage,
+} from '../lib/orgService'
 import {
   getOrgTeams,
   createTeam,
@@ -95,7 +102,14 @@ export function OrgPage() {
   const handleCreateMeeting = async (e) => {
     e.preventDefault()
     setError('')
-    if (!newMeetingTitle.trim()) return
+    if (!newMeetingTitle.trim() || !membership) return
+    if (
+      !membershipHasCapability(membership, 'scheduleOrgMeetings') ||
+      !membershipHasCapability(membership, 'orgCalendar')
+    ) {
+      setError(getDeniedReasonForOrgPageMeetingCreate(membership))
+      return
+    }
     setCreatingMeeting(true)
     try {
       await createMeeting(orgId, {
@@ -117,7 +131,11 @@ export function OrgPage() {
   const handleCreateTeam = async (e) => {
     e.preventDefault()
     setError('')
-    if (!newTeamName.trim()) return
+    if (!newTeamName.trim() || !membership) return
+    if (!canManageOrg(membership) && !membershipHasCapability(membership, 'createTeams')) {
+      setError(getCapabilityDeniedMessage('createTeams'))
+      return
+    }
     setLoading(true)
     try {
       const team = await createTeam(orgId, newTeamName, user.uid)
@@ -173,19 +191,22 @@ export function OrgPage() {
         <p className="app-muted">Meetings in this org. Invite-only meetings show only for people who were invited.</p>
         <div className="org-meetings-actions" style={{ marginBottom: '1rem' }}>
           {!showCreateMeeting ? (
+            <>
             <Button
               variant="outline"
               size="md"
-              onClick={() => setShowCreateMeeting(true)}
+              onClick={() => { setError(''); setShowCreateMeeting(true) }}
               disabled={!canCreateOrgMeeting}
-              title={
-                !canCreateOrgMeeting
-                  ? 'You do not have permission to create org-wide meetings. Ask an admin to enable scheduling and org calendar access.'
-                  : undefined
-              }
+              title={!canCreateOrgMeeting ? getDeniedReasonForOrgPageMeetingCreate(membership) : undefined}
             >
               Create Meeting
             </Button>
+            {!canCreateOrgMeeting && (
+              <p className="auth-error" style={{ marginTop: '0.65rem', maxWidth: '40rem' }}>
+                {getDeniedReasonForOrgPageMeetingCreate(membership)}
+              </p>
+            )}
+            </>
           ) : (
             <form onSubmit={handleCreateMeeting} className="org-create-team-form">
               <input
@@ -223,6 +244,11 @@ export function OrgPage() {
 
         <h2 style={{ marginTop: '2rem' }}>Teams</h2>
         {error && <p className="auth-error">{error}</p>}
+        {!canCreateTeamHere && (
+          <p className="auth-error" style={{ marginBottom: '0.75rem', maxWidth: '40rem' }}>
+            {getCapabilityDeniedMessage('createTeams')}
+          </p>
+        )}
         {canCreateTeamHere && (
           <div className="org-teams-actions">
             {!showCreate ? (

@@ -36,6 +36,50 @@ function normalizePollOptionEntry(o) {
   return { text: '', votes: [] }
 }
 
+/**
+ * Firestore (or bad clients) can store maps / non-strings in poll fields. That used to crash React
+ * ("Objects are not valid as a React child"), tripping the app ErrorBoundary and unmounting the whole
+ * video page — which runs leaveChannel() and disconnects everyone.
+ */
+function coerceOptionsArray(raw) {
+  if (Array.isArray(raw)) return raw
+  if (raw != null && typeof raw === 'object') {
+    return Object.keys(raw)
+      .filter((k) => /^\d+$/.test(k))
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => raw[k])
+      .filter((x) => x != null)
+  }
+  return []
+}
+
+function sanitizeMeetingChatDoc(id, data) {
+  const raw = data && typeof data === 'object' ? data : {}
+  const m = { id, ...raw }
+  m.text = typeof m.text === 'string' ? m.text : m.text == null ? '' : String(m.text)
+  const att = m.attachment
+  if (att && att.type === 'poll') {
+    const qRaw = att.question
+    const question =
+      typeof qRaw === 'string' ? qRaw.trim() || 'Poll' : qRaw == null ? 'Poll' : String(qRaw).trim() || 'Poll'
+    const optsIn = coerceOptionsArray(att.options)
+    const opts = optsIn
+      .map((o) => normalizePollOptionEntry(o))
+      .filter((row) => row.text.length > 0)
+      .map((row) => ({
+        text: row.text,
+        votes: Array.isArray(row.votes) ? row.votes.filter((id) => typeof id === 'string' && id) : [],
+      }))
+    m.attachment = {
+      type: 'poll',
+      question,
+      options: opts,
+      ended: !!att.ended,
+    }
+  }
+  return m
+}
+
 function messageCreatedMs(data) {
   const t = data?.createdAt
   if (t && typeof t.toMillis === 'function') return t.toMillis()
@@ -54,18 +98,23 @@ export function subscribeMeetingChatMessages(channelName, userId, onData, onErro
   let directFromMe = []
 
   const mergeAndEmit = () => {
-    const byId = new Map()
-    for (const m of [...everyoneDocs, ...directToMe, ...directFromMe]) {
-      byId.set(m.id, m)
+    try {
+      const byId = new Map()
+      for (const m of [...everyoneDocs, ...directToMe, ...directFromMe]) {
+        byId.set(m.id, m)
+      }
+      const merged = Array.from(byId.values()).sort((a, b) => messageCreatedMs(a) - messageCreatedMs(b))
+      onData(merged.slice(-300))
+    } catch (e) {
+      console.error('[meeting chat] merge failed:', e)
+      onError?.(e instanceof Error ? e : new Error(String(e)))
     }
-    const merged = Array.from(byId.values()).sort((a, b) => messageCreatedMs(a) - messageCreatedMs(b))
-    onData(merged.slice(-300))
   }
 
   const unsubEveryone = onSnapshot(
     query(col, where('audienceType', '==', 'everyone'), orderBy('createdAt', 'asc'), limit(250)),
     (snap) => {
-      everyoneDocs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      everyoneDocs = snap.docs.map((d) => sanitizeMeetingChatDoc(d.id, d.data()))
       mergeAndEmit()
     },
     onError
@@ -79,7 +128,7 @@ export function subscribeMeetingChatMessages(channelName, userId, onData, onErro
       limit(150)
     ),
     (snap) => {
-      directToMe = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      directToMe = snap.docs.map((d) => sanitizeMeetingChatDoc(d.id, d.data()))
       mergeAndEmit()
     },
     onError
@@ -93,7 +142,7 @@ export function subscribeMeetingChatMessages(channelName, userId, onData, onErro
       limit(150)
     ),
     (snap) => {
-      directFromMe = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      directFromMe = snap.docs.map((d) => sanitizeMeetingChatDoc(d.id, d.data()))
       mergeAndEmit()
     },
     onError
@@ -233,7 +282,7 @@ export async function voteMeetingPoll(channelName, messageId, userId, optionInde
   if (!data || data.attachment?.type !== 'poll') throw new Error('Not a poll.')
   if (data.attachment.ended) throw new Error('Poll ended.')
   const raw = data.attachment.options
-  const options = Array.isArray(raw) ? raw.map((o) => normalizePollOptionEntry(o)) : []
+  const options = coerceOptionsArray(raw).map((o) => normalizePollOptionEntry(o))
   if (optionIndex < 0 || optionIndex >= options.length) throw new Error('Invalid option.')
   options.forEach((o) => {
     o.votes = o.votes.filter((id) => id !== userId)

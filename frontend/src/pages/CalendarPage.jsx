@@ -6,6 +6,7 @@ import {
   getMembership,
   canManageOrg,
   membershipHasCapability,
+  getDeniedReasonForCalendarCreateScheduled,
 } from '../lib/orgService'
 import { getTeamsForUserInOrg } from '../lib/teamService'
 import {
@@ -214,13 +215,18 @@ export function CalendarPage() {
 
   useEffect(() => {
     if (searchParams.get('create') !== '1' || !activeOrgId) return
-    setEditingMeetingDraft(null)
-    setShowCreateEventModal(true)
+    if (!myMembershipForCalendar) return
     const next = new URLSearchParams(searchParams)
     next.delete('create')
     const qs = next.toString()
     navigate(`${location.pathname}${qs ? `?${qs}` : ''}`, { replace: true })
-  }, [searchParams, activeOrgId, navigate, location.pathname])
+    const can =
+      membershipHasCapability(myMembershipForCalendar, 'scheduleOrgMeetings') ||
+      membershipHasCapability(myMembershipForCalendar, 'scheduleTeamMeetings')
+    if (!can) return
+    setEditingMeetingDraft(null)
+    setShowCreateEventModal(true)
+  }, [searchParams, activeOrgId, navigate, location.pathname, myMembershipForCalendar])
 
   useEffect(() => {
     if (!user) return
@@ -477,6 +483,12 @@ export function CalendarPage() {
     return <p className="app-muted">Loading…</p>
   }
 
+  const canCreateScheduledEvent =
+    !!myMembershipForCalendar &&
+    (membershipHasCapability(myMembershipForCalendar, 'scheduleOrgMeetings') ||
+      membershipHasCapability(myMembershipForCalendar, 'scheduleTeamMeetings'))
+  const createEventModalOpen = !!editingMeetingDraft || (showCreateEventModal && canCreateScheduledEvent)
+
   return (
     <main className="app-main calendar-main">
       <div className="calendar-header-row">
@@ -491,16 +503,12 @@ export function CalendarPage() {
               setEditingMeetingDraft(null)
               setShowCreateEventModal(true)
             }}
-            disabled={
-              !!myMembershipForCalendar &&
-              !membershipHasCapability(myMembershipForCalendar, 'scheduleOrgMeetings') &&
-              !membershipHasCapability(myMembershipForCalendar, 'scheduleTeamMeetings')
-            }
+            disabled={!canCreateScheduledEvent}
             title={
               myMembershipForCalendar &&
               !membershipHasCapability(myMembershipForCalendar, 'scheduleOrgMeetings') &&
               !membershipHasCapability(myMembershipForCalendar, 'scheduleTeamMeetings')
-                ? 'You do not have permission to create events. Ask an org admin to enable org or team scheduling for your role.'
+                ? getDeniedReasonForCalendarCreateScheduled(myMembershipForCalendar)
                 : undefined
             }
           >
@@ -508,6 +516,14 @@ export function CalendarPage() {
           </Button>
         )}
       </div>
+      {activeOrgId &&
+        myMembershipForCalendar &&
+        !membershipHasCapability(myMembershipForCalendar, 'scheduleOrgMeetings') &&
+        !membershipHasCapability(myMembershipForCalendar, 'scheduleTeamMeetings') && (
+          <p className="auth-error calendar-create-denied" style={{ margin: '0 0 0.75rem', maxWidth: '44rem' }}>
+            {getDeniedReasonForCalendarCreateScheduled(myMembershipForCalendar)}
+          </p>
+        )}
 
       <p className="calendar-scope-hint">
         {routeOrgId
@@ -861,7 +877,7 @@ export function CalendarPage() {
 
       {activeOrgId && user && (
         <CreateEventModal
-          isOpen={showCreateEventModal || !!editingMeetingDraft}
+          isOpen={createEventModalOpen}
           onClose={() => {
             setShowCreateEventModal(false)
             setEditingMeetingDraft(null)

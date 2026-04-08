@@ -296,6 +296,105 @@ export const MEMBERSHIP_CAP_KEYS = {
   manageTeams: 'manageTeams',
 }
 
+/**
+ * User-facing text aligned with Admin → Manage member → Access controls.
+ * Use for UI hints and thrown errors when an action requires a capability the member does not have.
+ */
+export function getCapabilityDeniedMessage(cap) {
+  const messages = {
+    scheduleOrgMeetings:
+      'You are not allowed to create scheduled meetings for the organization. An organization admin can enable “Create scheduled meetings (organization)” in Admin → Manage member.',
+    scheduleTeamMeetings:
+      'You are not allowed to create scheduled meetings for teams. An organization admin can enable “Create scheduled meetings (teams)” in Admin → Manage member.',
+    orgCalendar:
+      'You are not allowed to add events to the organization calendar. An organization admin can enable “Add to organization calendar” in Admin → Manage member.',
+    teamCalendar:
+      'You are not allowed to add events to team calendars. An organization admin can enable “Add to team calendar” in Admin → Manage member.',
+    createTeams:
+      'You are not allowed to create teams. An organization admin can enable “Create teams” in Admin → Manage member.',
+    manageTeams:
+      'You are not allowed to manage teams from admin tools. An organization admin can enable “Manage teams” in Admin → Manage member.',
+    manageMembers:
+      'You are not allowed to manage other users. An organization admin can enable “Manage other users” in Admin → Manage member.',
+    removeOrgMembers:
+      'You are not allowed to remove users from the organization. An organization admin can enable “Remove users from organization” in Admin → Manage member.',
+    removeTeamMembers:
+      'You are not allowed to remove users from teams. An organization admin can enable “Remove users from teams” in Admin → Manage member.',
+  }
+  return (
+    messages[cap] ||
+    'You do not have permission for this action. Ask an organization admin to update your access in Admin → Manage member.'
+  )
+}
+
+/** Org page “Create Meeting” (org-wide list): needs org scheduling + org calendar for default non–invite-only create. */
+export function getDeniedReasonForOrgPageMeetingCreate(membership) {
+  if (!membership) return getCapabilityDeniedMessage('scheduleOrgMeetings')
+  const s = membershipHasCapability(membership, 'scheduleOrgMeetings')
+  const c = membershipHasCapability(membership, 'orgCalendar')
+  if (s && c) return ''
+  const parts = []
+  if (!s) parts.push(getCapabilityDeniedMessage('scheduleOrgMeetings'))
+  if (!c) parts.push(getCapabilityDeniedMessage('orgCalendar'))
+  return parts.join(' ')
+}
+
+/** Team dashboard quick create: needs team scheduling + team calendar. */
+export function getDeniedReasonForTeamPageMeetingCreate(membership) {
+  if (!membership) return getCapabilityDeniedMessage('scheduleTeamMeetings')
+  const s = membershipHasCapability(membership, 'scheduleTeamMeetings')
+  const c = membershipHasCapability(membership, 'teamCalendar')
+  if (s && c) return ''
+  const parts = []
+  if (!s) parts.push(getCapabilityDeniedMessage('scheduleTeamMeetings'))
+  if (!c) parts.push(getCapabilityDeniedMessage('teamCalendar'))
+  return parts.join(' ')
+}
+
+/** Calendar “Create Event” when the member has neither org nor team scheduling. */
+export function getDeniedReasonForCalendarCreateScheduled(membership) {
+  if (!membership) return getCapabilityDeniedMessage('scheduleOrgMeetings')
+  if (
+    membershipHasCapability(membership, 'scheduleOrgMeetings') ||
+    membershipHasCapability(membership, 'scheduleTeamMeetings')
+  ) {
+    return ''
+  }
+  return 'You are not allowed to create scheduled meetings. An organization admin can enable “Create scheduled meetings (organization)” and/or “Create scheduled meetings (teams)” in Admin → Manage member.'
+}
+
+/** Chat → Event attachment: org/DM/group uses org caps; team chat uses team caps. */
+export function getDeniedReasonForChatCalendarEvent(membership, isTeamChat) {
+  if (!membership) return getCapabilityDeniedMessage('scheduleOrgMeetings')
+  if (isTeamChat) {
+    const s = membershipHasCapability(membership, 'scheduleTeamMeetings')
+    const c = membershipHasCapability(membership, 'teamCalendar')
+    if (s && c) return ''
+    const parts = []
+    if (!s) parts.push(getCapabilityDeniedMessage('scheduleTeamMeetings'))
+    if (!c) parts.push(getCapabilityDeniedMessage('teamCalendar'))
+    return parts.join(' ')
+  }
+  const s = membershipHasCapability(membership, 'scheduleOrgMeetings')
+  const c = membershipHasCapability(membership, 'orgCalendar')
+  if (s && c) return ''
+  const parts = []
+  if (!s) parts.push(getCapabilityDeniedMessage('scheduleOrgMeetings'))
+  if (!c) parts.push(getCapabilityDeniedMessage('orgCalendar'))
+  return parts.join(' ')
+}
+
+/** Chat → Meeting (video invite): scheduling only (no calendar publish requirement). */
+export function getDeniedReasonForChatMeeting(membership, isTeamChat) {
+  if (!membership) return getCapabilityDeniedMessage('scheduleOrgMeetings')
+  if (isTeamChat) {
+    if (membershipHasCapability(membership, 'scheduleTeamMeetings')) return ''
+    return getCapabilityDeniedMessage('scheduleTeamMeetings')
+  }
+  if (membershipHasCapability(membership, 'scheduleOrgMeetings')) return ''
+  return getCapabilityDeniedMessage('scheduleOrgMeetings')
+}
+
 export function normalizeMemberCapabilities(raw) {
   const base = {
     scheduleOrgMeetings: false,
@@ -421,7 +520,7 @@ export function membershipHasCapability(membership, cap) {
 export async function updateMemberDisplayRole(orgId, targetUserId, actorUserId, displayRoleName) {
   const actor = await getMembership(orgId, actorUserId)
   if (!canManageOrg(actor) && !membershipHasCapability(actor, 'manageMembers')) {
-    throw new Error('You do not have permission to update this member’s label.')
+    throw new Error(getCapabilityDeniedMessage('manageMembers'))
   }
   const targetMem = await getMembership(orgId, targetUserId)
   if (targetMem?.role === MEMBERSHIP_ROLES.owner) {
@@ -438,7 +537,7 @@ export async function updateMemberDisplayRole(orgId, targetUserId, actorUserId, 
 export async function updateMemberCapabilities(orgId, targetUserId, actorUserId, capabilities) {
   const actor = await getMembership(orgId, actorUserId)
   if (!canManageOrg(actor) && !membershipHasCapability(actor, 'manageMembers')) {
-    throw new Error('You do not have permission to update member capabilities.')
+    throw new Error(getCapabilityDeniedMessage('manageMembers'))
   }
   const targetMem = await getMembership(orgId, targetUserId)
   if (targetMem?.role === MEMBERSHIP_ROLES.owner) {

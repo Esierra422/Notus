@@ -69,6 +69,8 @@ import {
   MEMBERSHIP_STATES,
   getOrgMembers,
   membershipHasCapability,
+  getCapabilityDeniedMessage,
+  getDeniedReasonForCalendarCreateScheduled,
 } from '../lib/orgService.js'
 import { getOrgTeams, getTeamMembership, getTeamMembers, TEAM_STATES } from '../lib/teamService.js'
 import { useScrollLock } from '../hooks/useScrollLock.js'
@@ -1208,7 +1210,11 @@ export function VideoCallPage() {
   const openPreJoinInstant = () => {
     if (!user?.uid || videoUserOrgs.length === 0) return
     if (videoLobbyMemLoaded && !canStartInstantMeeting) {
-      setError('You do not have permission to start meetings. Ask an organization admin to enable scheduling for your role.')
+      setError(
+        videoLobbyMembership
+          ? getDeniedReasonForCalendarCreateScheduled(videoLobbyMembership)
+          : getCapabilityDeniedMessage('scheduleOrgMeetings')
+      )
       return
     }
     setError('')
@@ -1369,28 +1375,22 @@ export function VideoCallPage() {
         newMeetingVisibility === 'team' &&
         !membershipHasCapability(mem, 'scheduleTeamMeetings')
       ) {
-        setError(
-          'You do not have permission to start team-visible meetings. Ask an admin to enable team scheduling for your role.'
-        )
+        setError(getCapabilityDeniedMessage('scheduleTeamMeetings'))
         return
       }
       if (
         newMeetingVisibility !== 'team' &&
         !membershipHasCapability(mem, 'scheduleOrgMeetings')
       ) {
-        setError(
-          'You do not have permission to start this type of meeting. Ask an admin to enable organization scheduling for your role.'
-        )
+        setError(getCapabilityDeniedMessage('scheduleOrgMeetings'))
         return
       }
       if (newMeetingVisibility === 'org' && !membershipHasCapability(mem, 'orgCalendar')) {
-        setError(
-          'You cannot start an organization-wide meeting without org calendar access. Choose team-only or invite specific people.'
-        )
+        setError(getCapabilityDeniedMessage('orgCalendar'))
         return
       }
       if (newMeetingVisibility === 'team' && !membershipHasCapability(mem, 'teamCalendar')) {
-        setError('You cannot start a team-visible meeting without team calendar access.')
+        setError(getCapabilityDeniedMessage('teamCalendar'))
         return
       }
     } catch {
@@ -6945,7 +6945,9 @@ function VideoCallChat({
                     )}
                     {isPoll ? (
                       <div className="video-zoom-chat__poll">
-                        <p className="video-zoom-chat__poll-q">{att.question || 'Poll'}</p>
+                        <p className="video-zoom-chat__poll-q">
+                          {typeof att.question === 'string' ? att.question : String(att.question ?? 'Poll') || 'Poll'}
+                        </p>
                         <ul className="video-zoom-chat__poll-options">
                           {(Array.isArray(att.options) ? att.options : []).map((opt, idx) => {
                             const label =

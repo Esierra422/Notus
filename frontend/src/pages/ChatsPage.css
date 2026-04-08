@@ -1235,6 +1235,20 @@
   margin-top: 0.15rem;
 }
 
+/* Own-bubble (accent/gold): inherited #0a0908 is overridden by --text-muted above — restore readable dark subtext */
+.chats-bubble.chats-bubble-own .chats-bubble-card-sub {
+  color: rgba(10, 9, 8, 0.78);
+}
+
+.chats-bubble.chats-bubble-own .chats-bubble-user-actions .btn-ghost {
+  color: rgba(10, 9, 8, 0.88);
+}
+
+.chats-bubble.chats-bubble-own .chats-bubble-user-actions .btn-ghost:hover {
+  color: #0a0908;
+  background: rgba(10, 9, 8, 0.1);
+}
+
 .chats-bubble-card-meeting .btn {
   margin-top: 0.5rem;
 }
@@ -1623,6 +1637,14 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0.75rem 1rem;
+}
+
+.chats-attach-cap-hint {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.35rem 0.2rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  border-top: 1px solid var(--border);
 }
 
 .chats-attach-option {

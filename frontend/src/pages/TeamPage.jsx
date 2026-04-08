@@ -10,6 +10,7 @@ import {
   getMembershipDisplayTitle,
   canManageOrg,
   MEMBERSHIP_STATES,
+  getDeniedReasonForTeamPageMeetingCreate,
 } from '../lib/orgService'
 import {
   getTeam,
@@ -214,7 +215,14 @@ export function TeamPage() {
   const handleCreateMeeting = async (e) => {
     e.preventDefault()
     setMeetingError('')
-    if (!newMeetingTitle.trim()) return
+    if (!newMeetingTitle.trim() || !orgMembership) return
+    if (
+      !membershipHasCapability(orgMembership, 'scheduleTeamMeetings') ||
+      !membershipHasCapability(orgMembership, 'teamCalendar')
+    ) {
+      setMeetingError(getDeniedReasonForTeamPageMeetingCreate(orgMembership))
+      return
+    }
     setCreatingMeeting(true)
     try {
       await createMeeting(orgId, {
@@ -705,6 +713,7 @@ export function TeamPage() {
           {teamMembership?.state === TEAM_STATES.active && (
             <div className="team-dashboard-meetings-actions">
               {!showCreateMeeting ? (
+                <>
                 <button
                   type="button"
                   className="org-admin-btn"
@@ -712,12 +721,18 @@ export function TeamPage() {
                   disabled={!canCreateTeamMeeting}
                   title={
                     !canCreateTeamMeeting
-                      ? 'You do not have permission to create team meetings. Ask an admin to enable scheduling and team calendar access.'
+                      ? getDeniedReasonForTeamPageMeetingCreate(orgMembership)
                       : undefined
                   }
                 >
                   Create Meeting
                 </button>
+                {!canCreateTeamMeeting && (
+                  <p className="auth-error team-dashboard-meeting-denied" style={{ marginTop: '0.65rem', maxWidth: '40rem' }}>
+                    {getDeniedReasonForTeamPageMeetingCreate(orgMembership)}
+                  </p>
+                )}
+                </>
               ) : (
                 <form onSubmit={handleCreateMeeting} className="org-create-team-form">
                   <input
@@ -864,9 +879,15 @@ export function TeamPage() {
                   const isTeamMember = m.role === TEAM_ROLES.member
                   const iAmTeamAdmin = teamMembership?.role === TEAM_ROLES.admin
                   const iAmOrgAdmin = orgMembership?.role === 'owner' || orgMembership?.role === 'admin'
-                  const canMakeAdmin = (iAmTeamAdmin || iAmOrgAdmin) && isTeamMember
-                  const canMakeMember = (iAmTeamAdmin || iAmOrgAdmin) && isTeamAdmin
-                  const canRemove = (iAmTeamAdmin || iAmOrgAdmin) && m.userId !== user?.uid
+                  const canChangeTeamRole =
+                    iAmTeamAdmin || iAmOrgAdmin || membershipHasCapability(orgMembership, 'manageTeams')
+                  const canMakeAdmin = canChangeTeamRole && isTeamMember
+                  const canMakeMember = canChangeTeamRole && isTeamAdmin
+                  const canRemove =
+                    (iAmTeamAdmin ||
+                      iAmOrgAdmin ||
+                      membershipHasCapability(orgMembership, 'removeTeamMembers')) &&
+                    m.userId !== user?.uid
                   const isSelf = m.userId === user?.uid
                   return (
                     <li key={m.userId} className="member-card">
@@ -1157,7 +1178,10 @@ export function TeamPage() {
           memberData={{}}
           onClose={() => setProfileModalMember(null)}
           orgRemoval={false}
-          showManage={canManageTeam(teamMembership, orgMembership)}
+          showManage={
+            canManageTeam(teamMembership, orgMembership) ||
+            membershipHasCapability(orgMembership, 'manageTeams')
+          }
           onRoleChange={async (uid, newRole) => {
             await handleChangeRole(uid, newRole)
             setProfileModalMember((prev) => (prev && prev.userId === uid ? { ...prev, role: newRole } : prev))

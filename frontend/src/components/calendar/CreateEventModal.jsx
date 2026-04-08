@@ -7,6 +7,7 @@ import {
   getMembership,
   MEMBERSHIP_STATES,
   membershipHasCapability,
+  getCapabilityDeniedMessage,
 } from '../../lib/orgService'
 import { getTeamsForUserInOrg, getTeamMembers, TEAM_STATES } from '../../lib/teamService'
 import { createMeeting, updateMeeting, MEETING_SCOPES, MEETING_CREATED_VIA } from '../../lib/meetingService'
@@ -823,16 +824,16 @@ export function CreateEventModal({
     const editRealId = editingMeeting?._seriesId || editingMeeting?.id
     if (eventPlacement === 'team') {
       if (effectiveMembership && !canScheduleTeam) {
-        setError('You do not have permission to schedule team calendar events.')
+        setError(getCapabilityDeniedMessage('scheduleTeamMeetings'))
         return
       }
     } else if (eventPlacement === 'personal') {
       if (effectiveMembership && !canScheduleOrg) {
-        setError('You do not have permission to add personal calendar events.')
+        setError(getCapabilityDeniedMessage('scheduleOrgMeetings'))
         return
       }
     } else if (effectiveMembership && !canScheduleOrg) {
-      setError('You do not have permission to schedule organization calendar events.')
+      setError(getCapabilityDeniedMessage('scheduleOrgMeetings'))
       return
     }
     if (
@@ -841,7 +842,7 @@ export function CreateEventModal({
       !inviteOnly &&
       !membershipHasCapability(effectiveMembership, 'orgCalendar')
     ) {
-      setError('You cannot publish organization-wide events. Turn on “Only invited people” or ask an admin to enable org calendar access.')
+      setError(getCapabilityDeniedMessage('orgCalendar'))
       return
     }
     if (eventPlacement === 'team') {
@@ -850,7 +851,7 @@ export function CreateEventModal({
         return
       }
       if (effectiveMembership && !membershipHasCapability(effectiveMembership, 'teamCalendar')) {
-        setError('You do not have permission to add events to team calendars.')
+        setError(getCapabilityDeniedMessage('teamCalendar'))
         return
       }
     }
@@ -1264,7 +1265,7 @@ export function CreateEventModal({
                     onChange={(e) => {
                       const on = e.target.checked
                       if (!on && effectiveMembership && !membershipHasCapability(effectiveMembership, 'orgCalendar')) {
-                        setError('Organization-wide events require org calendar access for your role.')
+                        setError(getCapabilityDeniedMessage('orgCalendar'))
                         return
                       }
                       setError('')

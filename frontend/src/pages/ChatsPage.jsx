@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useNavigate, useParams, Link, useOutletContext, useSearchParams } from 'react-router-dom'
-import { getOrg, getMembership, getActiveMemberships, membershipHasCapability, MEMBERSHIP_STATES } from '../lib/orgService'
+import {
+  getOrg,
+  getMembership,
+  getActiveMemberships,
+  membershipHasCapability,
+  MEMBERSHIP_STATES,
+  getDeniedReasonForChatCalendarEvent,
+  getDeniedReasonForChatMeeting,
+} from '../lib/orgService'
 import { getBlockedUserIds } from '../lib/blockService'
 import {
   getOrCreateDM,
@@ -151,25 +159,21 @@ const ATTACHMENT_OPTIONS = [
   { id: 'users', label: 'Profiles / Users', Icon: UsersIcon, color: '#a78bfa' },
 ]
 
-function ChatAttachmentMenu({ onClose, onSelect, isClosing, eventDisabled, meetingDisabled }) {
+function ChatAttachmentMenu({ onClose, onSelect, isClosing, hideEvent, hideMeeting }) {
+  const options = ATTACHMENT_OPTIONS.filter(
+    (o) => (o.id !== 'event' || !hideEvent) && (o.id !== 'meeting' || !hideMeeting)
+  )
+  const showCapHint = hideEvent || hideMeeting
   return (
     <div className={`chats-attach-popover ${isClosing ? 'chats-attach-popover-closing' : ''}`} role="menu">
       <div className="chats-attach-grid">
-        {ATTACHMENT_OPTIONS.map(({ id, label, Icon, color }) => (
+        {options.map(({ id, label, Icon, color }) => (
           <button
             key={id}
             type="button"
             className="chats-attach-option"
             onClick={() => { onSelect?.(id); onClose?.() }}
             role="menuitem"
-            disabled={(id === 'event' && eventDisabled) || (id === 'meeting' && meetingDisabled)}
-            title={
-              id === 'event' && eventDisabled
-                ? 'You do not have permission to create calendar events from chat.'
-                : id === 'meeting' && meetingDisabled
-                  ? 'You do not have permission to start a chat meeting from this conversation.'
-                  : undefined
-            }
           >
             <span className="chats-attach-icon-wrap" style={{ color }}>
               <Icon size={24} />
@@ -178,6 +182,15 @@ function ChatAttachmentMenu({ onClose, onSelect, isClosing, eventDisabled, meeti
           </button>
         ))}
       </div>
+      {showCapHint && (
+        <p className="chats-attach-cap-hint app-muted">
+          {hideEvent && hideMeeting
+            ? 'Event and meeting shortcuts are hidden because your role does not include the required access. An organization admin can enable scheduling and calendar permissions in Admin → Manage member.'
+            : hideEvent
+              ? 'The Event option is hidden because your role does not include the required scheduling and calendar access for this chat.'
+              : 'The Meeting option is hidden because your role does not include organization or team scheduling for this chat.'}
+        </p>
+      )}
     </div>
   )
 }
@@ -1703,20 +1716,22 @@ ${blocks.join('\n')}
     else if (id === 'poll') setShowPollModal(true)
     else if (id === 'event') {
       if (!canCreateChatEvent) {
-        setError('You do not have permission to create calendar events from this chat.')
+        const isTeam = selectedConv?.type === CONV_TYPES.team && selectedConv?.teamId
+        setError(getDeniedReasonForChatCalendarEvent(membership, Boolean(isTeam)))
         return
       }
       setShowEventModal(true)
     }
     else if (id === 'meeting') {
       if (!canStartChatMeeting) {
-        setError('You do not have permission to start a chat meeting from this conversation.')
+        const isTeam = selectedConv?.type === CONV_TYPES.team && selectedConv?.teamId
+        setError(getDeniedReasonForChatMeeting(membership, Boolean(isTeam)))
         return
       }
       setShowMeetingInviteModal(true)
     }
     else if (id === 'users') setShowShareUserCardModal(true)
-  }, [closeAttachmentMenu, canCreateChatEvent, canStartChatMeeting])
+  }, [closeAttachmentMenu, canCreateChatEvent, canStartChatMeeting, membership, selectedConv])
 
   const handlePhotosChange = useCallback((e) => {
     const file = e.target.files?.[0]
@@ -2787,8 +2802,8 @@ ${blocks.join('\n')}
                     onClose={closeAttachmentMenu}
                     onSelect={handleAttachmentSelect}
                     isClosing={attachmentMenuClosing}
-                    eventDisabled={!canCreateChatEvent}
-                    meetingDisabled={!canStartChatMeeting}
+                    hideEvent={!canCreateChatEvent}
+                    hideMeeting={!canStartChatMeeting}
                   />
                 )}
               </form>

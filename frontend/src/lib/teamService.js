@@ -14,7 +14,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import { getMembership, MEMBERSHIP_STATES, membershipHasCapability } from './orgService'
+import { getMembership, MEMBERSHIP_STATES, membershipHasCapability, getCapabilityDeniedMessage } from './orgService'
 
 function isOrgOwnerOrAdmin(orgMem) {
   return (
@@ -43,7 +43,7 @@ export async function createTeam(orgId, name, userId, allowOpenJoin = false) {
     throw new Error('You must be an org member to create a team.')
   }
   if (!isOrgOwnerOrAdmin(orgMem) && !membershipHasCapability(orgMem, 'createTeams')) {
-    throw new Error('You do not have permission to create teams. Ask an organization admin to grant this access.')
+    throw new Error(getCapabilityDeniedMessage('createTeams'))
   }
 
   const teamsRef = collection(db, 'organizations', orgId, TEAMS_SUB)
@@ -197,8 +197,8 @@ export async function updateTeamMembershipRole(orgId, teamId, memberUserId, newR
     getMembership(orgId, callerId),
     getTeamMembership(orgId, teamId, callerId),
   ])
-  if (!canManageTeam(teamMem, orgMem)) {
-    throw new Error('You do not have permission to update team members.')
+  if (!canManageTeam(teamMem, orgMem) && !membershipHasCapability(orgMem, 'manageTeams')) {
+    throw new Error(getCapabilityDeniedMessage('manageTeams'))
   }
   const ref = doc(db, 'organizations', orgId, TEAM_MEMBERSHIPS_SUB, teamMembershipId(teamId, memberUserId))
   await updateDoc(ref, { role: newRole, updatedAt: serverTimestamp() })
@@ -213,7 +213,7 @@ export async function removeTeamMember(orgId, teamId, userId, callerId) {
     getTeamMembership(orgId, teamId, callerId),
   ])
   if (!canManageTeam(teamMem, orgMem) && !membershipHasCapability(orgMem, 'removeTeamMembers')) {
-    throw new Error('You do not have permission to remove team members.')
+    throw new Error(getCapabilityDeniedMessage('removeTeamMembers'))
   }
   const ref = doc(db, 'organizations', orgId, TEAM_MEMBERSHIPS_SUB, teamMembershipId(teamId, userId))
   await updateDoc(ref, { state: TEAM_STATES.removed, updatedAt: serverTimestamp() })
@@ -231,9 +231,7 @@ export async function orgAdminAddUserToTeam(orgId, teamId, targetUserId, callerI
     throw new Error('You must be an active org member.')
   }
   if (!isOrgOwnerOrAdmin(callerOrgMem) && !membershipHasCapability(callerOrgMem, 'manageTeams')) {
-    throw new Error(
-      'Only organization admins or users with team management access can add members to teams this way.'
-    )
+    throw new Error(getCapabilityDeniedMessage('manageTeams'))
   }
   if (!targetOrgMem || targetOrgMem.state !== MEMBERSHIP_STATES.active) {
     throw new Error('That user is not an active member of this organization.')
@@ -299,7 +297,7 @@ export async function updateTeam(orgId, teamId, updates, userId) {
     getTeamMembership(orgId, teamId, userId),
   ])
   if (!canManageTeam(teamMem, orgMem) && !membershipHasCapability(orgMem, 'manageTeams')) {
-    throw new Error('You do not have permission to update this team.')
+    throw new Error(getCapabilityDeniedMessage('manageTeams'))
   }
   const ref = doc(db, 'organizations', orgId, TEAMS_SUB, teamId)
   const data = {}
