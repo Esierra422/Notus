@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { firebaseAuthErrorMessage } from '../../lib/authErrors.js'
 import { Button } from '../ui/Button'
 import './AuthStepEmail.css'
 
@@ -29,7 +30,7 @@ export function AuthStepPassword({ email, isSignUp, onSubmit, onBack }) {
     try {
       await onSubmit(password)
     } catch (err) {
-      setError(err.message || 'Something went wrong.')
+      setError(firebaseAuthErrorMessage(err, { isSignUp }))
     } finally {
       setLoading(false)
     }

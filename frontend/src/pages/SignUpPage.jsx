@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth'
 import { auth, googleProvider, isSafari } from '../lib/firebase'
 import { applyPublicMeta } from '../lib/seo'
+import { firebaseAuthErrorMessage } from '../lib/authErrors.js'
 import {
   ensureUserDoc,
   getUserDoc,
@@ -163,7 +164,7 @@ export function SignUpPage() {
         navigate('/app')
       }
     } catch (err) {
-      setError(err.message || 'Sign up failed.')
+      setError(firebaseAuthErrorMessage(err, { isSignUp: true }))
       throw err
     }
   }

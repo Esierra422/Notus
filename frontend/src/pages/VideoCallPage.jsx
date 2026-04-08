@@ -151,6 +151,13 @@ function isLikelyScreenShareVideoTrack(videoTrack) {
   return false
 }
 
+/** Firestore row for the second Agora connection used only to publish screen (see videoAppService). */
+function isScreenSharePublisherParticipantMeta(meta) {
+  if (!meta || typeof meta !== 'object') return false
+  const v = meta.screenShareForAgoraUid
+  return v != null && Number.isFinite(Number(v))
+}
+
 /** Firestore roomState.raisedHands map key for a participant */
 function meetingHandKey(firebaseUid, agoraUid) {
   if (firebaseUid) return `fb_${firebaseUid}`
@@ -364,7 +371,20 @@ function rms(samples) {
   return Math.sqrt(sum / samples.length)
 }
 
-const SPEECH_RMS_THRESHOLD = 0.014
+/** Peak absolute sample; combined with RMS so borderline noise is not sent to Whisper. */
+function peakAbs(samples) {
+  if (!samples?.length) return 0
+  let m = 0
+  for (let i = 0; i < samples.length; i++) {
+    const a = Math.abs(samples[i])
+    if (a > m) m = a
+  }
+  return m
+}
+
+/** Longer windows + stricter gates reduce bogus text and word fragments (trade-off: slightly higher latency). */
+const SPEECH_RMS_THRESHOLD = 0.02
+const SPEECH_PEAK_THRESHOLD = 0.036
 const TARGET_SAMPLE_RATE = 16000
 
 /** First token for captions like reference: "-[Abel] …" */
@@ -385,7 +405,6 @@ function looksLikeLocalSilenceHallucination(text, isLocal) {
   if (!isLocal || typeof text !== 'string') return false
   const t = text.trim()
   if (t.length < 2 || t.length > 96) return false
-  const lower = t.toLowerCase()
   const junk =
     /^(thanks?|thank you|thank you for watching|bye|goodbye|hi\.?|hello\.?|amen\.?|okay\.?|ok\.?)([\s,.!]*)$/i.test(
       t
@@ -394,6 +413,24 @@ function looksLikeLocalSilenceHallucination(text, isLocal) {
   const combo =
     /^(thank you|thanks).{0,40}(bye|goodbye|day|watching)/i.test(t) && t.length < 90
   return junk || day || combo
+}
+
+/** Drop known Whisper hallucinations (subtitles, outro spam, music tags) for any speaker. */
+function shouldDropTranscriptText(text, isSelf) {
+  if (typeof text !== 'string') return true
+  const t = text.trim()
+  if (t.length < 2) return true
+  if (
+    /thank(s)? for watching|thank you for watching|for watching[\s.!]*$/i.test(t) ||
+    /like and subscribe|hit the (bell|notification)|see you next time|subs by|subtitles by|amara\.org|subbed by/i.test(
+      t
+    )
+  ) {
+    return true
+  }
+  if (/^\s*\[music\]/i.test(t) || /^\s*\[applause\]/i.test(t) || /^♪/.test(t)) return true
+  if (isSelf && looksLikeLocalSilenceHallucination(t, true)) return true
+  return false
 }
 
 const DEFAULT_ROOM_PREFS = {
@@ -430,13 +467,28 @@ function normalizeRoomPrefs(p) {
   }
 }
 
-/** Downsample Float32 mono to target rate and convert to Int16 LE (raw PCM for Whisper). */
+/** Downsample Float32 mono to target rate and convert to Int16 LE (raw PCM for Whisper). Linear interpolation reduces aliasing vs nearest-neighbor. */
 function downsampleAndToInt16(floatSamples, fromSampleRate, toSampleRate = TARGET_SAMPLE_RATE) {
+  const n = floatSamples.length
+  if (n === 0) return new Int16Array(0).buffer
+  if (fromSampleRate === toSampleRate) {
+    const int16 = new Int16Array(n)
+    for (let i = 0; i < n; i++) {
+      const clamped = Math.max(-1, Math.min(1, floatSamples[i]))
+      int16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
+    }
+    return int16.buffer
+  }
   const ratio = fromSampleRate / toSampleRate
-  const outLength = Math.floor(floatSamples.length / ratio)
+  const outLength = Math.floor(n / ratio)
   const int16 = new Int16Array(outLength)
   for (let i = 0; i < outLength; i++) {
-    const s = floatSamples[Math.floor(i * ratio)]
+    const x = i * ratio
+    const j = Math.floor(x)
+    const f = x - j
+    const a = j < n ? floatSamples[j] : 0
+    const b = j + 1 < n ? floatSamples[j + 1] : a
+    const s = a + f * (b - a)
     const clamped = Math.max(-1, Math.min(1, s))
     int16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
   }
@@ -458,6 +510,7 @@ export function VideoCallPage() {
   /** Agora uid -> { displayName, photoUrl } from Firestore participants */
   const [participantMeta, setParticipantMeta] = useState({})
   const participantMetaRef = useRef({})
+  const channelNameRef = useRef('')
   const userDisplayForTranscriptRef = useRef('You')
   const [localPhotoUrl, setLocalPhotoUrl] = useState(null)
   /** null = closed; which tab is active in the right-hand panel */
@@ -658,6 +711,10 @@ export function VideoCallPage() {
   }, [participantMeta])
 
   useEffect(() => {
+    channelNameRef.current = channelName
+  }, [channelName])
+
+  useEffect(() => {
     userDisplayForTranscriptRef.current =
       (user?.displayName || user?.email || 'You').trim() || 'You'
   }, [user?.displayName, user?.email])
@@ -687,10 +744,19 @@ export function VideoCallPage() {
     }
     pcmBufferRef.current = []
     transcriptionChunksSentRef.current = 0
+    const ch = channelNameRef.current
+    const screenPubUid = videoApp.getScreenSharePublisherUid()
     try {
       await videoApp.leaveChannel()
     } catch (e) {
       console.warn('Cleanup error:', e)
+    }
+    if (ch && screenPubUid != null) {
+      try {
+        await deleteDoc(doc(db, 'videoChannels', ch, 'participants', String(screenPubUid)))
+      } catch (e) {
+        console.warn('Screen share participant cleanup:', e)
+      }
     }
     localVideoTrackRef.current = null
     setLocalCameraTrack(null)
@@ -700,10 +766,17 @@ export function VideoCallPage() {
     setJoined(false)
   }, [])
 
+  /** Exclude the extra Agora “screen only” connection so gallery and counts match real people. */
+  const galleryRemoteUsers = useMemo(
+    () =>
+      remoteUsers.filter((u) => !isScreenSharePublisherParticipantMeta(participantMeta[String(u.uid)])),
+    [remoteUsers, participantMeta]
+  )
+
   const updateGridLayout = useCallback(() => {
     const container = document.querySelector('.video-streams')
     if (!container) return
-    const count = remoteUsers.length + 1
+    const count = galleryRemoteUsers.length + 1
     const w = typeof window !== 'undefined' ? window.innerWidth : 1200
     const narrow = w < 768
     let cols = 1
@@ -718,7 +791,7 @@ export function VideoCallPage() {
     const rows = Math.ceil(count / cols)
     container.style.setProperty('--cols', String(cols))
     container.style.setProperty('--rows', String(rows))
-  }, [remoteUsers])
+  }, [galleryRemoteUsers])
 
   useEffect(() => {
     setMeetingHistory([])
@@ -833,6 +906,24 @@ export function VideoCallPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [joined])
 
+  /** Browsers often suspend AudioContext in background tabs; resume so mic capture and transcription keep working. */
+  useEffect(() => {
+    if (!joined || !transcriptionWsBase) return undefined
+    const resumeIfSuspended = () => {
+      const ctx = audioContextRef.current
+      if (ctx?.state === 'suspended') void ctx.resume().catch(() => {})
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') resumeIfSuspended()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', resumeIfSuspended)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', resumeIfSuspended)
+    }
+  }, [joined, transcriptionWsBase])
+
   useEffect(() => {
     if (!user?.uid) {
       setLocalPhotoUrl(null)
@@ -861,10 +952,15 @@ export function VideoCallPage() {
       const map = {}
       snap.docs.forEach((d) => {
         const data = d.data() || {}
+        const ssFor =
+          data.screenShareForAgoraUid != null && Number.isFinite(Number(data.screenShareForAgoraUid))
+            ? Number(data.screenShareForAgoraUid)
+            : null
         map[d.id] = {
           displayName: data.displayName || `User ${d.id}`,
           photoUrl: typeof data.photoUrl === 'string' && data.photoUrl ? data.photoUrl : null,
           firebaseUid: typeof data.firebaseUid === 'string' ? data.firebaseUid : null,
+          screenShareForAgoraUid: ssFor,
         }
       })
       setParticipantMeta(map)
@@ -874,7 +970,7 @@ export function VideoCallPage() {
 
   useEffect(() => {
     updateGridLayout()
-  }, [remoteUsers, updateGridLayout])
+  }, [galleryRemoteUsers, updateGridLayout])
 
   useEffect(() => {
     const onResize = () => updateGridLayout()
@@ -1576,21 +1672,18 @@ export function VideoCallPage() {
             return ordered
           })
         },
-        onAudioPublished: (remoteUser) => {
-          // Connect remote audio to the transcription worklet so all voices are captured
-          try {
-            const ctx = audioContextRef.current
-            const worklet = workletNodeRef.current
-            if (ctx && worklet && remoteUser.audioTrack) {
-              const remoteStream = new MediaStream([remoteUser.audioTrack.getMediaStreamTrack()])
-              const remoteSource = ctx.createMediaStreamSource(remoteStream)
-              remoteSource.connect(worklet)
-            }
-          } catch (e) {
-            console.warn('Could not connect remote audio to transcription:', e)
-          }
+        onAudioPublished: (_remoteUser) => {
+          /* Transcription uses only the local mic (correct speaker uid). Other participants’ speech is
+           * broadcast from the AI backend to every client in the same session. */
         },
-        onScreenShareEnded: () => {
+        onScreenShareEnded: (payload) => {
+          const screenPublisherAgoraUid = payload?.screenPublisherAgoraUid
+          const ch = channelNameRef.current
+          if (ch && screenPublisherAgoraUid != null) {
+            void deleteDoc(doc(db, 'videoChannels', ch, 'participants', String(screenPublisherAgoraUid))).catch(
+              () => {}
+            )
+          }
           setScreenSharing(false)
           setLocalScreenShareTrack(null)
           setLocalCameraTrack(videoApp.getLocalVideoTrack())
@@ -1672,13 +1765,13 @@ export function VideoCallPage() {
         console.warn('Could not register participant name:', e)
       }
 
-      // Transcription capture (only if VITE_AI_WS_URL points at FastAPI /ws/transcription)
+      // Live transcription: FastAPI /ws/transcription broadcasts each segment to every client in the same session.
       try {
         if (!transcriptionWsBase) {
           // Skip: avoids failed WS to Express (3001) and console spam
         } else {
-        /** Shorter windows = lower latency to first caption (more round-trips; backend still dominates delay). */
-        const CHUNK_DURATION_SEC = 1.25
+        /** ~2.4s chunks: short windows cause Whisper to invent words at boundaries; longer is more stable. */
+        const CHUNK_DURATION_SEC = 2.35
         const wsUrl = /^wss?:\/\//i.test(transcriptionWsBase)
           ? `${transcriptionWsBase.replace(/\/?$/, '')}/ws/transcription`
           : (() => {
@@ -1700,7 +1793,7 @@ export function VideoCallPage() {
                 ? participantMetaRef.current[String(agoraUid)]
                 : null
               const isSelf = Number.isFinite(agoraUid) && localUidRef.current === agoraUid
-              if (looksLikeLocalSilenceHallucination(t, isSelf)) {
+              if (shouldDropTranscriptText(t, isSelf)) {
                 return
               }
               const speaker = isSelf
@@ -1753,7 +1846,7 @@ export function VideoCallPage() {
           )
         }
         if (audioTrack) {
-        /* Mic off or unavailable: skip local capture; WS can still receive remote transcripts. */
+        /* Mic off: no local PCM; WebSocket above still receives broadcast transcripts from others. */
         const stream = new MediaStream([audioTrack.getMediaStreamTrack()])
         const ctx = new (window.AudioContext || window.webkitAudioContext)()
         audioContextRef.current = ctx
@@ -1797,7 +1890,9 @@ export function VideoCallPage() {
           while (pcmBufferRef.current.length >= samplesPerChunkAtCapture) {
             const chunk = pcmBufferRef.current.splice(0, samplesPerChunkAtCapture)
             const chunkRms = rms(chunk)
-            const aboveThreshold = chunkRms >= SPEECH_RMS_THRESHOLD
+            const chunkPeak = peakAbs(chunk)
+            const aboveThreshold =
+              chunkRms >= SPEECH_RMS_THRESHOLD && chunkPeak >= SPEECH_PEAK_THRESHOLD
             if (ws.readyState === WebSocket.OPEN && aboveThreshold) {
               const rawPcm = downsampleAndToInt16(chunk, captureRate, TARGET_SAMPLE_RATE)
               ws.send(rawPcm)
@@ -1807,7 +1902,10 @@ export function VideoCallPage() {
         }
 
         source.connect(workletNode)
-        workletNode.connect(ctx.destination)
+        const silentOut = ctx.createGain()
+        silentOut.gain.value = 0
+        workletNode.connect(silentOut)
+        silentOut.connect(ctx.destination)
         }
         }
       } catch (e) {
@@ -2067,7 +2165,12 @@ export function VideoCallPage() {
   }, [meetingInfoOpen, resetHostMeetingIdCopyFeedback])
 
   const collectParticipantNames = () => [
-    ...new Set(Object.values(participantMeta).map((m) => m.displayName).filter(Boolean)),
+    ...new Set(
+      Object.values(participantMeta)
+        .filter((m) => m && !isScreenSharePublisherParticipantMeta(m))
+        .map((m) => m.displayName)
+        .filter(Boolean)
+    ),
   ]
 
   const runSummaryIfConfigured = async (currentChannel, transcriptSessionId, currentParticipants, summaryOrgId) => {
@@ -2226,7 +2329,13 @@ export function VideoCallPage() {
     setError('')
     try {
       if (videoApp.getIsScreenSharing()) {
+        const screenPubUid = videoApp.getScreenSharePublisherUid()
         await videoApp.stopScreenShare()
+        if (screenPubUid != null && channelName) {
+          await deleteDoc(doc(db, 'videoChannels', channelName, 'participants', String(screenPubUid))).catch(
+            () => {}
+          )
+        }
         setScreenSharing(false)
         setLocalScreenShareTrack(null)
         setLocalCameraTrack(videoApp.getLocalVideoTrack())
@@ -2241,7 +2350,27 @@ export function VideoCallPage() {
           setError('The host has not allowed you to share your screen.')
           return
         }
-        const st = await videoApp.startScreenShare()
+        if (!channelName) {
+          setError('Not connected to a meeting channel.')
+          return
+        }
+        const st = await videoApp.startScreenShare(channelName)
+        const screenPubUid = videoApp.getScreenSharePublisherUid()
+        if (screenPubUid != null && user?.uid && localAgoraUid != null) {
+          try {
+            const photoUrl = localPhotoUrl || null
+            const baseName = (user.displayName || user.email || 'Anonymous').trim() || 'Anonymous'
+            await setDoc(doc(db, 'videoChannels', channelName, 'participants', String(screenPubUid)), {
+              displayName: `${baseName} · Screen`,
+              photoUrl,
+              firebaseUid: user.uid,
+              screenShareForAgoraUid: localAgoraUid,
+              joinedAt: serverTimestamp(),
+            })
+          } catch (e) {
+            console.warn('Screen share participant doc:', e)
+          }
+        }
         setScreenSharing(true)
         setLocalScreenShareTrack(st)
         setCamEnabled(true)
@@ -2262,8 +2391,28 @@ export function VideoCallPage() {
       setError('The host has not allowed you to share your screen.')
       return
     }
+    if (!channelName) {
+      setError('Not connected to a meeting channel.')
+      return
+    }
     try {
-      const st = await videoApp.replaceScreenShareSource()
+      const st = await videoApp.replaceScreenShareSource(channelName)
+      const screenPubUid = videoApp.getScreenSharePublisherUid()
+      if (screenPubUid != null && user?.uid && localAgoraUid != null) {
+        try {
+          const photoUrl = localPhotoUrl || null
+          const baseName = (user.displayName || user.email || 'Anonymous').trim() || 'Anonymous'
+          await setDoc(doc(db, 'videoChannels', channelName, 'participants', String(screenPubUid)), {
+            displayName: `${baseName} · Screen`,
+            photoUrl,
+            firebaseUid: user.uid,
+            screenShareForAgoraUid: localAgoraUid,
+            joinedAt: serverTimestamp(),
+          })
+        } catch (e) {
+          console.warn('Screen share participant doc (replace):', e)
+        }
+      }
       setScreenSharing(true)
       setLocalScreenShareTrack(st)
       setCamEnabled(true)
@@ -2431,6 +2580,7 @@ export function VideoCallPage() {
     }
     for (const u of remoteUsers) {
       const meta = participantMeta[String(u.uid)]
+      if (isScreenSharePublisherParticipantMeta(meta)) continue
       if (meta?.firebaseUid) {
         rows.push({
           firebaseUid: meta.firebaseUid,
@@ -2716,8 +2866,13 @@ export function VideoCallPage() {
 
   const remoteScreenSharer = useMemo(() => {
     if (screenSharing) return null
+    const byMeta = remoteUsers.find((u) => {
+      const m = participantMeta[String(u.uid)]
+      return u.videoTrack && isScreenSharePublisherParticipantMeta(m)
+    })
+    if (byMeta) return byMeta
     return remoteUsers.find((u) => u.videoTrack && isLikelyScreenShareVideoTrack(u.videoTrack)) ?? null
-  }, [remoteUsers, screenSharing])
+  }, [remoteUsers, screenSharing, participantMeta])
 
   /** Big stage + filmstrip only for viewers when someone else shares (avoids hall-of-mirrors for the sharer). */
   const pinnedShareActive = Boolean(remoteScreenSharer)
@@ -2933,15 +3088,16 @@ export function VideoCallPage() {
     }
     for (const u of remoteUsers) {
       if (effectiveSpotlightUid != null && u.uid === effectiveSpotlightUid) continue
+      if (isScreenSharePublisherParticipantMeta(participantMeta[String(u.uid)])) continue
       out.push({ kind: 'remote', user: u })
     }
     return out
-  }, [spotlightLayoutActive, spotlightIsLocal, remoteUsers, effectiveSpotlightUid])
+  }, [spotlightLayoutActive, spotlightIsLocal, remoteUsers, effectiveSpotlightUid, participantMeta])
 
   const inRoomParticipantCount = useMemo(() => {
     if (!joined) return 0
-    return 1 + remoteUsers.length
-  }, [joined, remoteUsers.length])
+    return 1 + galleryRemoteUsers.length
+  }, [joined, galleryRemoteUsers.length])
 
   const hostCanManageWaitingRoom = Boolean(
     joined &&
@@ -2977,6 +3133,7 @@ export function VideoCallPage() {
     }
     for (const ru of remoteUsers) {
       const meta = participantMeta[String(ru.uid)] || {}
+      if (isScreenSharePublisherParticipantMeta(meta)) continue
       const dn = meta.displayName || `User ${ru.uid}`
       rows.push({
         menuKey: `roster-r-${ru.uid}`,
@@ -3232,7 +3389,8 @@ export function VideoCallPage() {
         </div>
       ) : !joined ? (
         <>
-          {waitingRoomPayload ? (
+          {waitingRoomPayload
+            ? createPortal(
             <div
               className="video-prejoin-overlay video-waiting-room-overlay"
               role="dialog"
@@ -3346,8 +3504,10 @@ export function VideoCallPage() {
                   </p>
                 </div>
               </div>
-            </div>
-          ) : null}
+            </div>,
+            document.body,
+            )
+          : null}
           <div className="video-call-lobby video-call-lobby--wide">
             {!waitingRoomPayload ? (
               <>
@@ -3875,13 +4035,13 @@ export function VideoCallPage() {
                       className={[
                         'video-streams',
                         'video-streams--gallery-fill',
-                        remoteUsers.length + 1 === 1 && 'video-streams--solo',
-                        remoteUsers.length + 1 === 3 && 'video-streams--triad',
-                        remoteUsers.length + 1 >= 5 && 'video-streams--many',
+                        galleryRemoteUsers.length + 1 === 1 && 'video-streams--solo',
+                        galleryRemoteUsers.length + 1 === 3 && 'video-streams--triad',
+                        galleryRemoteUsers.length + 1 >= 5 && 'video-streams--many',
                       ]
                         .filter(Boolean)
                         .join(' ')}
-                      data-tile-count={remoteUsers.length + 1}
+                      data-tile-count={galleryRemoteUsers.length + 1}
                     >
                       <div className="video-streams__slot video-streams__slot--local video-tile-wrap">
                         <div className="video-tile-chrome video-tile-chrome--overlay video-tile-chrome--overlay-end">
@@ -3909,7 +4069,7 @@ export function VideoCallPage() {
                         </div>
                       </div>
 
-                      {remoteUsers.map((u) => {
+                      {galleryRemoteUsers.map((u) => {
                         const meta = participantMeta[String(u.uid)]
                         const isRemoteHost = participantIsMeetingHost(
                           meta,
@@ -5557,7 +5717,7 @@ function ParticipantsRosterModal({
 }) {
   useScrollLock(isOpen)
   if (!isOpen) return null
-  return (
+  return createPortal(
     <div className="video-prejoin-overlay video-roster-overlay" role="dialog" aria-modal="true" aria-labelledby="video-roster-title">
       <button type="button" className="video-prejoin-backdrop" onClick={onClose} aria-label="Close" />
       <div className="video-prejoin-modal video-roster-modal">
@@ -5643,7 +5803,8 @@ function ParticipantsRosterModal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -5776,7 +5937,7 @@ function InvitePeopleInMeetingModal({
 
   const canNotify = Boolean(orgId && meetingId && userId)
 
-  return (
+  return createPortal(
     <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="invite-in-meeting-title">
       <button type="button" className="video-prejoin-backdrop" onClick={() => !saving && onClose()} aria-label="Close" />
       <div className="video-prejoin-modal video-invite-in-meeting-modal video-invite-in-meeting-modal--enterprise">
@@ -5902,7 +6063,8 @@ function InvitePeopleInMeetingModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -5936,7 +6098,7 @@ function NewMeetingSettingsModal({
 }) {
   useScrollLock(isOpen)
   if (!isOpen) return null
-  return (
+  return createPortal(
     <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="new-meeting-settings-title">
       <button type="button" className="video-prejoin-backdrop" onClick={onClose} aria-label="Close" />
       <div className="video-prejoin-modal video-new-meeting-settings-modal video-new-meeting-settings-modal--wide">
@@ -6184,7 +6346,8 @@ function NewMeetingSettingsModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -6218,7 +6381,7 @@ function VideoPreJoinModal({
   useScrollLock(isOpen)
   if (!isOpen) return null
 
-  return (
+  return createPortal(
     <div className="video-prejoin-overlay" role="dialog" aria-modal="true" aria-labelledby="video-prejoin-title">
       <button type="button" className="video-prejoin-backdrop" onClick={onClose} aria-label="Close" disabled={loading} />
       <div className="video-prejoin-modal">
@@ -6279,7 +6442,8 @@ function VideoPreJoinModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -6781,12 +6945,20 @@ function VideoCallChat({
                     )}
                     {isPoll ? (
                       <div className="video-zoom-chat__poll">
-                        <p className="video-zoom-chat__poll-q">{att.question}</p>
+                        <p className="video-zoom-chat__poll-q">{att.question || 'Poll'}</p>
                         <ul className="video-zoom-chat__poll-options">
-                          {(att.options || []).map((opt, idx) => {
-                            const label = typeof opt === 'string' ? opt : opt.text || ''
-                            const votes = Array.isArray(opt?.votes) ? opt.votes : []
-                            const picked = votes.includes(myUid)
+                          {(Array.isArray(att.options) ? att.options : []).map((opt, idx) => {
+                            const label =
+                              typeof opt === 'string'
+                                ? opt
+                                : opt != null && typeof opt === 'object'
+                                  ? String(opt.text ?? '')
+                                  : ''
+                            const votes =
+                              opt != null && typeof opt === 'object' && Array.isArray(opt.votes)
+                                ? opt.votes.filter((id) => typeof id === 'string')
+                                : []
+                            const picked = myUid ? votes.includes(myUid) : false
                             const ended = !!att.ended
                             return (
                               <li key={idx}>
@@ -6845,22 +7017,25 @@ function VideoCallChat({
                       </button>
                     </div>
                   </div>
-                  {(msg.reactions && Object.keys(msg.reactions).length > 0) && (
+                  {(msg.reactions && typeof msg.reactions === 'object' && Object.keys(msg.reactions).length > 0) && (
                     <div className="video-zoom-chat__reactions">
-                      {Object.entries(msg.reactions).map(([emoji, userIds]) => (
+                      {Object.entries(msg.reactions).map(([emoji, userIds]) => {
+                        const ids = Array.isArray(userIds) ? userIds : []
+                        return (
                         <button
                           key={`${msg.id}-${emoji}`}
                           type="button"
-                          className={['video-zoom-chat__reaction-pill', (userIds || []).includes(user?.uid) && 'video-zoom-chat__reaction-pill--own']
+                          className={['video-zoom-chat__reaction-pill', ids.includes(user?.uid) && 'video-zoom-chat__reaction-pill--own']
                             .filter(Boolean)
                             .join(' ')}
                           onClick={() => toggleMeetingChatReaction(channelName, msg.id, user?.uid, emoji).catch(() => {})}
-                          title={`${emoji} ${(userIds || []).length}`}
+                          title={`${emoji} ${ids.length}`}
                         >
                           <span>{emoji}</span>
-                          {(userIds || []).length > 1 && <span className="video-zoom-chat__reaction-count">{(userIds || []).length}</span>}
+                          {ids.length > 1 && <span className="video-zoom-chat__reaction-count">{ids.length}</span>}
                         </button>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>

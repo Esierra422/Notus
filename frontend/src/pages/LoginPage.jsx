@@ -4,6 +4,7 @@ import { signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, onAuth
 import { auth, googleProvider, isSafari } from '../lib/firebase'
 import { applyPublicMeta } from '../lib/seo'
 
+import { firebaseAuthErrorMessage } from '../lib/authErrors.js'
 import { ensureUserDoc, getUserDoc, getNextProfileField, getMissingProfileFieldsCount, updateProfileField } from '../lib/userService'
 import {
   AuthChoiceStep,
@@ -155,7 +156,8 @@ export function LoginPage() {
       await ensureUserDoc(user, ['password'])
       navigate('/app')
     } catch (err) {
-      setError(err.message || 'Log in failed.')
+      const msg = firebaseAuthErrorMessage(err, { isSignUp: false })
+      setError(msg)
       throw err
     }
   }

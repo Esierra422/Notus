@@ -4,6 +4,7 @@ Connect frontend transcription WS here instead of Express.
 Supports OpenAI function calling to create calendar meetings and tasks via Firestore.
 Post-meeting summary generation with full transcript stored in Firestore.
 """
+import asyncio
 import io
 import json
 import os
@@ -42,6 +43,54 @@ _vectorstore_cache: dict[str, PineconeVectorStore] = {}
 
 # Firebase Admin SDK for Firestore writes (calendar meetings & tasks)
 _firestore_db = None
+
+# All /ws/transcription clients in the same meeting session receive every transcript (not only the sender).
+_transcription_room_clients: dict[str, list[WebSocket]] = {}
+_transcription_room_lock = asyncio.Lock()
+
+
+async def _transcription_add_client(session_key: str, ws: WebSocket) -> None:
+    if not session_key:
+        return
+    async with _transcription_room_lock:
+        _transcription_room_clients.setdefault(session_key, []).append(ws)
+
+
+async def _transcription_remove_client(session_key: str, ws: WebSocket) -> None:
+    async with _transcription_room_lock:
+        lst = _transcription_room_clients.get(session_key)
+        if not lst:
+            return
+        try:
+            lst.remove(ws)
+        except ValueError:
+            pass
+        if not lst:
+            del _transcription_room_clients[session_key]
+
+
+async def _transcription_broadcast(session_key: str, payload: dict) -> None:
+    async with _transcription_room_lock:
+        clients = list(_transcription_room_clients.get(session_key, []))
+    stale: list[WebSocket] = []
+    for c in clients:
+        try:
+            await c.send_json(payload)
+        except Exception:
+            stale.append(c)
+    if not stale:
+        return
+    async with _transcription_room_lock:
+        lst = _transcription_room_clients.get(session_key)
+        if not lst:
+            return
+        for c in stale:
+            try:
+                lst.remove(c)
+            except ValueError:
+                pass
+        if not lst:
+            del _transcription_room_clients[session_key]
 
 
 def _namespace_for_channel(channel: str) -> str:
@@ -641,6 +690,7 @@ async def websocket_transcription(websocket: WebSocket):
     channel = None
     uid = None
     session_id = None
+    registered_session: Optional[str] = None
 
     try:
         while True:
@@ -662,6 +712,9 @@ async def websocket_transcription(websocket: WebSocket):
                         print(f"Transcription WS: channel={channel}, uid={uid}, sessionId={session_id}")
                         if session_id:
                             _get_vectorstore(session_id)
+                        if registered_session is None and session_id:
+                            await _transcription_add_client(session_id, websocket)
+                            registered_session = session_id
                 except json.JSONDecodeError:
                     pass
                 continue
@@ -682,21 +735,36 @@ async def websocket_transcription(websocket: WebSocket):
                     file=file_like,
                     model="whisper-1",
                     language="en",
+                    temperature=0,
+                    response_format="verbose_json",
                 )
-                text = (transcript.text or "").strip()
+                if isinstance(transcript, dict):
+                    text = (transcript.get("text") or "").strip()
+                    segments = transcript.get("segments") or []
+                else:
+                    text = (getattr(transcript, "text", None) or "").strip()
+                    segments = getattr(transcript, "segments", None) or []
+                if segments:
+                    try:
+                        probs = []
+                        for s in segments:
+                            if isinstance(s, dict):
+                                probs.append(float(s.get("no_speech_prob", 0)))
+                            else:
+                                probs.append(float(getattr(s, "no_speech_prob", 0)))
+                        if probs and all(p > 0.62 for p in probs):
+                            text = ""
+                    except (TypeError, ValueError):
+                        pass
                 if text:
                     on_transcript(session_id, channel, uid, text)
-                    try:
-                        await websocket.send_json(
-                            {
-                                "type": "transcript",
-                                "text": text,
-                                "uid": uid,
-                                "ts": datetime.now(timezone.utc).isoformat(),
-                            }
-                        )
-                    except Exception:
-                        pass  # client may have disconnected
+                    payload = {
+                        "type": "transcript",
+                        "text": text,
+                        "uid": uid,
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await _transcription_broadcast(session_id, payload)
             except Exception as e:
                 print(f"Whisper transcription error: {e}")
     except WebSocketDisconnect:
@@ -704,4 +772,6 @@ async def websocket_transcription(websocket: WebSocket):
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
+        if registered_session:
+            await _transcription_remove_client(registered_session, websocket)
         print(f"Transcription WS closed: channel={channel}, uid={uid}, sessionId={session_id}")

@@ -24,6 +24,18 @@ import { db } from './firebase.js'
 
 const MAX_FILE_BYTES = 750_000 // ~750KB base64 in doc  -  keep small for Firestore
 
+/** Normalize one poll option from Firestore (string, object, or bad data). */
+function normalizePollOptionEntry(o) {
+  if (typeof o === 'string') return { text: o.trim(), votes: [] }
+  if (o != null && typeof o === 'object') {
+    return {
+      text: String(o.text ?? '').trim(),
+      votes: Array.isArray(o.votes) ? o.votes.filter((id) => typeof id === 'string' && id) : [],
+    }
+  }
+  return { text: '', votes: [] }
+}
+
 function messageCreatedMs(data) {
   const t = data?.createdAt
   if (t && typeof t.toMillis === 'function') return t.toMillis()
@@ -163,13 +175,16 @@ export async function sendMeetingChatMessage(channelName, user, { text, audience
   }
   if (attachment) {
     if (attachment.type === 'poll' && attachment.question && Array.isArray(attachment.options)) {
+      const opts = attachment.options
+        .map((o) => normalizePollOptionEntry(o))
+        .filter((row) => row.text.length > 0)
+      if (opts.length < 2) {
+        throw new Error('A poll needs at least two options.')
+      }
       payload.attachment = {
         type: 'poll',
-        question: attachment.question,
-        options: attachment.options.map((o) => ({
-          text: typeof o === 'string' ? o : (o.text || ''),
-          votes: [],
-        })),
+        question: String(attachment.question).trim() || 'Poll',
+        options: opts.map((row) => ({ text: row.text, votes: [] })),
         ended: false,
       }
     } else if (attachment.type === 'document') {
@@ -217,18 +232,16 @@ export async function voteMeetingPoll(channelName, messageId, userId, optionInde
   const data = msgDoc.data()
   if (!data || data.attachment?.type !== 'poll') throw new Error('Not a poll.')
   if (data.attachment.ended) throw new Error('Poll ended.')
-  const options = [...(data.attachment.options || [])]
+  const raw = data.attachment.options
+  const options = Array.isArray(raw) ? raw.map((o) => normalizePollOptionEntry(o)) : []
   if (optionIndex < 0 || optionIndex >= options.length) throw new Error('Invalid option.')
-  const normalized = options.map((o) => ({
-    text: typeof o === 'string' ? o : (o.text || ''),
-    votes: Array.isArray(o?.votes) ? [...o.votes] : [],
-  }))
-  normalized.forEach((o) => {
+  options.forEach((o) => {
     o.votes = o.votes.filter((id) => id !== userId)
   })
-  normalized[optionIndex].votes.push(userId)
+  options[optionIndex].votes.push(userId)
+  const nextAttachment = { ...data.attachment, options }
   await updateDoc(ref, {
-    attachment: { ...data.attachment, options: normalized },
+    attachment: nextAttachment,
   })
 }
 

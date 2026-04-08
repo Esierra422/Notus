@@ -12,7 +12,21 @@ let videoMuted = false
 let localAudioTrack = null
 let localVideoTrack = null
 let localScreenTrack = null
+/** Second RTC client: publishes screen while main client keeps camera + mic (Agora allows one video track per client). */
+let screenShareClient = null
+/** Agora UID used for the screen-share client (for Firestore participant doc). */
+let screenShareJoinedUid = null
 let localUid = 0
+
+/** Derive a non-colliding publisher UID for screen share (same channel, second connection). */
+const SCREEN_SHARE_UID_OFFSET = 1_000_000_000
+function screenShareAgoraUidFromBase(baseUid) {
+  const b = Number(baseUid)
+  if (!Number.isFinite(b) || b < 0) return SCREEN_SHARE_UID_OFFSET
+  const sum = b + SCREEN_SHARE_UID_OFFSET
+  if (sum > 0xffffffff) return SCREEN_SHARE_UID_OFFSET + (Math.floor(b) % 1_000_000)
+  return sum
+}
 // Callbacks the page sets to react to remote user changes
 let onUserJoined = null
 let onUserLeft = null
@@ -182,22 +196,11 @@ async function joinChannel(channelName, options = {}) {
 }
 
 async function stopScreenShare() {
-  if (!client) {
-    if (localScreenTrack) {
-      try {
-        localScreenTrack.close()
-      } catch (e) {
-        console.warn('Screen track close:', e)
-      }
-      localScreenTrack = null
-    }
-    return
-  }
-  if (localScreenTrack) {
+  if (localScreenTrack && screenShareClient) {
     try {
-      await client.unpublish([localScreenTrack])
+      await screenShareClient.unpublish([localScreenTrack])
     } catch (e) {
-      console.warn('Screen unpublish:', e)
+      console.warn('Screen client unpublish:', e)
     }
     try {
       localScreenTrack.close()
@@ -205,44 +208,85 @@ async function stopScreenShare() {
       console.warn('Screen track close:', e)
     }
     localScreenTrack = null
-  }
-  if (localVideoTrack) {
+  } else if (localScreenTrack) {
     try {
-      await client.publish([localVideoTrack])
+      localScreenTrack.close()
     } catch (e) {
-      console.warn('Re-publish camera after screen share:', e)
+      console.warn('Screen track close:', e)
     }
+    localScreenTrack = null
   }
+  if (screenShareClient) {
+    try {
+      await screenShareClient.leave()
+    } catch (e) {
+      console.warn('Screen client leave:', e)
+    }
+    screenShareClient = null
+  }
+  screenShareJoinedUid = null
 }
 
-async function startScreenShare() {
+async function startScreenShare(channelName) {
   initializeClient()
-  if (!client || !localVideoTrack) {
-    throw new Error('Join the call with your camera before sharing your screen.')
+  if (!client) {
+    throw new Error('Not in a call.')
   }
-  if (localScreenTrack) return localScreenTrack
+  const ch = String(channelName || '').trim()
+  if (!ch) {
+    throw new Error('Missing channel.')
+  }
+  if (localScreenTrack && screenShareClient) {
+    return localScreenTrack
+  }
+
+  const uidForScreen = screenShareAgoraUidFromBase(localUid)
+  const data = await fetchToken(ch, uidForScreen)
+  const ssClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
+
+  let track
   try {
-    localScreenTrack = await AgoraRTC.createScreenVideoTrack({}, 'disable')
-  } catch {
     try {
-      localScreenTrack = await AgoraRTC.createScreenVideoTrack({ optimizationMode: 'detail' }, 'disable')
+      track = await AgoraRTC.createScreenVideoTrack({}, 'disable')
     } catch {
-      localScreenTrack = await AgoraRTC.createScreenVideoTrack()
+      try {
+        track = await AgoraRTC.createScreenVideoTrack({ optimizationMode: 'detail' }, 'disable')
+      } catch {
+        track = await AgoraRTC.createScreenVideoTrack()
+      }
     }
+    await ssClient.join(data.appId, ch, data.token, data.uid)
+    await ssClient.publish([track])
+  } catch (e) {
+    try {
+      track?.close?.()
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      await ssClient.leave()
+    } catch (_) {
+      /* ignore */
+    }
+    throw e
   }
-  await client.unpublish([localVideoTrack])
-  await client.publish([localScreenTrack])
+
+  screenShareClient = ssClient
+  localScreenTrack = track
+  screenShareJoinedUid = data.uid
+
   localScreenTrack.on('track-ended', () => {
     void (async () => {
+      const endedScreenPublisherUid = screenShareJoinedUid
       try {
         await stopScreenShare()
-      } catch (e) {
-        console.warn('stopScreenShare after track-ended:', e)
+      } catch (err) {
+        console.warn('stopScreenShare after track-ended:', err)
       }
       try {
-        onScreenShareEnded?.()
-      } catch (e) {
-        console.warn('onScreenShareEnded:', e)
+        onScreenShareEnded?.({ screenPublisherAgoraUid: endedScreenPublisherUid })
+      } catch (err) {
+        console.warn('onScreenShareEnded:', err)
       }
     })()
   })
@@ -250,32 +294,22 @@ async function startScreenShare() {
 }
 
 /** Stop current share and open the picker again (another window or display). */
-async function replaceScreenShareSource() {
-  if (!localScreenTrack) return startScreenShare()
+async function replaceScreenShareSource(channelName) {
+  if (!localScreenTrack) return startScreenShare(channelName)
   await stopScreenShare()
-  return startScreenShare()
+  return startScreenShare(channelName)
 }
 
 function getIsScreenSharing() {
   return !!localScreenTrack
 }
 
+function getScreenSharePublisherUid() {
+  return screenShareJoinedUid != null ? screenShareJoinedUid : null
+}
+
 async function leaveChannel() {
-  if (localScreenTrack && client) {
-    try {
-      await client.unpublish([localScreenTrack])
-    } catch (e) {
-      console.warn('Screen unpublish on leave:', e)
-    }
-  }
-  if (localScreenTrack) {
-    try {
-      localScreenTrack.close()
-    } catch (e) {
-      console.warn('Screen track close on leave:', e)
-    }
-    localScreenTrack = null
-  }
+  await stopScreenShare()
   if (localAudioTrack) {
     localAudioTrack.close()
     localAudioTrack = null
@@ -373,6 +407,7 @@ export {
   getLocalVideoTrack,
   getMediaState,
   getRemoteUsers,
+  getScreenSharePublisherUid,
   joinChannel,
   leaveChannel,
   setCallbacks,
