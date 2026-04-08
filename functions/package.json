@@ -3,7 +3,7 @@
   "description": "Cloud Functions for Notus (push on new message/invite)",
   "main": "index.js",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": { "node": "20" },
   "scripts": {
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions"
