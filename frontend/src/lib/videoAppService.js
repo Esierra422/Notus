@@ -17,6 +17,8 @@ let screenShareClient = null
 /** Agora UID used for the screen-share client (for Firestore participant doc). */
 let screenShareJoinedUid = null
 let localUid = 0
+let joinState = 'idle' // idle | connecting | connected
+let joinInFlightPromise = null
 
 /** Derive a non-colliding publisher UID for screen share (same channel, second connection). */
 const SCREEN_SHARE_UID_OFFSET = 1_000_000_000
@@ -130,6 +132,15 @@ async function fetchToken(channelName, uid) {
 }
 
 async function joinChannel(channelName, options = {}) {
+  if (joinState === 'connected') {
+    throw new Error('Already connected to a call.')
+  }
+  if (joinState === 'connecting' && joinInFlightPromise) {
+    return joinInFlightPromise
+  }
+
+  joinInFlightPromise = (async () => {
+    joinState = 'connecting'
   initializeClient()
   const micOn = options.micOn !== false
   const videoOn = options.videoOn !== false
@@ -192,7 +203,18 @@ async function joinChannel(channelName, options = {}) {
     await client.publish(toPublish)
   }
 
+    joinState = 'connected'
   return { uid: data.uid, audioTrack: localAudioTrack, videoTrack: localVideoTrack }
+  })()
+
+  try {
+    return await joinInFlightPromise
+  } catch (err) {
+    joinState = 'idle'
+    throw err
+  } finally {
+    joinInFlightPromise = null
+  }
 }
 
 async function stopScreenShare() {
@@ -309,6 +331,8 @@ function getScreenSharePublisherUid() {
 }
 
 async function leaveChannel() {
+  joinState = 'idle'
+  joinInFlightPromise = null
   await stopScreenShare()
   if (localAudioTrack) {
     localAudioTrack.close()

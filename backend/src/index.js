@@ -12,10 +12,7 @@ app.use(cors({
     if (config.clientOrigins.includes(origin)) return cb(null, origin)
     // If CLIENT_URL was never set (still default localhost), allow Notus production origins
     const isDefault = config.clientOrigins.length === 1 && config.clientOrigins[0] === 'http://localhost:5173'
-    const prodFallback =
-      /^https:\/\/(www\.)?notusapp\.com$/i.test(origin) ||
-      /^https:\/\/notus-e026b\.web\.app$/i.test(origin) ||
-      /^https:\/\/(www\.)?notus-e026b\.firebaseapp\.com$/i.test(origin)
+    const prodFallback = /^https:\/\/(www\.)?notusapp\.com$/i.test(origin)
     if (isDefault && prodFallback) {
       return cb(null, origin)
     }

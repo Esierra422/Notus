@@ -2,6 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var h = location.hostname
+        if (h === 'notus-e026b.web.app' || h === 'notus-e026b.firebaseapp.com') {
+          location.replace('https://notusapp.com' + location.pathname + location.search + location.hash)
+        }
+      })()
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Notus | Team Collaboration Platform</title>

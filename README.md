@@ -111,11 +111,7 @@ Video on the live site needs a backend on the internet. **→ See [VIDEO_SETUP.m
 ## Troubleshooting
 
 - **“Couldn’t reach the video server” on the live site** – The browser must be able to call your **Express API** over HTTPS. Follow **[VIDEO_SETUP.md](VIDEO_SETUP.md)** (Render free tier): deploy **notus-api** from `render.yaml`, set `CLIENT_URL` (include **every** frontend origin you use, e.g. `https://notusapp.com` and `https://www.notusapp.com`), set `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`, set `frontend/.env.production` → `VITE_API_URL` to that Render URL, then run **`npm run deploy`**. Verify with `curl https://YOUR-RENDER-URL/api/health`. On Render’s free tier, the first request after idle can take ~30–60s while the service wakes.
-- **Error 400: redirect_uri_mismatch (Google Sign-In)** – Add the correct redirect URIs in [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application) → Authorized redirect URIs. Add both:
-  - `https://notusapp.com/__/auth/handler` (if using custom domain)
-  - `https://notus-e026b.firebaseapp.com/__/auth/handler` (Firebase auth domain)
-  - `https://notus-e026b.web.app/__/auth/handler` (if Firebase Auth uses it)
-  Make sure the auth domain in your Firebase config matches one of these domains.
+- **Error 400: redirect_uri_mismatch (Google Sign-In)** – Add the correct redirect URIs in [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web application) → Authorized redirect URIs. The live app uses **https://notusapp.com** (Firebase’s `*.web.app` / `*.firebaseapp.com` URLs redirect there in `index.html`). Still list Firebase handler URLs if your project uses the default auth domain, e.g. `https://notusapp.com/__/auth/handler`, `https://notus-e026b.firebaseapp.com/__/auth/handler`, and `https://notus-e026b.web.app/__/auth/handler` as needed. Match what Firebase shows under Authentication → Settings → Authorized domains.
 - **"Permission denied" when starting a chat** – Queries must match security rules. Deploy both rules and indexes: `firebase deploy --only firestore`
 - **"The query requires an index"** – Deploy indexes: `firebase deploy --only firestore:indexes`
 - **Profile picture not saving** – Profile pics are stored in Firestore (base64). Ensure Firestore rules allow users to write their own `profilePicture` field.

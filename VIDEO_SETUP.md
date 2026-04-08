@@ -43,7 +43,7 @@ Put your backend on the internet for free using Render, then tell your frontend 
 
    | Name                 | Value |
    |----------------------|--------|
-   | `CLIENT_URL`         | Comma-separated **exact** origins your users use (scheme + host, no path). Example: `https://notusapp.com,https://www.notusapp.com,https://notus-e026b.web.app` |
+   | `CLIENT_URL`         | Comma-separated **exact** origins your users use (scheme + host, no path). Example: `https://notusapp.com,https://www.notusapp.com` |
    | `AGORA_APP_ID`       | (paste your Agora App ID) |
    | `AGORA_APP_CERTIFICATE` | (paste your Agora App Certificate) |
 
