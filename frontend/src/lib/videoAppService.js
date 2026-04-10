@@ -89,6 +89,36 @@ function setupEventListeners() {
   })
 }
 
+/** Best-effort teardown after a failed join (avoids stuck connecting/connected client). */
+async function abandonJoinAttempt() {
+  await stopScreenShare()
+  if (localAudioTrack) {
+    try {
+      localAudioTrack.close()
+    } catch {
+      /* ignore */
+    }
+    localAudioTrack = null
+  }
+  if (localVideoTrack) {
+    try {
+      localVideoTrack.close()
+    } catch {
+      /* ignore */
+    }
+    localVideoTrack = null
+  }
+  if (client) {
+    try {
+      await client.leave()
+    } catch {
+      /* ignore */
+    }
+  }
+  isClientInitialized = false
+  client = null
+}
+
 async function fetchToken(channelName, uid) {
   const apiBase = getEffectiveApiBase()
   if (apiBase) {
@@ -141,70 +171,75 @@ async function joinChannel(channelName, options = {}) {
 
   joinInFlightPromise = (async () => {
     joinState = 'connecting'
-  initializeClient()
-  const micOn = options.micOn !== false
-  const videoOn = options.videoOn !== false
-  micMuted = !micOn
-  videoMuted = !videoOn
-  const uid = Math.floor(Math.random() * 100000)
-  localUid = uid
-  const data = await fetchToken(channelName, uid)
+    initializeClient()
+    const micOn = options.micOn !== false
+    const videoOn = options.videoOn !== false
+    micMuted = !micOn
+    videoMuted = !videoOn
+    const uid = Math.floor(Math.random() * 100000)
+    localUid = uid
+    const data = await fetchToken(channelName, uid)
 
-  await client.join(data.appId, channelName, data.token, data.uid)
-
-  if (localAudioTrack) {
     try {
-      localAudioTrack.close()
+      await client.join(data.appId, channelName, data.token, data.uid)
+
+      if (localAudioTrack) {
+        try {
+          localAudioTrack.close()
+        } catch (e) {
+          console.warn('Stale audio track close:', e)
+        }
+        localAudioTrack = null
+      }
+      if (localVideoTrack) {
+        try {
+          localVideoTrack.close()
+        } catch (e) {
+          console.warn('Stale video track close:', e)
+        }
+        localVideoTrack = null
+      }
+
+      const toPublish = []
+
+      try {
+        localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack()
+        localAudioTrack.setMuted(micMuted)
+        toPublish.push(localAudioTrack)
+      } catch (e) {
+        if (micOn) {
+          throw new Error(
+            'Microphone access failed. Check browser permissions, or turn the microphone off in the preview and try again.'
+          )
+        }
+        console.warn('Microphone unavailable (joining without mic):', e)
+        localAudioTrack = null
+      }
+
+      localVideoTrack = null
+      if (videoOn) {
+        try {
+          localVideoTrack = await AgoraRTC.createCameraVideoTrack()
+          localVideoTrack.setMuted(videoMuted)
+          toPublish.push(localVideoTrack)
+        } catch (e) {
+          console.warn('Camera unavailable:', e)
+          throw new Error(
+            'Camera access failed. Turn the camera off in the preview to join audio-only, then turn video on from the toolbar if you want.'
+          )
+        }
+      }
+
+      if (toPublish.length) {
+        await client.publish(toPublish)
+      }
+
+      joinState = 'connected'
+      return { uid: data.uid, audioTrack: localAudioTrack, videoTrack: localVideoTrack }
     } catch (e) {
-      console.warn('Stale audio track close:', e)
+      await abandonJoinAttempt()
+      throw e
     }
-    localAudioTrack = null
-  }
-  if (localVideoTrack) {
-    try {
-      localVideoTrack.close()
-    } catch (e) {
-      console.warn('Stale video track close:', e)
-    }
-    localVideoTrack = null
-  }
-
-  const toPublish = []
-
-  try {
-    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack()
-    localAudioTrack.setMuted(micMuted)
-    toPublish.push(localAudioTrack)
-  } catch (e) {
-    if (micOn) {
-      throw new Error(
-        'Microphone access failed. Check browser permissions, or turn the microphone off in the preview and try again.'
-      )
-    }
-    console.warn('Microphone unavailable (joining without mic):', e)
-    localAudioTrack = null
-  }
-
-  localVideoTrack = null
-  if (videoOn) {
-    try {
-      localVideoTrack = await AgoraRTC.createCameraVideoTrack()
-      localVideoTrack.setMuted(videoMuted)
-      toPublish.push(localVideoTrack)
-    } catch (e) {
-      console.warn('Camera unavailable:', e)
-      throw new Error(
-        'Camera access failed. Turn the camera off in the preview to join audio-only, then turn video on from the toolbar if you want.'
-      )
-    }
-  }
-
-  if (toPublish.length) {
-    await client.publish(toPublish)
-  }
-
-    joinState = 'connected'
-  return { uid: data.uid, audioTrack: localAudioTrack, videoTrack: localVideoTrack }
   })()
 
   try {
@@ -343,7 +378,11 @@ async function leaveChannel() {
     localVideoTrack = null
   }
   if (client) {
-    await client.leave()
+    try {
+      await client.leave()
+    } catch (e) {
+      console.warn('client.leave:', e)
+    }
   }
   // Reset so the next join starts fresh
   isClientInitialized = false

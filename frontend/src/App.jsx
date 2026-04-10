@@ -1,4 +1,5 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
+import { lazyRoute } from './lib/lazyRoute.js'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { PageTransition } from './components/PageTransition'
 import { AppShell } from './components/AppShell'
@@ -9,61 +10,61 @@ import { LandingOrRedirect } from './components/LandingOrRedirect'
 import { Skeleton } from './components/ui/Skeleton'
 import './pages/AppLayout.css'
 
-const FeaturesPage = lazy(() => import('./pages/FeaturesPage.jsx').then((m) => ({ default: m.FeaturesPage })))
-const HowItWorksPage = lazy(() => import('./pages/HowItWorksPage.jsx').then((m) => ({ default: m.HowItWorksPage })))
-const SignUpPage = lazy(() => import('./pages/SignUpPage.jsx').then((m) => ({ default: m.SignUpPage })))
-const LoginPage = lazy(() => import('./pages/LoginPage.jsx').then((m) => ({ default: m.LoginPage })))
-const AppPage = lazy(() => import('./pages/AppPage.jsx').then((m) => ({ default: m.AppPage })))
-const AppFeaturesPage = lazy(() => import('./pages/AppFeaturesPage.jsx').then((m) => ({ default: m.AppFeaturesPage })))
-const AppHowItWorksPage = lazy(() => import('./pages/AppHowItWorksPage.jsx').then((m) => ({ default: m.AppHowItWorksPage })))
-const AppHelpCenterPage = lazy(() =>
+const FeaturesPage = lazyRoute(() => import('./pages/FeaturesPage.jsx').then((m) => ({ default: m.FeaturesPage })))
+const HowItWorksPage = lazyRoute(() => import('./pages/HowItWorksPage.jsx').then((m) => ({ default: m.HowItWorksPage })))
+const SignUpPage = lazyRoute(() => import('./pages/SignUpPage.jsx').then((m) => ({ default: m.SignUpPage })))
+const LoginPage = lazyRoute(() => import('./pages/LoginPage.jsx').then((m) => ({ default: m.LoginPage })))
+const AppPage = lazyRoute(() => import('./pages/AppPage.jsx').then((m) => ({ default: m.AppPage })))
+const AppFeaturesPage = lazyRoute(() => import('./pages/AppFeaturesPage.jsx').then((m) => ({ default: m.AppFeaturesPage })))
+const AppHowItWorksPage = lazyRoute(() => import('./pages/AppHowItWorksPage.jsx').then((m) => ({ default: m.AppHowItWorksPage })))
+const AppHelpCenterPage = lazyRoute(() =>
   import('./pages/AppResourcePages.jsx').then((m) => ({ default: m.AppHelpCenterPage }))
 )
-const AppBlogPage = lazy(() =>
+const AppBlogPage = lazyRoute(() =>
   import('./pages/AppResourcePages.jsx').then((m) => ({ default: m.AppBlogPage }))
 )
-const AppCommunityPage = lazy(() =>
+const AppCommunityPage = lazyRoute(() =>
   import('./pages/AppResourcePages.jsx').then((m) => ({ default: m.AppCommunityPage }))
 )
-const AppAboutPage = lazy(() =>
+const AppAboutPage = lazyRoute(() =>
   import('./pages/AppCompanyPages.jsx').then((m) => ({ default: m.AppAboutPage }))
 )
-const AppCareersPage = lazy(() =>
+const AppCareersPage = lazyRoute(() =>
   import('./pages/AppCompanyPages.jsx').then((m) => ({ default: m.AppCareersPage }))
 )
-const AppContactPage = lazy(() =>
+const AppContactPage = lazyRoute(() =>
   import('./pages/AppCompanyPages.jsx').then((m) => ({ default: m.AppContactPage }))
 )
-const AppPrivacyPage = lazy(() =>
+const AppPrivacyPage = lazyRoute(() =>
   import('./pages/AppLegalPages.jsx').then((m) => ({ default: m.AppPrivacyPage }))
 )
-const AppTermsPage = lazy(() =>
+const AppTermsPage = lazyRoute(() =>
   import('./pages/AppLegalPages.jsx').then((m) => ({ default: m.AppTermsPage }))
 )
-const AppSecurityPage = lazy(() =>
+const AppSecurityPage = lazyRoute(() =>
   import('./pages/AppLegalPages.jsx').then((m) => ({ default: m.AppSecurityPage }))
 )
-const AppCookiesPage = lazy(() =>
+const AppCookiesPage = lazyRoute(() =>
   import('./pages/AppLegalPages.jsx').then((m) => ({ default: m.AppCookiesPage }))
 )
-const TeamPage = lazy(() => import('./pages/TeamPage.jsx').then((m) => ({ default: m.TeamPage })))
-const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx').then((m) => ({ default: m.SettingsPage })))
-const ProfilePage = lazy(() => import('./pages/ProfilePage.jsx').then((m) => ({ default: m.ProfilePage })))
-const OrgProfilePage = lazy(() => import('./pages/OrgProfilePage.jsx').then((m) => ({ default: m.OrgProfilePage })))
-const OrgDashboardPage = lazy(() => import('./pages/OrgDashboardPage.jsx').then((m) => ({ default: m.OrgDashboardPage })))
-const OrganizationsPage = lazy(() => import('./pages/OrganizationsPage.jsx').then((m) => ({ default: m.OrganizationsPage })))
-const AdminSelectorPage = lazy(() => import('./pages/AdminSelectorPage.jsx').then((m) => ({ default: m.AdminSelectorPage })))
-const CalendarPage = lazy(() => import('./pages/CalendarPage.jsx').then((m) => ({ default: m.CalendarPage })))
-const ChatsPage = lazy(() => import('./pages/ChatsPage.jsx').then((m) => ({ default: m.ChatsPage })))
-const AdminPage = lazy(() => import('./pages/AdminPage.jsx').then((m) => ({ default: m.AdminPage })))
-const VideoCallPage = lazy(() => import('./pages/VideoCallPage.jsx').then((m) => ({ default: m.VideoCallPage })))
-const MeetingSummaryPage = lazy(() =>
+const TeamPage = lazyRoute(() => import('./pages/TeamPage.jsx').then((m) => ({ default: m.TeamPage })))
+const SettingsPage = lazyRoute(() => import('./pages/SettingsPage.jsx').then((m) => ({ default: m.SettingsPage })))
+const ProfilePage = lazyRoute(() => import('./pages/ProfilePage.jsx').then((m) => ({ default: m.ProfilePage })))
+const OrgProfilePage = lazyRoute(() => import('./pages/OrgProfilePage.jsx').then((m) => ({ default: m.OrgProfilePage })))
+const OrgDashboardPage = lazyRoute(() => import('./pages/OrgDashboardPage.jsx').then((m) => ({ default: m.OrgDashboardPage })))
+const OrganizationsPage = lazyRoute(() => import('./pages/OrganizationsPage.jsx').then((m) => ({ default: m.OrganizationsPage })))
+const AdminSelectorPage = lazyRoute(() => import('./pages/AdminSelectorPage.jsx').then((m) => ({ default: m.AdminSelectorPage })))
+const CalendarPage = lazyRoute(() => import('./pages/CalendarPage.jsx').then((m) => ({ default: m.CalendarPage })))
+const ChatsPage = lazyRoute(() => import('./pages/ChatsPage.jsx').then((m) => ({ default: m.ChatsPage })))
+const AdminPage = lazyRoute(() => import('./pages/AdminPage.jsx').then((m) => ({ default: m.AdminPage })))
+const VideoCallPage = lazyRoute(() => import('./pages/VideoCallPage.jsx').then((m) => ({ default: m.VideoCallPage })))
+const MeetingSummaryPage = lazyRoute(() =>
   import('./pages/MeetingSummaryPage.jsx').then((m) => ({ default: m.MeetingSummaryPage }))
 )
-const MeetingTranscriptPage = lazy(() =>
+const MeetingTranscriptPage = lazyRoute(() =>
   import('./pages/MeetingTranscriptPage.jsx').then((m) => ({ default: m.MeetingTranscriptPage }))
 )
-const PreviousMeetingsPage = lazy(() =>
+const PreviousMeetingsPage = lazyRoute(() =>
   import('./pages/PreviousMeetingsPage.jsx').then((m) => ({ default: m.PreviousMeetingsPage }))
 )
 

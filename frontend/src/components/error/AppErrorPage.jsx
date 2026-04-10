@@ -5,6 +5,7 @@ export function AppErrorPage({
   title = 'Something went wrong',
   message = 'An unexpected issue occurred. Refresh the page or return to the dashboard.',
   showHome = true,
+  onRetry,
 }) {
   const handleHardRefresh = () => {
     window.location.assign(window.location.href)
@@ -20,7 +21,12 @@ export function AppErrorPage({
         <h1 className="app-error-title">{title}</h1>
         <p className="app-error-message">{message}</p>
         <div className="app-error-actions">
-          <Button type="button" variant="primary" onClick={handleHardRefresh}>
+          {typeof onRetry === 'function' ? (
+            <Button type="button" variant="primary" onClick={onRetry}>
+              Try again
+            </Button>
+          ) : null}
+          <Button type="button" variant={onRetry ? 'outline' : 'primary'} onClick={handleHardRefresh}>
             Refresh page
           </Button>
           {showHome ? (

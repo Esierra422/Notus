@@ -2,7 +2,8 @@
  * Organization dashboard: org-scoped overview with stats, teams, shortcuts.
  * Distinct from OrgProfilePage (org profile/editing).
  */
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import { lazyRoute } from '../lib/lazyRoute.js'
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { getOrg, getMembership, getOrgMembers, getPendingRequests, canManageOrg, MEMBERSHIP_STATES } from '../lib/orgService'
 import { getOrgTeams, getTeamMembership } from '../lib/teamService'
@@ -16,7 +17,7 @@ import './Dashboard.css'
 import './OrgPage.css'
 import './OrgProfilePage.css'
 
-const EventDetailModal = lazy(() =>
+const EventDetailModal = lazyRoute(() =>
   import('../components/calendar/EventDetailModal').then((m) => ({ default: m.EventDetailModal }))
 )
 

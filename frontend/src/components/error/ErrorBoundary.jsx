@@ -26,7 +26,8 @@ export class ErrorBoundary extends Component {
       return (
         <AppErrorPage
           title="Unable to render this page"
-          message="A rendering issue interrupted this screen. Refresh the page. If this continues, return to the dashboard and try again."
+          message="A rendering issue interrupted this screen. Try again, refresh the page, or return to the dashboard."
+          onRetry={() => this.setState({ hasError: false })}
         />
       )
     }

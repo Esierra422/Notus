@@ -1,4 +1,5 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, Suspense } from 'react'
+import { lazyRoute } from '../lib/lazyRoute.js'
 import { useCopyFeedback } from '../hooks/useCopyFeedback.js'
 import { createPortal } from 'react-dom'
 import { useOutletContext, useSearchParams, useNavigate, useParams, Link } from 'react-router-dom'
@@ -101,8 +102,8 @@ import {
   where,
 } from 'firebase/firestore'
 
-const Notepad = lazy(() => import('../pages/Notepad').then((m) => ({ default: m.Notepad })))
-const CreateEventModal = lazy(() =>
+const Notepad = lazyRoute(() => import('../pages/Notepad').then((m) => ({ default: m.Notepad })))
+const CreateEventModal = lazyRoute(() =>
   import('../components/calendar/CreateEventModal.jsx').then((m) => ({ default: m.CreateEventModal }))
 )
 

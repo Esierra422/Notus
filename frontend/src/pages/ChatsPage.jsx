@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react'
+import { lazyRoute } from '../lib/lazyRoute.js'
 import { useNavigate, useParams, Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import {
   getOrg,
@@ -89,22 +90,22 @@ import '../styles/variables.css'
 import './AppLayout.css'
 import './ChatsPage.css'
 
-const MemberProfileModal = lazy(() =>
+const MemberProfileModal = lazyRoute(() =>
   import('../components/member/MemberProfileModal').then((m) => ({ default: m.MemberProfileModal }))
 )
-const ChatSettingsModal = lazy(() =>
+const ChatSettingsModal = lazyRoute(() =>
   import('../components/chat/ChatSettingsModal').then((m) => ({ default: m.ChatSettingsModal }))
 )
-const GroupChatSettingsModal = lazy(() =>
+const GroupChatSettingsModal = lazyRoute(() =>
   import('../components/chat/GroupChatSettingsModal').then((m) => ({ default: m.GroupChatSettingsModal }))
 )
-const LockChatModal = lazy(() =>
+const LockChatModal = lazyRoute(() =>
   import('../components/chat/LockChatModal').then((m) => ({ default: m.LockChatModal }))
 )
-const ForwardMessageModal = lazy(() =>
+const ForwardMessageModal = lazyRoute(() =>
   import('../components/chat/ForwardMessageModal').then((m) => ({ default: m.ForwardMessageModal }))
 )
-const ShareProfileModal = lazy(() =>
+const ShareProfileModal = lazyRoute(() =>
   import('../components/chat/ShareProfileModal').then((m) => ({ default: m.ShareProfileModal }))
 )
 
