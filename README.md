@@ -92,7 +92,7 @@ npm run dev:backend    # Backend only
 The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/api/...` in the frontend for backend calls.
 
 - **Calendar ICS import from URL** – The backend provides `/api/calendar/fetch-ics?url=...` to proxy external ICS URLs and avoid CORS. Ensure the backend is running when importing calendars from URLs (e.g. Canvas, Google Calendar).
-- **Video Call** – Uses [Agora](https://console.agora.io). **Local:** add `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` to `backend/.env`. **Production (free, no Firebase Blaze):** deploy the backend to [Render](https://render.com) (free tier) using the repo’s `render.yaml`, set `CLIENT_URL` and Agora env vars on the service, then set `VITE_API_URL` in `frontend/.env.production` to your Render backend URL and run `npm run deploy`. See **Production video (free)** below.
+- **Video Call** – Uses [Agora](https://console.agora.io). **Local:** add `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` to `backend/.env`. **Production (free, no Firebase Blaze):** deploy the backend to [Render](https://render.com) (free tier) using the repo’s `render.yaml`, set `CLIENT_URL` and Agora env vars on the service, then set `VITE_API_URL` in `frontend/.env.production` to your Render backend URL and run `npm run deploy`.
 - **Push notifications** – Uses Firebase Cloud Messaging (FCM). In Firebase Console: **Project Settings → Cloud Messaging → Web Push certificates** → generate a key pair. Add the **public** key to `frontend/.env` as `VITE_VAPID_KEY`. Users enable push in **Settings → Push notifications**. For sending notifications when new messages arrive, deploy Cloud Functions: `cd functions && npm install && cd .. && firebase deploy --only functions` (requires Blaze plan). The service worker config is injected into `public/firebase-messaging-sw.js` at build time from your Firebase env vars.
 
 ## SEO and Marketing Basics
@@ -103,10 +103,6 @@ The Vite dev server proxies `/api` requests to `http://localhost:3001`. Use `/ap
   - `frontend/public/robots.txt`
   - `frontend/public/sitemap.xml`
   - `frontend/public/og-image.svg`
-
-## Production video (free)
-
-Video on the live site needs a backend on the internet. **→ See [VIDEO_SETUP.md](VIDEO_SETUP.md)** for a simple step-by-step guide (Render free tier, no Firebase Blaze).
 
 ## Troubleshooting
 
