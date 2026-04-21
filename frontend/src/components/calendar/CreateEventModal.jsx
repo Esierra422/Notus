@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useScrollLock } from '../../hooks/useScrollLock.js'
 import { Timestamp } from 'firebase/firestore'
 import { Button } from '../ui/Button'
@@ -943,7 +944,7 @@ export function CreateEventModal({
     }
   }
 
-  return (
+  return createPortal(
     <div className="create-event-overlay" role="dialog" aria-modal="true" aria-labelledby="create-event-title">
       <div className="create-event-backdrop" onClick={() => !saving && onClose()} />
       <div className="create-event-modal create-event-modal--v2" onClick={(e) => e.stopPropagation()}>
@@ -1579,6 +1580,7 @@ export function CreateEventModal({
           eventStartDateStr={startDateStr}
         />
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
