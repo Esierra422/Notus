@@ -11,6 +11,8 @@ import {
   getOrg,
   getOrgMembers,
   createOrg,
+  searchOrgsByName,
+  requestToJoinOrg,
   MEMBERSHIP_STATES,
 } from '../lib/orgService'
 import { getOrgTeams } from '../lib/teamService'
@@ -34,6 +36,12 @@ export function OrganizationsPage() {
   const [createLoading, setCreateLoading] = useState(false)
   const [error, setError] = useState('')
   const [orgStats, setOrgStats] = useState({})
+  const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [joinLoading, setJoinLoading] = useState(false)
+  const [searchError, setSearchError] = useState('')
+  const [showSearch, setShowSearch] = useState(false)
 
   useScrollLock(showCreateModal)
 
@@ -111,6 +119,35 @@ export function OrganizationsPage() {
     setError('')
   }
 
+  const handleSearch = async (e) => {
+    e.preventDefault()
+    setSearchError('')
+    setSearching(true)
+    try {
+      const results = await searchOrgsByName(searchTerm)
+      setSearchResults(results)
+    } catch (err) {
+      setSearchError(err.message || 'Search failed.')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const handleRequestJoin = async (orgData) => {
+    setSearchError('')
+    setJoinLoading(true)
+    try {
+      await requestToJoinOrg(orgData.id, user.uid)
+      setPendingOrg(orgData)
+      setSearchResults([])
+      setSearchTerm('')
+    } catch (err) {
+      setSearchError(err.message || 'Failed to send request.')
+    } finally {
+      setJoinLoading(false)
+    }
+  }
+
   if (!user) return null
 
   if (loading) {
@@ -129,13 +166,61 @@ export function OrganizationsPage() {
 
       <div className="org-selector-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
         <h2>Organizations</h2>
-        <Button variant="primary" size="md" onClick={() => setShowCreateModal(true)}>
-          <PlusIcon size={18} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
-          Add new organization
-        </Button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <Button variant="primary" size="md" onClick={() => setShowCreateModal(true)}>
+            <PlusIcon size={18} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
+            Add new organization
+          </Button>
+          <Button variant="outline" size="md" onClick={() => {
+            setShowSearch((v) => {
+              if (v) { setSearchTerm(''); setSearchResults([]); setSearchError(''); }
+              return !v
+            })
+          }}>
+            {showSearch ? 'Cancel' : 'Request to join existing'}
+          </Button>
+        </div>
       </div>
 
-      {pendingOrg && (
+      {showSearch && <div className="onboarding-org-search" style={{ marginBottom: '1.5rem' }}>
+        <form onSubmit={handleSearch} className="onboarding-org-form">
+          <input
+            type="text"
+            placeholder="Search for an organization to join"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="auth-input"
+            disabled={searching}
+          />
+          <Button type="submit" variant="outline" size="md" disabled={searching}>
+            {searching ? 'Searching...' : 'Search to join'}
+          </Button>
+        </form>
+        {searchError && <p className="auth-error">{searchError}</p>}
+        {searchResults.length > 0 && (
+          <ul className="onboarding-org-results">
+            {searchResults.map((o) => (
+              <li key={o.id} className="onboarding-org-result-item">
+                <span>{o.name}</span>
+                <Button
+                  variant="outline"
+                  size="md"
+                  onClick={() => handleRequestJoin(o)}
+                  disabled={joinLoading}
+                >
+                  Request to join
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {searchResults.length === 0 && searchTerm && !searching && (
+          <p className="app-muted" style={{ marginTop: '0.5rem' }}>No organizations found.</p>
+        )}
+      </div>}
+
+      
+      {!showSearch &&pendingOrg && (
         <div className="dashboard-pending" style={{ marginBottom: '1.5rem' }}>
           <p className="onboarding-org-pending-text">
             Waiting for approval to join <strong>{pendingOrg.name}</strong>
@@ -143,7 +228,7 @@ export function OrganizationsPage() {
         </div>
       )}
 
-      <div className="dashboard-shortcuts" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+      {!showSearch && <div className="dashboard-shortcuts" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {orgs.map(({ orgId, org }) => (
           <div key={orgId} className="dashboard-shortcut-wrapper">
             <Link to={`/app/org/${orgId}`} className="dashboard-shortcut">
@@ -177,7 +262,7 @@ export function OrganizationsPage() {
         {orgs.length === 0 && !pendingOrg && (
           <p className="app-muted">No organizations are available yet. Create an organization to get started.</p>
         )}
-      </div>
+      </div>}
 
       {showCreateModal && (
         <div
